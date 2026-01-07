@@ -92,8 +92,9 @@ The following integration tests require manual execution with actual API key and
 
 ## Files Modified
 
-- `gemini/main_qa.py`: Core implementation (lines 128-204)
-- `test_conversation_history.py`: Unit tests (new file)
+- `gemini/main_qa.py`: Core implementation (lines 128-175)
+- `gemini/conversation_utils.py`: Shared conversion utility (new file)
+- `test_conversation_history.py`: Unit tests (migrated to pytest)
 
 ## Next Steps
 

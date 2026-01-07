@@ -25,6 +25,7 @@ import google.genai as genai
 from google.genai import types
 
 from gemini.config import GeminiConfig
+from gemini.conversation_utils import convert_messages_to_gemini_format
 from gemini.query_logger import QueryLogger
 from gemini.store_registry import StoreRegistry
 from gemini.upload_manager import UploadManager
@@ -126,7 +127,7 @@ def initialize_session_state():
 
 
 def get_response(
-    question: str, area: str, site: str, messages: list[dict] = None
+    question: str, area: str, site: str, messages: list[dict] | None = None
 ) -> tuple[str, float]:
     """
     Get response from Gemini API with RAG context and conversation history
@@ -163,30 +164,8 @@ Answer questions based only on this source material."""
     if messages is None:
         messages = []
 
-    # Implement sliding window: keep only last 10 messages to limit token usage
-    recent_messages = messages[-10:] if len(messages) > 10 else messages
-
-    # Convert messages to Gemini API format
-    conversation_history = []
-    for msg in recent_messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-
-        # Skip messages with empty content
-        if not content:
-            continue
-
-        # Map "assistant" to "model" for Gemini API compatibility
-        if role == "assistant":
-            role = "model"
-        elif role not in ["user", "model"]:
-            # Skip messages with invalid roles
-            continue
-
-        # Strip metadata fields (time, etc.) and only pass role and content
-        conversation_history.append(
-            types.Content(role=role, parts=[types.Part.from_text(text=content)])
-        )
+    # Convert messages to Gemini API format (handles sliding window, role mapping, etc.)
+    conversation_history = convert_messages_to_gemini_format(messages)
 
     # Append current question as the final user message
     conversation_history.append(

@@ -1,43 +1,11 @@
 #!/usr/bin/env python3
 """
-Unit test for conversation history conversion logic
+Unit tests for conversation history conversion logic
 Tests the message format conversion without requiring API calls
 """
 
-from google.genai import types
-
-
-def convert_messages_to_gemini_format(messages):
-    """
-    Convert messages from session state format to Gemini API format
-    This is the core logic extracted from get_response() for testing
-    """
-    # Implement sliding window: keep only last 10 messages
-    recent_messages = messages[-10:] if len(messages) > 10 else messages
-
-    # Convert messages to Gemini API format
-    conversation_history = []
-    for msg in recent_messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-
-        # Skip messages with empty content
-        if not content:
-            continue
-
-        # Map "assistant" to "model" for Gemini API compatibility
-        if role == "assistant":
-            role = "model"
-        elif role not in ["user", "model"]:
-            # Skip messages with invalid roles
-            continue
-
-        # Strip metadata fields (time, etc.) and only pass role and content
-        conversation_history.append(
-            types.Content(role=role, parts=[types.Part.from_text(text=content)])
-        )
-
-    return conversation_history
+import pytest
+from gemini.conversation_utils import convert_messages_to_gemini_format
 
 
 def test_basic_conversation():
@@ -58,8 +26,6 @@ def test_basic_conversation():
     assert result[2].role == "user"
     assert result[2].parts[0].text == "Tell me more about the first one"
 
-    print("✓ Basic conversation test passed")
-
 
 def test_sliding_window():
     """Test that sliding window keeps only last 10 messages"""
@@ -72,8 +38,6 @@ def test_sliding_window():
     assert len(result) == 10
     assert result[0].parts[0].text == "Question 5"  # First kept message
     assert result[-1].parts[0].text == "Question 14"  # Last message
-
-    print("✓ Sliding window test passed")
 
 
 def test_role_mapping():
@@ -90,8 +54,6 @@ def test_role_mapping():
     assert result[0].role == "user"
     assert result[1].role == "model"  # assistant mapped to model
     assert result[2].role == "model"  # model stays as model
-
-    print("✓ Role mapping test passed")
 
 
 def test_metadata_stripping():
@@ -110,8 +72,6 @@ def test_metadata_stripping():
     # No way to check for absence of time field in Content object,
     # but it's not included in the Content construction
 
-    print("✓ Metadata stripping test passed")
-
 
 def test_invalid_roles_skipped():
     """Test that messages with invalid roles are skipped"""
@@ -128,8 +88,6 @@ def test_invalid_roles_skipped():
     assert result[0].role == "user"
     assert result[1].role == "model"
 
-    print("✓ Invalid roles skipped test passed")
-
 
 def test_empty_messages():
     """Test handling of empty message list"""
@@ -138,8 +96,6 @@ def test_empty_messages():
     result = convert_messages_to_gemini_format(messages)
 
     assert len(result) == 0
-
-    print("✓ Empty messages test passed")
 
 
 def test_empty_content_skipped():
@@ -157,18 +113,7 @@ def test_empty_content_skipped():
     assert result[0].parts[0].text == "Valid message"
     assert result[1].parts[0].text == "Another valid message"
 
-    print("✓ Empty content skipped test passed")
-
 
 if __name__ == "__main__":
-    print("Running conversation history conversion tests...\n")
-
-    test_basic_conversation()
-    test_sliding_window()
-    test_role_mapping()
-    test_metadata_stripping()
-    test_invalid_roles_skipped()
-    test_empty_messages()
-    test_empty_content_skipped()
-
-    print("\n✅ All tests passed!")
+    # Allow running tests directly with python for convenience
+    pytest.main([__file__, "-v"])
