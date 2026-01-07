@@ -125,9 +125,17 @@ def initialize_session_state():
         st.session_state.chunk_files = []
 
 
-def get_response(question: str, area: str, site: str) -> tuple[str, float]:
+def get_response(
+    question: str, area: str, site: str, messages: list[dict] = None
+) -> tuple[str, float]:
     """
-    Get response from Gemini API with RAG context
+    Get response from Gemini API with RAG context and conversation history
+
+    Args:
+        question: The user's current question
+        area: The geographic area for context
+        site: The specific site for context
+        messages: Optional list of previous messages in format {"role": str, "content": str}
 
     Returns:
         Tuple of (response_text, response_time_seconds)
@@ -151,11 +159,41 @@ SOURCE MATERIAL:
 
 Answer questions based only on this source material."""
 
+    # Build conversation history from previous messages
+    if messages is None:
+        messages = []
+
+    # Implement sliding window: keep only last 10 messages to limit token usage
+    recent_messages = messages[-10:] if len(messages) > 10 else messages
+
+    # Convert messages to Gemini API format
+    conversation_history = []
+    for msg in recent_messages:
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+
+        # Map "assistant" to "model" for Gemini API compatibility
+        if role == "assistant":
+            role = "model"
+        elif role not in ["user", "model"]:
+            # Skip messages with invalid roles
+            continue
+
+        # Strip metadata fields (time, etc.) and only pass role and content
+        conversation_history.append(
+            types.Content(role=role, parts=[types.Part.from_text(content)])
+        )
+
+    # Append current question as the final user message
+    conversation_history.append(
+        types.Content(role="user", parts=[types.Part.from_text(question)])
+    )
+
     start_time = time.time()
 
     response = client.models.generate_content(
         model=model_name,
-        contents=question,
+        contents=conversation_history,
         config=types.GenerateContentConfig(
             system_instruction=system_instruction, temperature=config.temperature
         ),
@@ -320,7 +358,10 @@ def main():
                 with st.chat_message("assistant"):
                     with st.spinner("Searching content..."):
                         try:
-                            answer, response_time = get_response(question, area, site)
+                            # Pass conversation history (excluding the current question we just added)
+                            answer, response_time = get_response(
+                                question, area, site, st.session_state.messages[:-1]
+                            )
 
                             st.markdown(answer)
                             st.caption(f"⏱️ {response_time:.2f}s")
