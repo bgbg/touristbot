@@ -142,7 +142,6 @@ def test_real_world_examples():
     print("\nNow testing same filenames WITH encoding...")
     for filename in real_filenames:
         encoded = encode_display_name("jerusalem", "old_city", filename)
-        is_encoded_result = is_encoded_display_name(encoded)
         parsed = parse_display_name(encoded)
 
         if parsed:

@@ -75,32 +75,32 @@ def test_files_list():
             print(f"\n[{i}] File:")
             try:
                 print(f"  name: {file.name}")
-            except:
+            except AttributeError:
                 print(f"  name: <not available>")
 
             try:
                 print(f"  display_name: {file.display_name}")
-            except:
+            except AttributeError:
                 print(f"  display_name: <not available>")
 
             try:
                 print(f"  create_time: {file.create_time}")
-            except:
+            except AttributeError:
                 print(f"  create_time: <not available>")
 
             try:
                 print(f"  expiration_time: {file.expiration_time}")
-            except:
+            except AttributeError:
                 print(f"  expiration_time: <not available>")
 
             try:
                 print(f"  size_bytes: {file.size_bytes}")
-            except:
+            except AttributeError:
                 print(f"  size_bytes: <not available>")
 
             try:
                 print(f"  mime_type: {file.mime_type}")
-            except:
+            except AttributeError:
                 print(f"  mime_type: <not available>")
 
     except Exception as e:

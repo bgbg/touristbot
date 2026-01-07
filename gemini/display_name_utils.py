@@ -28,6 +28,9 @@ def encode_display_name(area: str, site: str, filename: str) -> str:
     Returns:
         Encoded display name with format: {area}__{site}__{filename}
 
+    Raises:
+        ValueError: If area/site become empty after sanitization or encoded name exceeds 512 chars
+
     Examples:
         >>> encode_display_name("tel_aviv", "jaffa_port", "tour_chunk_001.txt")
         'tel_aviv__jaffa_port__tour_chunk_001.txt'
@@ -38,6 +41,12 @@ def encode_display_name(area: str, site: str, filename: str) -> str:
     # Sanitize area and site names: lowercase, replace spaces with underscores
     area_clean = _sanitize_name(area)
     site_clean = _sanitize_name(site)
+
+    # Validate that sanitized names are not empty
+    if not area_clean:
+        raise ValueError(f"Area name '{area}' becomes empty after sanitization")
+    if not site_clean:
+        raise ValueError(f"Site name '{site}' becomes empty after sanitization")
 
     # Build encoded name
     encoded = f"{area_clean}{DELIMITER}{site_clean}{DELIMITER}{filename}"

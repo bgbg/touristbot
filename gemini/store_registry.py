@@ -273,13 +273,9 @@ class StoreRegistry:
             ]
             created_at = min(created_times).isoformat() if created_times else None
 
-            # Get last_updated from newest file
-            update_times = [
-                f.update_time
-                for f in files_list
-                if hasattr(f, "update_time") and f.update_time
-            ]
-            last_updated = max(update_times).isoformat() if update_times else None
+            # Get last_updated from newest file (using create_time since update_time doesn't exist)
+            # Note: Gemini Files API doesn't provide update_time field, only create_time
+            last_updated = max(created_times).isoformat() if created_times else None
 
             # Create registry entry
             new_registry[key] = {
