@@ -25,6 +25,7 @@ import google.genai as genai
 from google.genai import types
 
 from gemini.config import GeminiConfig
+from gemini.conversation_utils import convert_messages_to_gemini_format
 from gemini.query_logger import QueryLogger
 from gemini.store_registry import StoreRegistry
 from gemini.upload_manager import UploadManager
@@ -154,9 +155,17 @@ def initialize_session_state():
         st.session_state.chunk_files = []
 
 
-def get_response(question: str, area: str, site: str) -> tuple[str, float]:
+def get_response(
+    question: str, area: str, site: str, messages: list[dict] | None = None
+) -> tuple[str, float]:
     """
-    Get response from Gemini API with RAG context
+    Get response from Gemini API with RAG context and conversation history
+
+    Args:
+        question: The user's current question
+        area: The geographic area for context
+        site: The specific site for context
+        messages: Optional list of previous messages in format {"role": str, "content": str}
 
     Returns:
         Tuple of (response_text, response_time_seconds)
@@ -180,11 +189,23 @@ SOURCE MATERIAL:
 
 Answer questions based only on this source material."""
 
+    # Build conversation history from previous messages
+    if messages is None:
+        messages = []
+
+    # Convert messages to Gemini API format (handles sliding window, role mapping, etc.)
+    conversation_history = convert_messages_to_gemini_format(messages)
+
+    # Append current question as the final user message
+    conversation_history.append(
+        types.Content(role="user", parts=[types.Part.from_text(text=question)])
+    )
+
     start_time = time.time()
 
     response = client.models.generate_content(
         model=model_name,
-        contents=question,
+        contents=conversation_history,
         config=types.GenerateContentConfig(
             system_instruction=system_instruction, temperature=config.temperature
         ),
@@ -349,7 +370,10 @@ def main():
                 with st.chat_message("assistant"):
                     with st.spinner("Searching content..."):
                         try:
-                            answer, response_time = get_response(question, area, site)
+                            # Pass conversation history (excluding the current question we just added)
+                            answer, response_time = get_response(
+                                question, area, site, st.session_state.messages[:-1]
+                            )
 
                             st.markdown(answer)
                             st.caption(f"⏱️ {response_time:.2f}s")
