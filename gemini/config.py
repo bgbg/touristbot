@@ -65,6 +65,9 @@ class GeminiConfig:
     # Force reupload flag
     force_reupload: bool = False
 
+    # Registry rebuild configuration
+    auto_rebuild_registry: bool = True  # Rebuild registry from API on startup
+
     # Supported file formats
     supported_formats: List[str] = None
 
@@ -130,6 +133,7 @@ class GeminiConfig:
                 "upload_tracking_path", "gemini/upload_tracking.json"
             ),
             force_reupload=gemini_config.get("force_reupload", False),
+            auto_rebuild_registry=gemini_config.get("auto_rebuild_registry", True),
             supported_formats=yaml_config.get(
                 "supported_formats", [".txt", ".md", ".pdf", ".docx"]
             ),
