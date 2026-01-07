@@ -1,0 +1,9 @@
+google-genai
+pyyaml
+python-docx
+PyPDF2
+markdown
+python-dotenv
+tiktoken
+streamlit
+pandas

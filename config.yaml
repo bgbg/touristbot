@@ -1,0 +1,48 @@
+# Tourism/Museum App Configuration
+
+# Content directory structure (area/site hierarchy)
+content_root: "data/locations"
+
+# App configuration
+app:
+  name: "Tourism Guide Assistant"
+  type: "museum_tourism"
+  language: "Hebrew"  # or "Hebrew", etc.
+
+# Gemini RAG configuration
+gemini_rag:
+  # Model settings
+  model: "gemini-2.0-flash"  # Gemini model to use for RAG queries (stable)
+#  model: "gemini-2.0-flash-exp"  # Experimental - lower quotas
+#  model: "gemini-2.5-flash"  # Latest stable
+
+  temperature: 0.7
+
+  # Chunking settings (token-based)
+  use_token_chunking: true  # Use token-based chunking (recommended)
+  chunk_tokens: 400  # tokens per chunk (300-500 recommended)
+  chunk_overlap_percent: 0.15  # 15% overlap (0.10-0.20 recommended)
+
+  # Legacy character-based chunking (used if use_token_chunking: false)
+  chunk_size: 1000  # characters per chunk
+
+  # Upload settings
+  max_upload_wait_seconds: 300
+  max_files_per_query: 10
+
+  # Store registry and tracking
+  registry_path: "gemini/store_registry.json"
+  upload_tracking_path: "gemini/upload_tracking.json"
+
+  # Chunks will be stored as sibling to content_root
+  chunks_dir: "data/chunks"
+
+  # Force re-upload all files (ignore tracking)
+  force_reupload: false
+
+# Supported file types
+supported_formats:
+  - ".txt"
+  - ".md"
+  - ".pdf"
+  - ".docx"
