@@ -21,6 +21,10 @@ def convert_messages_to_gemini_format(messages):
         role = msg.get("role", "")
         content = msg.get("content", "")
 
+        # Skip messages with empty content
+        if not content:
+            continue
+
         # Map "assistant" to "model" for Gemini API compatibility
         if role == "assistant":
             role = "model"
@@ -138,6 +142,24 @@ def test_empty_messages():
     print("✓ Empty messages test passed")
 
 
+def test_empty_content_skipped():
+    """Test that messages with empty content are skipped"""
+    messages = [
+        {"role": "user", "content": "Valid message"},
+        {"role": "assistant", "content": ""},  # Empty content
+        {"role": "user", "content": "Another valid message"},
+        {"role": "assistant"},  # Missing content key
+    ]
+
+    result = convert_messages_to_gemini_format(messages)
+
+    assert len(result) == 2  # Only messages with content
+    assert result[0].parts[0].text == "Valid message"
+    assert result[1].parts[0].text == "Another valid message"
+
+    print("✓ Empty content skipped test passed")
+
+
 if __name__ == "__main__":
     print("Running conversation history conversion tests...\n")
 
@@ -147,5 +169,6 @@ if __name__ == "__main__":
     test_metadata_stripping()
     test_invalid_roles_skipped()
     test_empty_messages()
+    test_empty_content_skipped()
 
     print("\n✅ All tests passed!")

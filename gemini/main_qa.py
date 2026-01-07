@@ -172,6 +172,10 @@ Answer questions based only on this source material."""
         role = msg.get("role", "")
         content = msg.get("content", "")
 
+        # Skip messages with empty content
+        if not content:
+            continue
+
         # Map "assistant" to "model" for Gemini API compatibility
         if role == "assistant":
             role = "model"
