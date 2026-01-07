@@ -8,9 +8,52 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+def get_secret(key: str, default: str = None) -> str:
+    """
+    Get secret from Streamlit secrets or environment variables
+
+    Priority order:
+    1. Streamlit secrets (when running in Streamlit)
+    2. Environment variables (for local development)
+    3. Default value if provided
+
+    Args:
+        key: The secret key to retrieve
+        default: Optional default value if key is not found
+
+    Returns:
+        The secret value
+
+    Raises:
+        KeyError: If key is not found and no default is provided
+    """
+    # Try Streamlit secrets first (only available when running in Streamlit)
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+    except (ImportError, FileNotFoundError):
+        # Streamlit not available or secrets not configured
+        pass
+
+    # Try environment variables
+    value = os.getenv(key)
+    if value is not None:
+        return value
+
+    # Use default if provided
+    if default is not None:
+        return default
+
+    raise KeyError(f"Secret '{key}' not found in Streamlit secrets or environment variables")
+
+
 def load_env_file():
     """
     Load environment variables from .env file in project root
+
+    This is optional - secrets should come from Streamlit secrets (.streamlit/secrets.toml)
+    .env file is only used as a fallback for backward compatibility
     """
     # Find project root (parent of gemini directory)
     current_dir = Path(__file__).resolve().parent
@@ -19,8 +62,7 @@ def load_env_file():
 
     if env_path.exists():
         load_dotenv(env_path)
-    else:
-        raise FileNotFoundError(f".env file not found at {env_path}")
+    # Don't raise error if .env doesn't exist - secrets come from Streamlit
 
 
 def source_key(param="OPENAI_API_KEY"):

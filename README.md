@@ -28,14 +28,19 @@ pip install -r requirements.txt
 
 3. Get your Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
 
-4. Set up the API key:
+4. Set up secrets:
 ```bash
-# Add to ~/.bashrc (Linux/Mac) or environment variables (Windows)
-export GEMINI_API_KEY='your-api-key-here'
-source ~/.bashrc  # Reload config
+# Copy the example secrets file
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+
+# Edit .streamlit/secrets.toml and add your API key
+# GOOGLE_API_KEY = "your-api-key-here"
+# TAVILY_API_KEY = "your-tavily-key-here"  # Optional
 ```
 
-5. Configure the system by editing `gemini/config.yaml`:
+**Important**: Never commit `.streamlit/secrets.toml` to git - it's already in `.gitignore`
+
+5. Configure the system by editing `config.yaml`:
 ```yaml
 content_root: "data/locations"
 chunks_dir: "data/chunks"
@@ -117,11 +122,14 @@ nohup streamlit run gemini/main_qa.py --server.port 8501 > streamlit.log 2>&1 &
 3. Click "New app"
 4. Select your repository and branch
 5. Set main file path: `gemini/main_qa.py`
-6. Add secrets in Advanced Settings:
+6. Add secrets in App Settings → Secrets:
    ```toml
-   GEMINI_API_KEY = "your-api-key-here"
+   GOOGLE_API_KEY = "your-api-key-here"
+   TAVILY_API_KEY = "your-tavily-key-here"
    ```
 7. Deploy
+
+**Note**: The app uses the same secret format for local development (`.streamlit/secrets.toml`) and cloud deployment (Streamlit Cloud secrets dashboard).
 
 #### 2. Docker Deployment
 

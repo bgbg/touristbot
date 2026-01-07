@@ -9,7 +9,7 @@ from typing import List, Optional
 
 import yaml
 
-from gemini.utils import load_env_file
+from gemini.utils import load_env_file, get_secret
 
 
 def find_config_file() -> str:
@@ -91,15 +91,16 @@ class GeminiConfig:
         with open(config_path, "r", encoding="utf-8") as f:
             yaml_config = yaml.safe_load(f)
 
-        # Load environment variables from .env file
+        # Load environment variables from .env file (optional fallback)
         load_env_file()
 
-        # Get API key from environment
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key:
+        # Get API key from Streamlit secrets
+        try:
+            api_key = get_secret("GOOGLE_API_KEY")
+        except KeyError:
             raise ValueError(
-                "GOOGLE_API_KEY environment variable not set. "
-                "Please add it to .env file in project root: GOOGLE_API_KEY='your-api-key'"
+                "GOOGLE_API_KEY not found. "
+                "Please add it to .streamlit/secrets.toml (local) or Streamlit Cloud secrets: GOOGLE_API_KEY='your-api-key'"
             )
 
         # Extract configuration
