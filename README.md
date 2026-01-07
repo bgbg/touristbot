@@ -10,7 +10,8 @@ A Retrieval-Augmented Generation (RAG) system for tourism Q&A using Google Gemin
 - **Content Management**: View, delete, and manage uploaded content through the web interface
 - **Token-Based Chunking**: Smart content chunking with configurable overlap
 - **Bilingual Support**: Handle content in multiple languages (English, Hebrew, etc.)
-- **Upload Tracking**: Avoid duplicate uploads with hash-based file tracking
+- **Auto-Registry Rebuild**: Registry automatically rebuilds from Gemini Files API on startup (solves Streamlit Cloud restart issue)
+- **48-Hour File Persistence**: Uploaded files persist in Gemini API for 48 hours, enabling registry recovery after restarts
 
 ## Installation
 
@@ -205,6 +206,71 @@ server {
 }
 ```
 
+## Registry Rebuild Feature
+
+### Overview
+
+The system includes an **automatic registry rebuild** feature that solves the Streamlit Cloud restart problem. When the app restarts (e.g., on Streamlit Cloud), the registry automatically rebuilds from files still available in the Gemini Files API (48-hour persistence window).
+
+### How It Works
+
+1. **Metadata Encoding**: When files are uploaded, area/site information is encoded in the display name:
+   ```
+   Format: {area}__{site}__{filename}
+   Example: tel_aviv__jaffa_port__historical_tour_chunk_001.txt
+   ```
+
+2. **API Persistence**: Files remain in Gemini Files API for 48 hours after upload
+
+3. **Startup Rebuild**: On app startup, the registry:
+   - Queries `client.files.list()` to get all uploaded files
+   - Parses display names to extract area/site metadata
+   - Rebuilds registry entries by grouping files by location
+   - Merges with existing local registry (preserves manually added entries)
+
+4. **Graceful Fallback**: If rebuild fails (API error, network issue), app falls back to local registry
+
+### Configuration
+
+Control registry rebuild behavior in `config.yaml`:
+
+```yaml
+gemini_rag:
+  # Enable/disable automatic registry rebuild on startup
+  auto_rebuild_registry: true  # Default: true
+```
+
+Or disable programmatically:
+```python
+config = GeminiConfig.from_yaml()
+config.auto_rebuild_registry = False
+```
+
+### Limitations
+
+- **48-Hour Window**: Files expire after 48 hours in Gemini API. Registry can only rebuild from files uploaded within this window.
+- **Encoding Required**: Legacy files uploaded before this feature won't have area/site encoding and will be skipped during rebuild.
+- **Upload Tracking Reset**: Upload tracking is session-based and resets on restart. Use "Force Re-upload" if files were modified.
+
+### Troubleshooting
+
+**Problem**: Registry is empty after restart, but files exist in Gemini API
+
+**Solutions**:
+1. Check if files have area/site encoding in display names (recent uploads should have this)
+2. Verify `auto_rebuild_registry: true` in config.yaml
+3. Check Streamlit logs for rebuild errors
+4. Files older than 48 hours won't appear in rebuild
+
+**Problem**: Some locations missing after rebuild
+
+**Possible Causes**:
+- Files for that location expired (>48 hours old)
+- Files uploaded before encoding feature (legacy files)
+- Display names don't match expected format
+
+**Solution**: Re-upload content for missing locations
+
 ## Project Structure
 
 ```
@@ -217,7 +283,8 @@ roy_chat/
 │   ├── chunker.py              # Content chunking logic
 │   ├── directory_parser.py     # Parse content directory structure
 │   ├── store_manager.py        # Gemini File Search API wrapper
-│   ├── store_registry.py       # Map locations to Gemini stores
+│   ├── store_registry.py       # Map locations to Gemini stores (with rebuild_from_api)
+│   ├── display_name_utils.py   # Encode/decode area/site metadata in display names
 │   ├── upload_tracker.py       # Track uploaded files with hashes
 │   ├── upload_manager.py       # Upload operations and content management
 │   └── query_processor.py      # Query processing and RAG logic

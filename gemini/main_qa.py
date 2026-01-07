@@ -82,9 +82,38 @@ def initialize_session_state():
 
     if "registry" not in st.session_state:
         try:
+            # Create registry instance
             st.session_state.registry = StoreRegistry(
                 st.session_state.config.registry_path
             )
+
+            # Rebuild registry from Gemini Files API on startup (if enabled in config)
+            # This syncs local registry with files that still exist in Gemini (48-hour window)
+            if st.session_state.config.auto_rebuild_registry:
+                try:
+                    with st.spinner("Rebuilding registry from Gemini Files API..."):
+                        stats = st.session_state.registry.rebuild_from_api(
+                            st.session_state.client, merge_with_existing=True
+                        )
+
+                        # Show rebuild results if any files were found
+                        if stats["files_found"] > 0:
+                            if stats["files_parsed"] > 0:
+                                st.success(
+                                    f"✓ Registry rebuilt: {stats['registry_entries']} location(s) "
+                                    f"from {stats['files_parsed']} file(s)"
+                                )
+                            elif stats["files_skipped"] > 0:
+                                st.info(
+                                    f"ℹ Found {stats['files_skipped']} file(s) without encoding. "
+                                    f"Upload new content to use registry rebuild feature."
+                                )
+                except Exception as e:
+                    # Rebuild failed - fallback to local registry
+                    st.warning(
+                        f"⚠ Could not rebuild registry from API: {e}. Using local registry."
+                    )
+
         except Exception as e:
             st.error(f"Failed to load registry: {e}")
             st.stop()
@@ -408,6 +437,13 @@ def main():
 
         # Upload new content section
         st.subheader("📤 Upload Content")
+
+        # Info about upload tracking and registry rebuild
+        st.info(
+            "ℹ️ **Note**: Upload tracking is session-based and resets on app restart. "
+            "The registry auto-rebuilds from Gemini API on startup. "
+            "Use 'Force Re-upload' if files were modified after a restart."
+        )
 
         # Two upload options
         upload_tabs = st.tabs(["📁 From Folder Path", "📂 From Existing Content"])
