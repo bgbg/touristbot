@@ -181,12 +181,12 @@ Answer questions based only on this source material."""
 
         # Strip metadata fields (time, etc.) and only pass role and content
         conversation_history.append(
-            types.Content(role=role, parts=[types.Part.from_text(content)])
+            types.Content(role=role, parts=[types.Part.from_text(text=content)])
         )
 
     # Append current question as the final user message
     conversation_history.append(
-        types.Content(role="user", parts=[types.Part.from_text(question)])
+        types.Content(role="user", parts=[types.Part.from_text(text=question)])
     )
 
     start_time = time.time()
