@@ -31,3 +31,4 @@ Thumbs.db
 query_log.jsonl
 data/locations/
 data/chunks/
+todo_*.md
