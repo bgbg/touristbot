@@ -252,7 +252,11 @@ class UploadManager:
                 # Upload to store
                 store_id = self.registry.get_store(loc_area, loc_site)
                 store_manager = StoreManager(
-                    self.client, f"{loc_area}_{loc_site}_Tourism_RAG", store_id=store_id
+                    self.client,
+                    f"{loc_area}_{loc_site}_Tourism_RAG",
+                    store_id=store_id,
+                    area=loc_area,
+                    site=loc_site,
                 )
 
                 store_manager.upload_files(

@@ -5,17 +5,24 @@ Gemini File Search Store management (create, upload, list)
 import os
 import sys
 import time
-from typing import List
+from typing import List, Optional
 
 import google.genai as genai
 from google.genai import types
+
+from gemini.display_name_utils import encode_display_name
 
 
 class StoreManager:
     """Manages Gemini File Search Store operations"""
 
     def __init__(
-        self, client: genai.Client, store_display_name: str, store_id: str = None
+        self,
+        client: genai.Client,
+        store_display_name: str,
+        store_id: str = None,
+        area: Optional[str] = None,
+        site: Optional[str] = None,
     ):
         """
         Initialize store manager
@@ -24,10 +31,14 @@ class StoreManager:
             client: Gemini API client
             store_display_name: Display name for the store
             store_id: Specific store ID to use (optional)
+            area: Area name for metadata encoding (optional)
+            site: Site name for metadata encoding (optional)
         """
         self.client = client
         self.store_display_name = store_display_name
         self.store_id = store_id
+        self.area = area
+        self.site = site
         self._store = None
 
     def get_or_create_store(self):
@@ -78,8 +89,21 @@ class StoreManager:
                 print(f"   Uploading: {file_path}")
 
             try:
+                # Determine display name based on whether area/site are provided
+                base_filename = os.path.basename(file_path)
+
+                if self.area and self.site:
+                    # Encode area/site metadata in display name
+                    display_name = encode_display_name(
+                        self.area, self.site, base_filename
+                    )
+                    print(f"      → Encoded display name: {display_name}")
+                else:
+                    # Legacy behavior: use plain filename (for backwards compatibility)
+                    display_name = base_filename
+
                 # Use the new files.upload API with display name
-                config = types.UploadFileConfig(displayName=os.path.basename(file_path))
+                config = types.UploadFileConfig(displayName=display_name)
                 uploaded_file = self.client.files.upload(file=file_path, config=config)
                 uploaded_files.append(uploaded_file)
                 print(f"      ✓ Uploaded as: {uploaded_file.name}")
