@@ -8,6 +8,7 @@ import pytest
 from gemini.conversation_utils import convert_messages_to_gemini_format
 
 
+@pytest.mark.unit
 def test_basic_conversation():
     """Test basic user-assistant conversation"""
     messages = [
@@ -27,6 +28,7 @@ def test_basic_conversation():
     assert result[2].parts[0].text == "Tell me more about the first one"
 
 
+@pytest.mark.unit
 def test_sliding_window():
     """Test that sliding window keeps only last 10 messages"""
     messages = [
@@ -40,6 +42,7 @@ def test_sliding_window():
     assert result[-1].parts[0].text == "Question 14"  # Last message
 
 
+@pytest.mark.unit
 def test_role_mapping():
     """Test that assistant role is mapped to model"""
     messages = [
@@ -56,6 +59,7 @@ def test_role_mapping():
     assert result[2].role == "model"  # model stays as model
 
 
+@pytest.mark.unit
 def test_metadata_stripping():
     """Test that metadata fields like 'time' are stripped"""
     messages = [
@@ -73,6 +77,7 @@ def test_metadata_stripping():
     # but it's not included in the Content construction
 
 
+@pytest.mark.unit
 def test_invalid_roles_skipped():
     """Test that messages with invalid roles are skipped"""
     messages = [
@@ -89,6 +94,7 @@ def test_invalid_roles_skipped():
     assert result[1].role == "model"
 
 
+@pytest.mark.unit
 def test_empty_messages():
     """Test handling of empty message list"""
     messages = []
@@ -98,6 +104,7 @@ def test_empty_messages():
     assert len(result) == 0
 
 
+@pytest.mark.unit
 def test_empty_content_skipped():
     """Test that messages with empty content are skipped"""
     messages = [

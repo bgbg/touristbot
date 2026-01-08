@@ -4,7 +4,7 @@ Tests text chunking functionality with various strategies
 """
 
 import pytest
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, patch
 import os
 from gemini.chunker import (
     sanitize_filename,
@@ -15,6 +15,7 @@ from gemini.chunker import (
 )
 
 
+@pytest.mark.unit
 class TestSanitizeFilename:
     """Test filename sanitization with ASCII conversion"""
 
@@ -60,6 +61,7 @@ class TestSanitizeFilename:
         assert "file with spaces" in result
 
 
+@pytest.mark.unit
 class TestChunkTextSmart:
     """Test smart text chunking with boundary detection"""
 
@@ -114,6 +116,7 @@ class TestChunkTextSmart:
         assert all(ord(c) < 128 for c in filename)
 
 
+@pytest.mark.unit
 class TestChunkTextTokens:
     """Test token-based chunking (with mocked tiktoken)"""
 
@@ -162,6 +165,7 @@ class TestChunkTextTokens:
         assert len(result) >= 1
 
 
+@pytest.mark.unit
 class TestChunkTextFile:
     """Test file-based chunking with mocked file parser"""
 
@@ -203,6 +207,7 @@ class TestChunkTextFile:
         assert result == []
 
 
+@pytest.mark.unit
 class TestChunkFileTokens:
     """Test file-based token chunking"""
 

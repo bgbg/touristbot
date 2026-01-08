@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-Test script to explore Gemini Files API capabilities
+Integration test / exploration script for Gemini Files API
 Research what metadata fields are available when listing files
+
+Note: This is an exploration script with print-based output rather than
+pytest assertions. It requires a valid API key and uploaded files to run.
 """
 
+import pytest
 import sys
 import os
 
@@ -14,6 +18,7 @@ sys.path.insert(0, script_dir)
 import google.genai as genai
 from gemini.config import GeminiConfig
 
+@pytest.mark.integration
 def test_files_list():
     """Test client.files.list() and inspect available metadata fields"""
 

@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
 Test script for display name encoding/decoding utilities
+
+Note: This uses print-based output for manual verification rather than
+pytest assertions. Consider converting to proper assertions for better
+test failure reporting.
 """
 
+import pytest
 from gemini.display_name_utils import (
     encode_display_name,
     parse_display_name,
@@ -11,6 +16,7 @@ from gemini.display_name_utils import (
 )
 
 
+@pytest.mark.unit
 def test_sanitize_name():
     """Test name sanitization"""
     print("Testing _sanitize_name()...")
@@ -32,6 +38,7 @@ def test_sanitize_name():
     print()
 
 
+@pytest.mark.unit
 def test_encode_decode():
     """Test encoding and decoding"""
     print("Testing encode_display_name() and parse_display_name()...")
@@ -66,6 +73,7 @@ def test_encode_decode():
     print()
 
 
+@pytest.mark.unit
 def test_parse_legacy_names():
     """Test parsing legacy display names (without encoding)"""
     print("Testing parse_display_name() with legacy names...")
@@ -85,6 +93,7 @@ def test_parse_legacy_names():
     print()
 
 
+@pytest.mark.unit
 def test_edge_cases():
     """Test edge cases"""
     print("Testing edge cases...")
@@ -121,6 +130,7 @@ def test_edge_cases():
     print()
 
 
+@pytest.mark.unit
 def test_real_world_examples():
     """Test with actual chunk filenames from the API"""
     print("Testing with real-world chunk filenames...")

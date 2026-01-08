@@ -1,11 +1,12 @@
 """
 Shared pytest fixtures for all tests
+
+Note: These fixtures are defined for future test expansion.
+Currently used by tests in tests/gemini/ for mocking and test data.
 """
 
 import pytest
 from unittest.mock import Mock
-import tempfile
-import os
 
 
 @pytest.fixture

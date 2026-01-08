@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-Test script for registry rebuild_from_api() functionality
+Integration test / exploration script for registry rebuild_from_api() functionality
+
+Note: This is an exploration script with print-based output rather than
+pytest assertions. It requires a valid API key and may create test files.
 """
 
+import pytest
 import sys
 import os
 
@@ -15,6 +19,7 @@ from gemini.config import GeminiConfig
 from gemini.store_registry import StoreRegistry
 
 
+@pytest.mark.integration
 def test_rebuild():
     """Test rebuilding registry from Gemini Files API"""
 
