@@ -1,44 +1,30 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repo.
 
-## Project Overview
+## Overview
+- Tourism RAG system using Google Gemini File Search.
+- Streamlit UI for Q&A and content management; CLI uploader for batch loads.
+- Content organized by area/site under data/locations with generated chunks in data/chunks.
 
-This is a minimal Python project currently containing a single starter script (`main.py`). The repository uses PyCharm as the IDE (based on `.idea/` configuration).
+## Setup
+- Python 3.11+; create `.venv` and install with `pip install -r requirements.txt`.
+- Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`; set `GOOGLE_API_KEY` (and optional `TAVILY_API_KEY`).
+- Adjust `config.yaml` for paths, chunking, and model selection.
 
-## Development Setup
+## Running
+- Web app: `streamlit run gemini/main_qa.py` (defaults to http://localhost:8501).
+- CLI upload: `python gemini/main_upload.py [--area <area> --site <site> --force]`.
 
-The project uses a Python virtual environment stored at `.venv/`, which is also configured as the VS Code interpreter for this workspace.
-
-To set up the development environment:
-```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Linux/Mac
-# or: .venv\Scripts\activate  # On Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-In VS Code, select the interpreter at `.venv/bin/python` (or `.venv\Scripts\python.exe` on Windows) for linting, running, and debugging.
-
-## Running Code
-
-Currently, the main script can be run with:
-```bash
-python main.py
-```
-
-## Project Structure
-
-- `gemini/` - Main package with core functionality
-- `tests/` - Test suite organized to mirror source structure
-- `pytest.ini` - pytest configuration
-- `.idea/` - PyCharm IDE configuration files
+## Project Layout
+- gemini/: core logic for chunking, uploads, QA flow, registry, logging.
+- data/locations/: source content organized by area/site hierarchy.
+- data/chunks/: generated chunks; rebuilt by upload tasks.
+- prompts/: prompt YAMLs for the QA system.
+- config.yaml: app settings; requirements.txt: dependencies.
+- .streamlit/secrets.toml: API keys (never commit).
 
 ## Testing
-
-- Preferred framework: pytest.
-- Skipping tests is not allowed. Mark tests for retry if needed, but never skip.
-- Failing tests are never acceptable. If a test fails when you run the suite, either fix it or alert the user and ask how to proceed.
+- Use pytest.
+- Do not skip tests. Retries are acceptable; skips are not.
+- Any failing test blocks progress—either fix or ask the user how to proceed.
