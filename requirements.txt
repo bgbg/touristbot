@@ -7,3 +7,4 @@ python-dotenv
 tiktoken
 streamlit
 pandas
+pytest
