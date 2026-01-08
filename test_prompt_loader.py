@@ -148,10 +148,11 @@ def test_prompt_loader_load_relative_path():
     config = PromptLoader.load("prompts/tourism_qa.yaml")
 
     assert config.model_name == "gemini-2.0-flash"
-    assert config.temperature == 0.7
+    assert config.temperature == 0.6
     assert "{area}" in config.system_prompt
     assert "{site}" in config.system_prompt
-    assert "{context}" in config.system_prompt
+    assert "{context}" in config.user_prompt
+    assert "{question}" in config.user_prompt
 
 
 def test_end_to_end_tourism_qa():
@@ -165,7 +166,10 @@ def test_end_to_end_tourism_qa():
         question="What is significant about this site?",
     )
 
+    # System prompt should have area and site
     assert "Galilee" in system
     assert "Capernaum" in system
-    assert "Ancient fishing village" in system
+
+    # User prompt should have context and question
+    assert "Ancient fishing village" in user
     assert "What is significant about this site?" in user

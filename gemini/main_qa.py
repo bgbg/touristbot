@@ -180,7 +180,7 @@ def get_response(
     prompt_config = PromptLoader.load(prompt_path)
 
     # Format prompts with variables
-    system_instruction, _ = prompt_config.format(
+    system_instruction, user_message = prompt_config.format(
         area=area, site=site, context=context, question=question
     )
 
@@ -198,9 +198,9 @@ def get_response(
     # Convert messages to Gemini API format (handles sliding window, role mapping, etc.)
     conversation_history = convert_messages_to_gemini_format(messages)
 
-    # Append current question as the final user message
+    # Append current question as the final user message (using formatted user_prompt from YAML)
     conversation_history.append(
-        types.Content(role="user", parts=[types.Part.from_text(text=question)])
+        types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
     )
 
     start_time = time.time()
