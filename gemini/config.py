@@ -71,6 +71,11 @@ class GeminiConfig:
     # Registry rebuild configuration
     auto_rebuild_registry: bool = True  # Rebuild registry from API on startup
 
+    # GCS Storage Configuration
+    gcs_bucket_name: str = "tarasa_tourist_bot_content"
+    gcs_credentials_json: Optional[str] = None
+    enable_local_cache: bool = False
+
     # Supported file formats
     supported_formats: List[str] = None
 
@@ -109,10 +114,28 @@ class GeminiConfig:
                 "Please add it to .streamlit/secrets.toml (local) or Streamlit Cloud secrets: GOOGLE_API_KEY='your-api-key'"
             )
 
+        # Get GCS credentials from Streamlit secrets (optional)
+        gcs_credentials_json = None
+        try:
+            # Try to get GCS credentials from secrets
+            gcs_creds = get_secret("gcs_credentials")
+            if gcs_creds:
+                # If gcs_credentials is a dict (from TOML), convert to JSON string
+                if isinstance(gcs_creds, dict):
+                    import json
+                    gcs_credentials_json = json.dumps(gcs_creds)
+                else:
+                    # If it's already a string, use it directly
+                    gcs_credentials_json = gcs_creds
+        except KeyError:
+            # GCS credentials not in secrets - will try to use Application Default Credentials
+            pass
+
         # Extract configuration
         content_root = yaml_config.get("content_root", "/path/to/tourism/content")
         app_config = yaml_config.get("app", {})
         gemini_config = yaml_config.get("gemini_rag", {})
+        storage_config = yaml_config.get("storage", {})
 
         config = cls(
             api_key=api_key,
@@ -138,6 +161,11 @@ class GeminiConfig:
             prompts_dir=gemini_config.get("prompts_dir", "prompts/"),
             force_reupload=gemini_config.get("force_reupload", False),
             auto_rebuild_registry=gemini_config.get("auto_rebuild_registry", True),
+            gcs_bucket_name=storage_config.get(
+                "gcs_bucket_name", "tarasa_tourist_bot_content"
+            ),
+            gcs_credentials_json=gcs_credentials_json,
+            enable_local_cache=storage_config.get("enable_local_cache", False),
             supported_formats=yaml_config.get(
                 "supported_formats", [".txt", ".md", ".pdf", ".docx"]
             ),

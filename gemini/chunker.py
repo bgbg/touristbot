@@ -2,14 +2,18 @@
 File chunking functionality for creating text segments
 Supports various file formats via file_parser
 Supports both character-based and token-based chunking
+Supports GCS storage backend for cloud-native file operations
 """
 
 import hashlib
 import os
 import unicodedata
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from gemini.file_parser import parse_file
+
+if TYPE_CHECKING:
+    from gemini.storage import StorageBackend
 
 try:
     import tiktoken
@@ -62,7 +66,11 @@ def sanitize_filename(filename: str) -> str:
 
 
 def chunk_text_file(
-    file_path: str, file_id: str, chunk_size: int = 1000, output_dir: str = "chunks"
+    file_path: str,
+    file_id: str,
+    chunk_size: int = 1000,
+    output_dir: str = "chunks",
+    storage_backend: Optional["StorageBackend"] = None,
 ) -> List[str]:
     """
     Parse and split a file into chunks, save as separate text files
@@ -73,10 +81,11 @@ def chunk_text_file(
         file_path: Path to the input file
         file_id: Identifier for the file (used in chunk filenames)
         chunk_size: Number of characters per chunk
-        output_dir: Directory to save chunk files
+        output_dir: Directory to save chunk files (or GCS blob prefix)
+        storage_backend: Optional storage backend (GCS or local). If None, uses local filesystem.
 
     Returns:
-        List of file paths for created chunks
+        List of file paths/blob paths for created chunks
     """
     # Sanitize file_id to ensure ASCII-safe filenames
     safe_file_id = sanitize_filename(file_id)
@@ -94,9 +103,10 @@ def chunk_text_file(
         print(f"   Warning: No text content extracted from {file_path}")
         return []
 
-    # Create output directory
-    print(f"      Creating output directory: {output_dir}")
-    os.makedirs(output_dir, exist_ok=True)
+    # Create output directory (only for local filesystem)
+    if storage_backend is None:
+        print(f"      Creating output directory: {output_dir}")
+        os.makedirs(output_dir, exist_ok=True)
 
     # Split into chunks
     chunks = []
@@ -124,17 +134,29 @@ def chunk_text_file(
                 if last_period > chunk_size * 0.5:
                     chunk_text = chunk_text[: last_period + 1]
 
-        # Save chunk to file
+        # Save chunk to file or GCS
         chunk_num += 1
         chunk_filename = f"{safe_file_id}_chunk_{chunk_num:03d}.txt"
-        chunk_filepath = os.path.join(output_dir, chunk_filename)
 
-        with open(chunk_filepath, "w", encoding="utf-8") as f:
-            f.write(f"--- {file_id}: Chunk {chunk_num} ---\n")
-            f.write(f"Source: {os.path.basename(file_path)}\n\n")
-            f.write(chunk_text)
+        # Prepare chunk content
+        chunk_content = (
+            f"--- {file_id}: Chunk {chunk_num} ---\n"
+            f"Source: {os.path.basename(file_path)}\n\n"
+            f"{chunk_text}"
+        )
 
-        chunks.append(chunk_filepath)
+        if storage_backend:
+            # Use storage backend (GCS or cached GCS)
+            # For GCS, output_dir is a blob prefix like "chunks/area/site"
+            chunk_path = f"{output_dir}/{chunk_filename}" if output_dir else chunk_filename
+            storage_backend.write_file(chunk_path, chunk_content)
+            chunks.append(chunk_path)
+        else:
+            # Use local filesystem
+            chunk_filepath = os.path.join(output_dir, chunk_filename)
+            with open(chunk_filepath, "w", encoding="utf-8") as f:
+                f.write(chunk_content)
+            chunks.append(chunk_filepath)
 
         # Move position forward by actual chunk size
         actual_chunk_size = len(chunk_text)
@@ -224,6 +246,7 @@ def chunk_text_tokens(
     chunk_tokens: int = 400,
     overlap_percent: float = 0.15,
     output_dir: str = "chunks",
+    storage_backend: Optional["StorageBackend"] = None,
     encoding_name: str = "cl100k_base",
 ) -> List[str]:
     """
@@ -234,11 +257,12 @@ def chunk_text_tokens(
         file_id: Identifier for the content
         chunk_tokens: Target number of tokens per chunk (default: 400 tokens)
         overlap_percent: Percentage of overlap between chunks (default: 0.15 for 15%)
-        output_dir: Directory to save chunk files
+        output_dir: Directory to save chunk files (or GCS blob prefix)
+        storage_backend: Optional storage backend (GCS or local). If None, uses local filesystem.
         encoding_name: Tiktoken encoding to use (cl100k_base for GPT-4/Gemini)
 
     Returns:
-        List of file paths for created chunks
+        List of file paths/blob paths for created chunks
     """
     if not TIKTOKEN_AVAILABLE:
         print(
@@ -251,7 +275,10 @@ def chunk_text_tokens(
 
     # Sanitize file_id
     safe_file_id = sanitize_filename(file_id)
-    os.makedirs(output_dir, exist_ok=True)
+
+    # Create output directory (only for local filesystem)
+    if storage_backend is None:
+        os.makedirs(output_dir, exist_ok=True)
 
     # Load tokenizer
     try:
@@ -319,17 +346,25 @@ def chunk_text_tokens(
         # Save chunk
         chunk_num += 1
         chunk_filename = f"{safe_file_id}_chunk_{chunk_num:03d}.txt"
-        chunk_filepath = os.path.join(output_dir, chunk_filename)
-
         actual_tokens = len(encoding.encode(chunk_text))
 
-        with open(chunk_filepath, "w", encoding="utf-8") as f:
-            f.write(
-                f"--- {file_id}: Chunk {chunk_num} ({actual_tokens} tokens) ---\n\n"
-            )
-            f.write(chunk_text.strip())
+        # Prepare chunk content
+        chunk_content = (
+            f"--- {file_id}: Chunk {chunk_num} ({actual_tokens} tokens) ---\n\n"
+            f"{chunk_text.strip()}"
+        )
 
-        chunks.append(chunk_filepath)
+        if storage_backend:
+            # Use storage backend (GCS or cached GCS)
+            chunk_path = f"{output_dir}/{chunk_filename}" if output_dir else chunk_filename
+            storage_backend.write_file(chunk_path, chunk_content)
+            chunks.append(chunk_path)
+        else:
+            # Use local filesystem
+            chunk_filepath = os.path.join(output_dir, chunk_filename)
+            with open(chunk_filepath, "w", encoding="utf-8") as f:
+                f.write(chunk_content)
+            chunks.append(chunk_filepath)
 
         # If we just processed the last chunk, we're done
         if end_idx >= total_tokens:
@@ -357,6 +392,7 @@ def chunk_file_tokens(
     chunk_tokens: int = 400,
     overlap_percent: float = 0.15,
     output_dir: str = "chunks",
+    storage_backend: Optional["StorageBackend"] = None,
 ) -> List[str]:
     """
     Parse file and split into token-based chunks with overlap
@@ -366,10 +402,11 @@ def chunk_file_tokens(
         file_id: Identifier for the file
         chunk_tokens: Target tokens per chunk (300-500 recommended)
         overlap_percent: Overlap percentage (0.10-0.20 recommended for 10-20%)
-        output_dir: Output directory for chunks
+        output_dir: Output directory for chunks (or GCS blob prefix)
+        storage_backend: Optional storage backend (GCS or local). If None, uses local filesystem.
 
     Returns:
-        List of chunk file paths
+        List of chunk file paths/blob paths
     """
     # Sanitize file_id
     safe_file_id = sanitize_filename(file_id)
@@ -391,7 +428,7 @@ def chunk_file_tokens(
         f"      Creating chunks ({chunk_tokens} tokens, {int(overlap_percent*100)}% overlap)..."
     )
     result = chunk_text_tokens(
-        content, file_id, chunk_tokens, overlap_percent, output_dir
+        content, file_id, chunk_tokens, overlap_percent, output_dir, storage_backend
     )
     print(f"      Created {len(result)} chunks")
     return result
