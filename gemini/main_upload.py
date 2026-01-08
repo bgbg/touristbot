@@ -281,7 +281,11 @@ def main():
                 store_id = registry.get_store(area, site)
 
                 store_manager = StoreManager(
-                    client, f"{area}_{site}_Tourism_RAG", store_id=store_id
+                    client,
+                    f"{area}_{site}_Tourism_RAG",
+                    store_id=store_id,
+                    area=area,
+                    site=site,
                 )
 
                 print(f"   -> Uploading to Gemini store...")

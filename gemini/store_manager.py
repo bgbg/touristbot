@@ -103,7 +103,7 @@ class StoreManager:
                     display_name = base_filename
 
                 # Use the new files.upload API with display name
-                config = types.UploadFileConfig(displayName=display_name)
+                config = types.UploadFileConfig(display_name=display_name)
                 uploaded_file = self.client.files.upload(file=file_path, config=config)
                 uploaded_files.append(uploaded_file)
                 print(f"      ✓ Uploaded as: {uploaded_file.name}")

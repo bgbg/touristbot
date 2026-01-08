@@ -165,10 +165,16 @@ def initialize_session_state():
                 credentials_json=st.session_state.config.gcs_credentials_json,
                 enable_cache=st.session_state.config.enable_local_cache,
             )
+            st.success("✓ Using GCS storage backend")
         except Exception as e:
-            st.error(f"Failed to initialize GCS storage backend: {e}")
-            st.info("Make sure GCS credentials are configured in .streamlit/secrets.toml")
-            st.stop()
+            # Graceful fallback to local filesystem storage
+            st.session_state.storage_backend = None
+            st.info(
+                f"ℹ Using local filesystem storage (GCS unavailable: {e})"
+            )
+            st.info(
+                "To enable GCS storage, configure credentials in .streamlit/secrets.toml"
+            )
 
     if "upload_manager" not in st.session_state:
         st.session_state.upload_manager = UploadManager(
