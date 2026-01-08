@@ -11,7 +11,7 @@ Provides functionality to:
 
 import os
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import google.genai as genai
 
@@ -21,6 +21,9 @@ from gemini.directory_parser import DirectoryParser
 from gemini.store_manager import StoreManager
 from gemini.store_registry import StoreRegistry
 from gemini.upload_tracker import UploadTracker
+
+if TYPE_CHECKING:
+    from gemini.storage import StorageBackend
 
 
 class UploadManager:
@@ -32,11 +35,13 @@ class UploadManager:
         client: genai.Client,
         registry: StoreRegistry,
         tracker: UploadTracker,
+        storage_backend: Optional["StorageBackend"] = None,
     ):
         self.config = config
         self.client = client
         self.registry = registry
         self.tracker = tracker
+        self.storage_backend = storage_backend
 
     def get_uploaded_content_summary(self) -> List[Dict]:
         """
@@ -52,13 +57,20 @@ class UploadManager:
             registry_data = self.registry.registry.get(f"{area}:{site}", {})
             metadata = registry_data.get("metadata", {})
 
-            # Count chunks on disk
-            chunks_dir = os.path.join(self.config.chunks_dir, area, site)
+            # Count chunks from storage backend or disk
             chunk_count = 0
-            if os.path.exists(chunks_dir):
-                chunk_count = len(
-                    [f for f in os.listdir(chunks_dir) if f.endswith(".txt")]
-                )
+            if self.storage_backend:
+                # Use storage backend (GCS)
+                chunks_path = f"{self.config.chunks_dir}/{area}/{site}"
+                chunk_files = self.storage_backend.list_files(chunks_path, "*.txt")
+                chunk_count = len(chunk_files)
+            else:
+                # Use local filesystem
+                chunks_dir = os.path.join(self.config.chunks_dir, area, site)
+                if os.path.exists(chunks_dir):
+                    chunk_count = len(
+                        [f for f in os.listdir(chunks_dir) if f.endswith(".txt")]
+                    )
 
             summary.append(
                 {
@@ -108,12 +120,20 @@ class UploadManager:
             (success: bool, message: str)
         """
         try:
-            # Remove chunks from disk
-            chunks_dir = os.path.join(self.config.chunks_dir, area, site)
-            if os.path.exists(chunks_dir):
-                import shutil
+            # Remove chunks from storage backend or disk
+            if self.storage_backend:
+                # Use storage backend (GCS) - delete all chunks for this area/site
+                chunks_path = f"{self.config.chunks_dir}/{area}/{site}"
+                chunk_files = self.storage_backend.list_files(chunks_path)
+                for chunk_file in chunk_files:
+                    self.storage_backend.delete_file(chunk_file)
+            else:
+                # Use local filesystem
+                chunks_dir = os.path.join(self.config.chunks_dir, area, site)
+                if os.path.exists(chunks_dir):
+                    import shutil
 
-                shutil.rmtree(chunks_dir)
+                    shutil.rmtree(chunks_dir)
 
             # Remove from registry
             store_key = f"{area}:{site}"
@@ -227,9 +247,15 @@ class UploadManager:
                 # Chunk files
                 chunk_files = []
                 for file_path in files_to_upload:
-                    area_site_chunks_dir = os.path.join(
-                        self.config.chunks_dir, loc_area, loc_site
-                    )
+                    # For GCS: use blob path like "chunks/area/site"
+                    # For local: use directory path like "data/chunks/area/site"
+                    if self.storage_backend:
+                        area_site_chunks_dir = f"{self.config.chunks_dir}/{loc_area}/{loc_site}"
+                    else:
+                        area_site_chunks_dir = os.path.join(
+                            self.config.chunks_dir, loc_area, loc_site
+                        )
+
                     file_id = os.path.splitext(os.path.basename(file_path))[0]
 
                     if self.config.use_token_chunking:
@@ -239,6 +265,7 @@ class UploadManager:
                             chunk_tokens=self.config.chunk_tokens,
                             overlap_percent=self.config.chunk_overlap_percent,
                             output_dir=area_site_chunks_dir,
+                            storage_backend=self.storage_backend,
                         )
                     else:
                         chunks = chunk_text_file(
@@ -246,6 +273,7 @@ class UploadManager:
                             file_id,
                             chunk_size=self.config.chunk_size,
                             output_dir=area_site_chunks_dir,
+                            storage_backend=self.storage_backend,
                         )
                     chunk_files.extend(chunks)
 
