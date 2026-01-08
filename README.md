@@ -41,7 +41,42 @@ cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 
 **Important**: Never commit `.streamlit/secrets.toml` to git - it's already in `.gitignore`
 
-5. Configure the system by editing `config.yaml`:
+5. Configure Google Cloud Storage (required for chunk storage):
+
+**Why GCS?** The system stores processed chunks in Google Cloud Storage, ensuring they're available both locally and when deployed to Streamlit Cloud. All developers use the same GCS bucket as the single source of truth.
+
+a. Create a GCS bucket (if not already created):
+   - Go to [Google Cloud Console](https://console.cloud.google.com)
+   - Create/select your project
+   - Navigate to Cloud Storage > Buckets
+   - Create bucket named `tarasa_tourist_bot_content` (or update `config.yaml` with your bucket name)
+
+b. Create a service account and download credentials:
+   - Navigate to "IAM & Admin" > "Service Accounts"
+   - Create new service account (or use existing)
+   - Grant it "Storage Object Admin" role
+   - Create a JSON key and download it
+
+c. Add GCS credentials to `.streamlit/secrets.toml`:
+   - Open the downloaded JSON key file
+   - Copy its contents into `.streamlit/secrets.toml` as a TOML table
+   - See `.streamlit/secrets.toml.example` for the exact format
+
+Example:
+```toml
+[gcs_credentials]
+type = "service_account"
+project_id = "your-project-id"
+private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+client_email = "your-sa@your-project.iam.gserviceaccount.com"
+# ... other fields from the JSON key
+```
+
+**For Streamlit Cloud deployment:**
+- Add the same `gcs_credentials` table to your Streamlit Cloud app secrets
+- The app will work identically in local and cloud environments
+
+6. Configure the system by editing `config.yaml`:
 ```yaml
 content_root: "data/locations"
 chunks_dir: "data/chunks"
