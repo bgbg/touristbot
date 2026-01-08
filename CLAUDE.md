@@ -39,16 +39,6 @@ python main.py
 
 ## Testing
 
-The project uses pytest as the testing framework. Tests are organized in the `tests/` directory with a structure that mirrors the source code.
-
-Run tests:
-```bash
-pytest                    # Run all tests
-pytest tests/gemini/      # Run tests for gemini package
-pytest -v                 # Verbose output
-pytest -k "test_name"     # Run specific test
-```
-
-Test organization:
-- `tests/gemini/` - Unit tests for gemini package modules
-- Tests use pytest fixtures and mocking for isolation
+- Preferred framework: pytest.
+- Skipping tests is not allowed. Mark tests for retry if needed, but never skip.
+- Failing tests are never acceptable. If a test fails when you run the suite, either fix it or alert the user and ask how to proceed.
