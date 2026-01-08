@@ -27,35 +27,59 @@ from google.genai import types
 from gemini.config import GeminiConfig
 from gemini.conversation_utils import convert_messages_to_gemini_format
 from gemini.query_logger import QueryLogger
+from gemini.storage import get_storage_backend
 from gemini.store_registry import StoreRegistry
 from gemini.upload_manager import UploadManager
 from gemini.upload_tracker import UploadTracker
 
 
-def load_chunks(chunks_dir: str) -> tuple[str, list[str]]:
+def load_chunks(chunks_dir: str, storage_backend=None) -> tuple[str, list[str]]:
     """
     Load all chunk files and combine into context
+
+    Args:
+        chunks_dir: Directory path (local) or blob prefix (GCS) containing chunks
+        storage_backend: Optional storage backend (GCS or None for local filesystem)
 
     Returns:
         Tuple of (combined_context, list_of_chunk_filenames)
     """
-    if not os.path.exists(chunks_dir):
-        return "", []
-
     chunks = []
     chunk_files = []
 
-    for root, dirs, files in os.walk(chunks_dir):
-        for file in sorted(files):
-            if file.endswith(".txt"):
-                filepath = os.path.join(root, file)
+    if storage_backend:
+        # Use storage backend (GCS)
+        try:
+            # List all chunk files in GCS
+            all_chunk_paths = storage_backend.list_files(chunks_dir, "*.txt")
+
+            for chunk_path in sorted(all_chunk_paths):
+                filename = os.path.basename(chunk_path)
                 try:
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        content = f.read()
-                        chunks.append(f"=== {file} ===\n{content}\n")
-                        chunk_files.append(file)
+                    content = storage_backend.read_file(chunk_path)
+                    chunks.append(f"=== {filename} ===\n{content}\n")
+                    chunk_files.append(filename)
                 except Exception as e:
-                    st.warning(f"Could not read {file}: {e}")
+                    st.warning(f"Could not read {filename} from GCS: {e}")
+        except Exception as e:
+            st.warning(f"Could not list chunks from GCS: {e}")
+            return "", []
+    else:
+        # Use local filesystem
+        if not os.path.exists(chunks_dir):
+            return "", []
+
+        for root, dirs, files in os.walk(chunks_dir):
+            for file in sorted(files):
+                if file.endswith(".txt"):
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            chunks.append(f"=== {file} ===\n{content}\n")
+                            chunk_files.append(file)
+                    except Exception as e:
+                        st.warning(f"Could not read {file}: {e}")
 
     return "\n".join(chunks), chunk_files
 
@@ -132,12 +156,26 @@ def initialize_session_state():
             st.session_state.config.upload_tracking_path
         )
 
+    if "storage_backend" not in st.session_state:
+        try:
+            # Initialize storage backend (GCS or cached GCS)
+            st.session_state.storage_backend = get_storage_backend(
+                bucket_name=st.session_state.config.gcs_bucket_name,
+                credentials_json=st.session_state.config.gcs_credentials_json,
+                enable_cache=st.session_state.config.enable_local_cache,
+            )
+        except Exception as e:
+            st.error(f"Failed to initialize GCS storage backend: {e}")
+            st.info("Make sure GCS credentials are configured in .streamlit/secrets.toml")
+            st.stop()
+
     if "upload_manager" not in st.session_state:
         st.session_state.upload_manager = UploadManager(
             st.session_state.config,
             st.session_state.client,
             st.session_state.registry,
             st.session_state.tracker,
+            st.session_state.storage_backend,
         )
 
     if "selected_area" not in st.session_state:
@@ -264,10 +302,15 @@ def main():
                 st.session_state.messages = []  # Clear chat history on location change
 
                 # Load chunks for selected location
-                chunks_dir = os.path.join(
-                    st.session_state.config.chunks_dir, area, site
-                )
-                context, chunk_files = load_chunks(chunks_dir)
+                # For GCS: use blob path like "data/chunks/area/site"
+                # For local: use directory path like "data/chunks/area/site"
+                if st.session_state.storage_backend:
+                    chunks_dir = f"{st.session_state.config.chunks_dir}/{area}/{site}"
+                else:
+                    chunks_dir = os.path.join(
+                        st.session_state.config.chunks_dir, area, site
+                    )
+                context, chunk_files = load_chunks(chunks_dir, st.session_state.storage_backend)
                 st.session_state.context = context
                 st.session_state.chunk_files = chunk_files
 
