@@ -34,6 +34,9 @@ gemini_rag:
   registry_path: "gemini/store_registry.json"
   upload_tracking_path: "gemini/upload_tracking.json"
 
+  # Prompts directory for YAML-based LLM configurations
+  prompts_dir: "prompts/"
+
   # Chunks will be stored as sibling to content_root
   chunks_dir: "data/chunks"
 

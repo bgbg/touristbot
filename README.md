@@ -6,6 +6,7 @@ A Retrieval-Augmented Generation (RAG) system for tourism Q&A using Google Gemin
 
 - **Streamlit Web Interface**: Modern web UI for Q&A and content management
 - **Location-Based RAG**: Organize content by area/site hierarchy (e.g., Tel Aviv District → Jaffa Port)
+- **YAML-Based Prompt Configuration**: Separate prompt engineering from code with version-controlled YAML files
 - **Flexible Content Upload**: Upload from structured directories or flat folders with custom location mapping
 - **Content Management**: View, delete, and manage uploaded content through the web interface
 - **Token-Based Chunking**: Smart content chunking with configurable overlap
@@ -315,6 +316,7 @@ roy_chat/
 │   ├── main_upload.py          # CLI upload tool
 │   ├── config.py               # Configuration management
 │   ├── config.yaml             # Configuration file
+│   ├── prompt_loader.py        # YAML-based prompt configuration loader
 │   ├── chunker.py              # Content chunking logic
 │   ├── directory_parser.py     # Parse content directory structure
 │   ├── store_manager.py        # Gemini File Search API wrapper
@@ -323,6 +325,9 @@ roy_chat/
 │   ├── upload_tracker.py       # Track uploaded files with hashes
 │   ├── upload_manager.py       # Upload operations and content management
 │   └── query_processor.py      # Query processing and RAG logic
+├── prompts/
+│   ├── tourism_qa.yaml         # Tourism Q&A prompt configuration
+│   └── README.md               # Prompt configuration documentation
 ├── data/
 │   ├── locations/              # Source content (area/site hierarchy)
 │   └── chunks/                 # Generated chunks (auto-created)
@@ -364,6 +369,66 @@ Alternatively, use the web interface to upload files from any folder and assign 
 5. **Query**: Questions are processed with relevant chunks loaded based on selected location
 6. **Response**: Gemini generates answers using RAG with the uploaded content
 
+## YAML-Based Prompt Configuration
+
+The system uses YAML files to configure LLM prompts, separating prompt engineering from code. This enables version control for prompts, easy A/B testing, and prompt reuse.
+
+### Prompt File Structure
+
+Prompt configurations are stored in the `prompts/` directory. Each YAML file contains:
+
+```yaml
+model_name: gemini-2.0-flash
+temperature: 0.7
+
+system_prompt: |
+  You are a helpful tourism guide assistant for the {area} region,
+  specifically for the {site} area.
+
+  Use ONLY the following source material to answer questions.
+
+  SOURCE MATERIAL:
+  {context}
+
+user_prompt: |
+  {question}
+```
+
+### Variable Interpolation
+
+Use Python format string placeholders in prompts:
+- `{area}` - Geographic area/region
+- `{site}` - Specific site within the area
+- `{context}` - Source material/context for RAG
+- `{question}` - User's question
+- `{conversation_history}` - Previous conversation messages
+- `{bot_name}` - Bot name/persona
+- `{bot_personality}` - Bot personality description
+
+### Creating Custom Prompts
+
+1. Create a new YAML file in `prompts/` directory (e.g., `prompts/museum_qa.yaml`)
+2. Define `model_name`, `temperature`, `system_prompt`, and `user_prompt`
+3. Use `{variable_name}` placeholders where dynamic content should be inserted
+4. Update your code to load the new prompt configuration:
+
+```python
+from gemini.prompt_loader import PromptLoader
+
+# Load prompt configuration
+prompt_config = PromptLoader.load('prompts/museum_qa.yaml')
+
+# Format prompts with variables
+system_prompt, user_prompt = prompt_config.format(
+    area="Jerusalem",
+    site="Old City",
+    context="Historical information...",
+    question="What is the significance of this site?"
+)
+```
+
+See [prompts/README.md](prompts/README.md) for detailed documentation.
+
 ## Configuration Options
 
 Key settings in `config.yaml`:
@@ -374,6 +439,7 @@ Key settings in `config.yaml`:
 - `chunk_overlap_percent`: Overlap between chunks (default: 0.20)
 - `model_name`: Gemini model to use (e.g., "gemini-2.0-flash-exp")
 - `temperature`: Model temperature for responses (0.0-2.0)
+- `prompts_dir`: Directory containing YAML prompt configurations (default: "prompts/")
 - `supported_formats`: File extensions to process (.txt, .md, etc.)
 
 ## Generated Files
