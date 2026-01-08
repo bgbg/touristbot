@@ -44,6 +44,9 @@ def test_prefix():
 @pytest.fixture(scope="module")
 def gcs_storage(gcs_config):
     """Create GCSStorage instance for testing"""
+    if not gcs_config.gcs_credentials_json:
+        pytest.skip("GCS credentials not configured in .streamlit/secrets.toml - skipping GCS tests")
+
     storage = GCSStorage(
         bucket_name=gcs_config.gcs_bucket_name,
         credentials_json=gcs_config.gcs_credentials_json,

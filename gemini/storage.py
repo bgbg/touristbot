@@ -65,7 +65,9 @@ class GCSStorage(StorageBackend):
             credentials = service_account.Credentials.from_service_account_info(
                 credentials_dict
             )
-            self.client = storage.Client(credentials=credentials)
+            # Extract project_id from credentials
+            project_id = credentials_dict.get("project_id")
+            self.client = storage.Client(credentials=credentials, project=project_id)
         else:
             # Use default credentials (Application Default Credentials)
             self.client = storage.Client()
