@@ -32,13 +32,23 @@ python main.py
 
 ## Project Structure
 
-- `main.py` - Main entry point with sample code
+- `gemini/` - Main package with core functionality
+- `tests/` - Test suite organized to mirror source structure
+- `pytest.ini` - pytest configuration
 - `.idea/` - PyCharm IDE configuration files
 
-## Notes
+## Testing
 
-This is a new repository with minimal structure. As the project grows, consider adding:
-- `requirements.txt` or `pyproject.toml` for dependency management
-- Testing framework (pytest, unittest)
-- Project-specific modules and packages
-- Documentation as the codebase expands
+The project uses pytest as the testing framework. Tests are organized in the `tests/` directory with a structure that mirrors the source code.
+
+Run tests:
+```bash
+pytest                    # Run all tests
+pytest tests/gemini/      # Run tests for gemini package
+pytest -v                 # Verbose output
+pytest -k "test_name"     # Run specific test
+```
+
+Test organization:
+- `tests/gemini/` - Unit tests for gemini package modules
+- Tests use pytest fixtures and mocking for isolation
