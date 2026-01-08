@@ -62,6 +62,9 @@ class GeminiConfig:
     registry_path: str = "gemini/store_registry.json"
     upload_tracking_path: str = "gemini/upload_tracking.json"
 
+    # Prompts directory
+    prompts_dir: str = "prompts/"
+
     # Force reupload flag
     force_reupload: bool = False
 
@@ -132,6 +135,7 @@ class GeminiConfig:
             upload_tracking_path=gemini_config.get(
                 "upload_tracking_path", "gemini/upload_tracking.json"
             ),
+            prompts_dir=gemini_config.get("prompts_dir", "prompts/"),
             force_reupload=gemini_config.get("force_reupload", False),
             auto_rebuild_registry=gemini_config.get("auto_rebuild_registry", True),
             supported_formats=yaml_config.get(

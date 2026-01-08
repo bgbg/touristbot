@@ -26,6 +26,7 @@ from google.genai import types
 
 from gemini.config import GeminiConfig
 from gemini.conversation_utils import convert_messages_to_gemini_format
+from gemini.prompt_loader import PromptLoader
 from gemini.query_logger import QueryLogger
 from gemini.store_registry import StoreRegistry
 from gemini.upload_manager import UploadManager
@@ -174,20 +175,20 @@ def get_response(
     client = st.session_state.client
     context = st.session_state.context
 
-    model_name = config.model_name
+    # Load prompt configuration from YAML
+    prompt_config = PromptLoader.load("prompts/tourism_qa.yaml")
+
+    # Format prompts with variables
+    system_instruction, _ = prompt_config.format(
+        area=area, site=site, context=context, question=question
+    )
+
+    # Use model and temperature from YAML if not overridden by config
+    model_name = prompt_config.model_name
     if not model_name.startswith("models/"):
         model_name = f"models/{model_name}"
 
-    system_instruction = f"""You are a helpful tourism guide assistant for the {area} region,
-specifically for the {site} area.
-
-Use ONLY the following source material to answer questions. If the answer is not in the source material,
-say so honestly. Always respond in the same language as the question.
-
-SOURCE MATERIAL:
-{context}
-
-Answer questions based only on this source material."""
+    temperature = prompt_config.temperature
 
     # Build conversation history from previous messages
     if messages is None:
@@ -207,7 +208,7 @@ Answer questions based only on this source material."""
         model=model_name,
         contents=conversation_history,
         config=types.GenerateContentConfig(
-            system_instruction=system_instruction, temperature=config.temperature
+            system_instruction=system_instruction, temperature=temperature
         ),
     )
 

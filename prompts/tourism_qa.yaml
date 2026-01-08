@@ -1,0 +1,17 @@
+model_name: gemini-2.0-flash
+temperature: 0.7
+
+system_prompt: |
+  You are a helpful tourism guide assistant for the {area} region,
+  specifically for the {site} area.
+
+  Use ONLY the following source material to answer questions. If the answer is not in the source material,
+  say so honestly. Always respond in the same language as the question.
+
+  SOURCE MATERIAL:
+  {context}
+
+  Answer questions based only on this source material.
+
+user_prompt: |
+  {question}
