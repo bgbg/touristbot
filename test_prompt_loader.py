@@ -111,6 +111,37 @@ def test_prompt_loader_load_invalid_types(tmp_path):
         PromptLoader.load(str(yaml_file))
 
 
+def test_prompt_loader_load_invalid_temperature_bounds(tmp_path):
+    """Test that temperature outside valid bounds raises ValueError"""
+    # Test temperature too high
+    yaml_file_high = tmp_path / "temp_high.yaml"
+    yaml_content_high = {
+        "model_name": "gemini-2.0-flash",
+        "temperature": 3.0,  # Too high (max is 2.0)
+        "system_prompt": "System",
+        "user_prompt": "User",
+    }
+    with open(yaml_file_high, "w") as f:
+        yaml.dump(yaml_content_high, f)
+
+    with pytest.raises(ValueError, match="Invalid temperature value.*Must be between 0.0 and 2.0"):
+        PromptLoader.load(str(yaml_file_high))
+
+    # Test temperature too low
+    yaml_file_low = tmp_path / "temp_low.yaml"
+    yaml_content_low = {
+        "model_name": "gemini-2.0-flash",
+        "temperature": -0.5,  # Too low (min is 0.0)
+        "system_prompt": "System",
+        "user_prompt": "User",
+    }
+    with open(yaml_file_low, "w") as f:
+        yaml.dump(yaml_content_low, f)
+
+    with pytest.raises(ValueError, match="Invalid temperature value.*Must be between 0.0 and 2.0"):
+        PromptLoader.load(str(yaml_file_low))
+
+
 def test_prompt_loader_load_relative_path():
     """Test loading with relative path from project root"""
     # This assumes prompts/tourism_qa.yaml exists in the project

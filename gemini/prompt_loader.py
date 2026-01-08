@@ -2,10 +2,10 @@
 Prompt loader for YAML-based LLM prompt configurations
 """
 
-import os
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Tuple
 
 import yaml
 
@@ -46,6 +46,7 @@ class PromptLoader:
     """Loader for YAML-based prompt configurations"""
 
     @staticmethod
+    @lru_cache(maxsize=10)
     def load(yaml_path: str) -> PromptConfig:
         """
         Load prompt configuration from YAML file
@@ -100,6 +101,13 @@ class PromptLoader:
                 f"Invalid type for 'temperature' in {yaml_path}: expected float, got {type(config_data['temperature']).__name__}"
             )
 
+        # Validate temperature bounds (Gemini API accepts 0.0-2.0)
+        temperature = float(config_data["temperature"])
+        if not 0.0 <= temperature <= 2.0:
+            raise ValueError(
+                f"Invalid temperature value in {yaml_path}: {temperature}. Must be between 0.0 and 2.0"
+            )
+
         if not isinstance(config_data["system_prompt"], str):
             raise ValueError(
                 f"Invalid type for 'system_prompt' in {yaml_path}: expected str, got {type(config_data['system_prompt']).__name__}"
@@ -113,7 +121,7 @@ class PromptLoader:
         # Create and return PromptConfig
         return PromptConfig(
             model_name=config_data["model_name"],
-            temperature=float(config_data["temperature"]),
+            temperature=temperature,
             system_prompt=config_data["system_prompt"],
             user_prompt=config_data["user_prompt"],
         )

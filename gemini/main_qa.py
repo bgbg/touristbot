@@ -175,15 +175,16 @@ def get_response(
     client = st.session_state.client
     context = st.session_state.context
 
-    # Load prompt configuration from YAML
-    prompt_config = PromptLoader.load("prompts/tourism_qa.yaml")
+    # Load prompt configuration from YAML (cached)
+    prompt_path = f"{config.prompts_dir}tourism_qa.yaml"
+    prompt_config = PromptLoader.load(prompt_path)
 
     # Format prompts with variables
     system_instruction, _ = prompt_config.format(
         area=area, site=site, context=context, question=question
     )
 
-    # Use model and temperature from YAML if not overridden by config
+    # Use model and temperature from YAML prompt configuration
     model_name = prompt_config.model_name
     if not model_name.startswith("models/"):
         model_name = f"models/{model_name}"
