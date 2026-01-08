@@ -8,7 +8,7 @@ Each YAML file should contain the following fields:
 
 ```yaml
 model_name: <string>      # Gemini model name (e.g., "gemini-2.0-flash", "gemini-1.5-pro")
-temperature: <float>      # Temperature parameter (0.0 to 1.0)
+temperature: <float>      # Temperature parameter (0.0 to 2.0)
 system_prompt: |          # System instruction with variable placeholders
   <multi-line system prompt>
 user_prompt: |            # User prompt template with variable placeholders
@@ -44,10 +44,10 @@ See [tourism_qa.yaml](tourism_qa.yaml) for a working example of a tourism guide 
 from gemini.prompt_loader import PromptLoader
 
 # Load prompt configuration
-loader = PromptLoader.load('prompts/tourism_qa.yaml')
+prompt_config = PromptLoader.load('prompts/tourism_qa.yaml')
 
 # Interpolate variables
-system_prompt, user_prompt = loader.format(
+system_prompt, user_prompt = prompt_config.format(
     area="Galilee",
     site="Capernaum",
     context="Historical information...",

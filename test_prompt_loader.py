@@ -2,10 +2,6 @@
 Unit tests for PromptLoader
 """
 
-import os
-import tempfile
-from pathlib import Path
-
 import pytest
 import yaml
 
@@ -108,6 +104,16 @@ def test_prompt_loader_load_invalid_types(tmp_path):
         yaml.dump(yaml_content, f)
 
     with pytest.raises(ValueError, match="Invalid type"):
+        PromptLoader.load(str(yaml_file))
+
+
+def test_prompt_loader_load_empty_yaml(tmp_path):
+    """Test that empty YAML file raises ValueError"""
+    yaml_file = tmp_path / "empty.yaml"
+    with open(yaml_file, "w") as f:
+        f.write("")  # Empty file
+
+    with pytest.raises(ValueError, match="empty or does not contain a valid configuration"):
         PromptLoader.load(str(yaml_file))
 
 

@@ -46,7 +46,6 @@ class PromptLoader:
     """Loader for YAML-based prompt configurations"""
 
     @staticmethod
-    @lru_cache(maxsize=10)
     def load(yaml_path: str) -> PromptConfig:
         """
         Load prompt configuration from YAML file
@@ -62,13 +61,33 @@ class PromptLoader:
             ValueError: If YAML file has invalid schema or missing required fields
             yaml.YAMLError: If YAML file has syntax errors
         """
-        # Resolve path (handle both relative and absolute paths)
-        yaml_path = Path(yaml_path)
-        if not yaml_path.is_absolute():
-            # If relative, resolve from current working directory
-            yaml_path = Path.cwd() / yaml_path
+        # Normalize path to absolute before caching for better cache efficiency
+        yaml_path_obj = Path(yaml_path)
+        if not yaml_path_obj.is_absolute():
+            yaml_path_obj = Path.cwd() / yaml_path_obj
 
-        if not yaml_path.exists():
+        # Resolve to canonical absolute path (resolves symlinks, .., etc.)
+        yaml_path_obj = yaml_path_obj.resolve()
+        normalized_path = str(yaml_path_obj)
+
+        # Use cached internal loader
+        return PromptLoader._load_cached(normalized_path)
+
+    @staticmethod
+    @lru_cache(maxsize=10)
+    def _load_cached(yaml_path: str) -> PromptConfig:
+        """
+        Internal cached loader (called after path normalization)
+
+        Args:
+            yaml_path: Normalized absolute path to YAML file
+
+        Returns:
+            PromptConfig instance
+        """
+        yaml_path_obj = Path(yaml_path)
+
+        if not yaml_path_obj.exists():
             raise FileNotFoundError(f"Prompt configuration file not found: {yaml_path}")
 
         # Load YAML file
@@ -79,6 +98,12 @@ class PromptLoader:
             raise yaml.YAMLError(
                 f"Failed to parse YAML file {yaml_path}: {e}"
             ) from e
+
+        # Validate that YAML contains a dictionary
+        if config_data is None or not isinstance(config_data, dict):
+            raise ValueError(
+                f"YAML file {yaml_path} is empty or does not contain a valid configuration"
+            )
 
         # Validate required fields
         required_fields = ["model_name", "temperature", "system_prompt", "user_prompt"]
