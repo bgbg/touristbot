@@ -40,6 +40,22 @@ gemini_rag:
   # Force re-upload all files (ignore tracking)
   force_reupload: false
 
+# Google Cloud Storage configuration
+# GCS is the single source of truth for all content and chunks
+# Both local development and Streamlit Cloud use GCS backend
+storage:
+  # GCS bucket name (must be created beforehand)
+  gcs_bucket_name: "tarasa_tourist_bot_content"
+
+  # Enable local file caching for performance (optional)
+  # When enabled, files are cached locally but GCS remains authoritative
+  # Set to true if you experience slow chunk loading times
+  enable_local_cache: false
+
+  # Note: GCS credentials must be configured in .streamlit/secrets.toml
+  # All developers need GCS access for local development
+  # See .streamlit/secrets.toml.example for credential setup
+
 # Supported file types
 supported_formats:
   - ".txt"
