@@ -406,12 +406,16 @@ def main():
             else:
                 chunk_count = len(st.session_state.chunk_files)
 
+            # Get topic count
+            topic_count = len(st.session_state.topics) if st.session_state.topics else 0
+
             st.info(
                 f"""
                 **Area:** {area}
                 **Site:** {site}
                 **Documents:** {metadata.get('file_count', 'N/A')}
                 **Chunks:** {chunk_count}
+                **Topics:** {topic_count}
                 """
             )
 
@@ -425,6 +429,72 @@ def main():
                             # Set the query in session state to be used by chat input
                             st.session_state.topic_query = f"ספר לי על {topic}"
                             st.rerun()
+
+            # Button to extract/regenerate topics
+            st.markdown("---")
+            if st.button("🔄 Extract Topics", help="Generate or regenerate topics from location content"):
+                with st.spinner("Extracting topics..."):
+                    try:
+                        # Load all chunks for this location
+                        chunks_content = []
+                        if st.session_state.storage_backend:
+                            # Read chunks from GCS
+                            chunks_path = f"{st.session_state.config.chunks_dir}/{area}/{site}"
+                            chunk_files_list = st.session_state.storage_backend.list_files(chunks_path, "*.txt")
+                            for chunk_file in chunk_files_list:
+                                chunk_text = st.session_state.storage_backend.read_file(chunk_file)
+                                chunks_content.append(chunk_text)
+                        else:
+                            # Read chunks from local filesystem
+                            import os
+                            chunks_dir = os.path.join(st.session_state.config.chunks_dir, area, site)
+                            if os.path.exists(chunks_dir):
+                                for filename in os.listdir(chunks_dir):
+                                    if filename.endswith(".txt"):
+                                        filepath = os.path.join(chunks_dir, filename)
+                                        with open(filepath, "r", encoding="utf-8") as f:
+                                            chunks_content.append(f.read())
+
+                        if not chunks_content:
+                            st.error("No chunks found for this location. Please upload content first.")
+                        else:
+                            # Combine chunks and extract topics
+                            combined_chunks = "\n\n".join(chunks_content)
+
+                            from gemini.topic_extractor import extract_topics_from_chunks
+                            import json
+
+                            topics = extract_topics_from_chunks(
+                                chunks=combined_chunks,
+                                area=area,
+                                site=site,
+                                model=st.session_state.config.model,
+                                client=st.session_state.client,
+                            )
+
+                            # Save topics to storage
+                            topics_path = f"topics/{area}/{site}/topics.json"
+                            topics_json = json.dumps(topics, ensure_ascii=False, indent=2)
+
+                            if st.session_state.storage_backend:
+                                st.session_state.storage_backend.write_file(topics_path, topics_json)
+                            else:
+                                # Save to local filesystem
+                                import os
+                                topics_dir = os.path.join("topics", area, site)
+                                os.makedirs(topics_dir, exist_ok=True)
+                                topics_file = os.path.join(topics_dir, "topics.json")
+                                with open(topics_file, "w", encoding="utf-8") as f:
+                                    f.write(topics_json)
+
+                            # Update session state
+                            st.session_state.topics = topics
+
+                            st.success(f"✅ Successfully extracted {len(topics)} topics!")
+                            st.rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ Topic extraction failed: {str(e)}")
 
         st.markdown("---")
 
