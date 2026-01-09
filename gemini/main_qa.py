@@ -327,12 +327,24 @@ def main():
             registry_data = st.session_state.registry.registry.get(f"{area}:{site}", {})
             metadata = registry_data.get("metadata", {})
 
+            # Get actual chunk count from storage
+            chunk_count = 0
+            if st.session_state.storage_backend:
+                try:
+                    chunks_path = f"{st.session_state.config.chunks_dir}/{area}/{site}"
+                    chunk_files_list = st.session_state.storage_backend.list_files(chunks_path, "*.txt")
+                    chunk_count = len(chunk_files_list)
+                except Exception:
+                    chunk_count = len(st.session_state.chunk_files)
+            else:
+                chunk_count = len(st.session_state.chunk_files)
+
             st.info(
                 f"""
                 **Area:** {area}
                 **Site:** {site}
                 **Documents:** {metadata.get('file_count', 'N/A')}
-                **Chunks:** {len(st.session_state.chunk_files)}
+                **Chunks:** {chunk_count}
                 """
             )
 
