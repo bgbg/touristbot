@@ -120,9 +120,16 @@ class GeminiConfig:
             # Try to get GCS credentials from secrets
             gcs_creds = get_secret("gcs_credentials")
             if gcs_creds:
-                # If gcs_credentials is a dict (from TOML), convert to JSON string
-                if isinstance(gcs_creds, dict):
+                # If gcs_credentials is a dict-like object (from TOML), convert to JSON string
+                # This includes both dict and Streamlit's AttrDict
+                if hasattr(gcs_creds, 'keys') or isinstance(gcs_creds, dict):
                     import json
+                    # Convert to regular dict if it's an AttrDict or similar
+                    if hasattr(gcs_creds, 'to_dict'):
+                        gcs_creds = gcs_creds.to_dict()
+                    elif not isinstance(gcs_creds, dict):
+                        # Convert AttrDict-like objects to dict
+                        gcs_creds = dict(gcs_creds)
                     gcs_credentials_json = json.dumps(gcs_creds)
                 else:
                     # If it's already a string, use it directly

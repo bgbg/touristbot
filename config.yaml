@@ -37,8 +37,8 @@ gemini_rag:
   # Prompts directory for YAML-based LLM configurations
   prompts_dir: "prompts/"
 
-  # Chunks will be stored as sibling to content_root
-  chunks_dir: "data/chunks"
+  # Chunks will be stored in GCS (path within bucket)
+  chunks_dir: "chunks"
 
   # Force re-upload all files (ignore tracking)
   force_reupload: false
