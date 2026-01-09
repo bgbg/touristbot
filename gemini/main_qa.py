@@ -31,6 +31,7 @@ from gemini.prompt_loader import PromptLoader
 from gemini.query_logger import QueryLogger
 from gemini.storage import get_storage_backend
 from gemini.store_registry import StoreRegistry
+from gemini.topic_extractor import extract_topics_from_chunks
 from gemini.upload_manager import UploadManager
 from gemini.upload_tracker import UploadTracker
 
@@ -446,7 +447,6 @@ def main():
                                 chunks_content.append(chunk_text)
                         else:
                             # Read chunks from local filesystem
-                            import os
                             chunks_dir = os.path.join(st.session_state.config.chunks_dir, area, site)
                             if os.path.exists(chunks_dir):
                                 for filename in os.listdir(chunks_dir):
@@ -460,9 +460,6 @@ def main():
                         else:
                             # Combine chunks and extract topics
                             combined_chunks = "\n\n".join(chunks_content)
-
-                            from gemini.topic_extractor import extract_topics_from_chunks
-                            import json
 
                             topics = extract_topics_from_chunks(
                                 chunks=combined_chunks,
@@ -480,7 +477,6 @@ def main():
                                 st.session_state.storage_backend.write_file(topics_path, topics_json)
                             else:
                                 # Save to local filesystem
-                                import os
                                 topics_dir = os.path.join("topics", area, site)
                                 os.makedirs(topics_dir, exist_ok=True)
                                 topics_file = os.path.join(topics_dir, "topics.json")

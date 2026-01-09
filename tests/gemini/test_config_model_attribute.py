@@ -6,7 +6,7 @@ using the proper attribute name (model_name, not model).
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from gemini.config import GeminiConfig
 
 

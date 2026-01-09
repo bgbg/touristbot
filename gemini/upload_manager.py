@@ -11,6 +11,7 @@ Provides functionality to:
 
 import json
 import os
+import shutil
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -150,14 +151,11 @@ class UploadManager:
                 # Use local filesystem
                 chunks_dir = os.path.join(self.config.chunks_dir, area, site)
                 if os.path.exists(chunks_dir):
-                    import shutil
-
                     shutil.rmtree(chunks_dir)
 
                 # Delete topics file if it exists
                 topics_file = os.path.join("topics", area, site, "topics.json")
                 if os.path.exists(topics_file):
-                    import shutil
                     topics_dir = os.path.join("topics", area, site)
                     shutil.rmtree(topics_dir)
 

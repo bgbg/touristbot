@@ -31,8 +31,7 @@ def extract_topics_from_chunks(
         List of 5-10 topic strings extracted from the content
 
     Raises:
-        ValueError: If topic extraction fails or returns invalid format
-        Exception: If Gemini API call fails
+        Exception: If topic extraction fails, returns invalid format, or Gemini API call fails
     """
     # Load topic extraction prompt configuration
     prompt_path = "prompts/topic_extraction.yaml"

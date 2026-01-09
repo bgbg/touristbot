@@ -54,8 +54,8 @@ def parse_json(text: str) -> Optional[Any]:
             except json.JSONDecodeError:
                 pass
 
-    # Try to extract JSON from the text
-    json_pattern = r"\{.*\}"
+    # Try to extract JSON from the text (using non-greedy quantifiers)
+    json_pattern = r"\{.*?\}"
     match = re.search(json_pattern, text, re.DOTALL)
     if match:
         json_text = match.group()
@@ -71,8 +71,8 @@ def parse_json(text: str) -> Optional[Any]:
                     except json.JSONDecodeError:
                         pass
 
-    # Try to extract JSON array (most common for topic lists)
-    array_pattern = r"\[.*\]"
+    # Try to extract JSON array (most common for topic lists, using non-greedy quantifiers)
+    array_pattern = r"\[.*?\]"
     match = re.search(array_pattern, text, re.DOTALL)
     if match:
         try:
