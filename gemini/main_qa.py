@@ -196,8 +196,22 @@ def initialize_session_state():
             st.session_state.selected_site = None
 
     if "context" not in st.session_state:
-        st.session_state.context = ""
-        st.session_state.chunk_files = []
+        # Load chunks for the initially selected location
+        if st.session_state.selected_area and st.session_state.selected_site:
+            area = st.session_state.selected_area
+            site = st.session_state.selected_site
+            if st.session_state.storage_backend:
+                chunks_dir = f"{st.session_state.config.chunks_dir}/{area}/{site}"
+            else:
+                chunks_dir = os.path.join(
+                    st.session_state.config.chunks_dir, area, site
+                )
+            context, chunk_files = load_chunks(chunks_dir, st.session_state.storage_backend)
+            st.session_state.context = context
+            st.session_state.chunk_files = chunk_files
+        else:
+            st.session_state.context = ""
+            st.session_state.chunk_files = []
 
 
 def get_response(
