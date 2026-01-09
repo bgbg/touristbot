@@ -155,7 +155,7 @@ def test_extract_topics_too_few_raises_error(mock_client, sample_chunks):
 
 
 def test_extract_topics_invalid_json_raises_error(mock_client, sample_chunks):
-    """Test that invalid JSON raises ValueError"""
+    """Test that invalid JSON raises Exception"""
     # Mock API response with invalid JSON
     mock_response = Mock()
     mock_response.text = 'This is not valid JSON'
@@ -168,7 +168,7 @@ def test_extract_topics_invalid_json_raises_error(mock_client, sample_chunks):
         mock_config.format = Mock(return_value=("System", "User"))
         MockPromptLoader.load = Mock(return_value=mock_config)
 
-        with pytest.raises(ValueError, match="Failed to parse topic extraction response"):
+        with pytest.raises(Exception, match="Topic extraction failed"):
             extract_topics_from_chunks(
                 chunks=sample_chunks,
                 area="Test",

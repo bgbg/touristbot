@@ -120,13 +120,13 @@ def main():
         sys.exit(1)
 
     # Extract topics
-    print(f"\nExtracting topics using {config.model}...")
+    print(f"\nExtracting topics using {config.model_name}...")
     try:
         topics = extract_topics_from_chunks(
             chunks=chunks_text,
             area=area,
             site=site,
-            model=config.model,
+            model=config.model_name,
             client=client,
         )
 

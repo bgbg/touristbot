@@ -468,7 +468,7 @@ def main():
                                 chunks=combined_chunks,
                                 area=area,
                                 site=site,
-                                model=st.session_state.config.model,
+                                model=st.session_state.config.model_name,
                                 client=st.session_state.client,
                             )
 

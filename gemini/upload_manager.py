@@ -325,7 +325,7 @@ class UploadManager:
                         chunks=chunks_text,
                         area=loc_area,
                         site=loc_site,
-                        model=self.config.model,
+                        model=self.config.model_name,
                         client=self.client,
                     )
 
