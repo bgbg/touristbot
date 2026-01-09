@@ -9,6 +9,7 @@ Provides functionality to:
 - Upload new content with or without force
 """
 
+import json
 import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -20,6 +21,7 @@ from gemini.config import GeminiConfig
 from gemini.directory_parser import DirectoryParser
 from gemini.store_manager import StoreManager
 from gemini.store_registry import StoreRegistry
+from gemini.topic_extractor import extract_topics_from_chunks
 from gemini.upload_tracker import UploadTracker
 
 if TYPE_CHECKING:
@@ -136,6 +138,14 @@ class UploadManager:
                 chunk_files = self.storage_backend.list_files(chunks_path)
                 for chunk_file in chunk_files:
                     self.storage_backend.delete_file(chunk_file)
+
+                # Delete topics file if it exists
+                try:
+                    topics_path = f"topics/{area}/{site}/topics.json"
+                    self.storage_backend.delete_file(topics_path)
+                except Exception:
+                    # Topics file may not exist, ignore error
+                    pass
             else:
                 # Use local filesystem
                 chunks_dir = os.path.join(self.config.chunks_dir, area, site)
@@ -143,6 +153,13 @@ class UploadManager:
                     import shutil
 
                     shutil.rmtree(chunks_dir)
+
+                # Delete topics file if it exists
+                topics_file = os.path.join("topics", area, site, "topics.json")
+                if os.path.exists(topics_file):
+                    import shutil
+                    topics_dir = os.path.join("topics", area, site)
+                    shutil.rmtree(topics_dir)
 
             # Remove from registry
             store_key = f"{area}:{site}"
@@ -286,6 +303,53 @@ class UploadManager:
                         )
                     chunk_files.extend(chunks)
 
+                # Generate topics from chunks
+                topics = []
+                try:
+                    # Load all chunk content for topic extraction
+                    combined_chunks = []
+                    for chunk_file in chunk_files:
+                        if self.storage_backend:
+                            # Read from GCS
+                            chunk_content = self.storage_backend.read_file(chunk_file)
+                        else:
+                            # Read from local filesystem
+                            with open(chunk_file, "r", encoding="utf-8") as f:
+                                chunk_content = f.read()
+                        combined_chunks.append(chunk_content)
+
+                    chunks_text = "\n\n".join(combined_chunks)
+
+                    # Extract topics using Gemini
+                    topics = extract_topics_from_chunks(
+                        chunks=chunks_text,
+                        area=loc_area,
+                        site=loc_site,
+                        model=self.config.model,
+                        client=self.client,
+                    )
+
+                    # Write topics to GCS
+                    topics_path = f"topics/{loc_area}/{loc_site}/topics.json"
+                    topics_json = json.dumps(topics, ensure_ascii=False, indent=2)
+
+                    if self.storage_backend:
+                        self.storage_backend.write_file(topics_path, topics_json)
+                    else:
+                        # Write to local filesystem
+                        topics_dir = os.path.join("topics", loc_area, loc_site)
+                        os.makedirs(topics_dir, exist_ok=True)
+                        topics_file = os.path.join(topics_dir, "topics.json")
+                        with open(topics_file, "w", encoding="utf-8") as f:
+                            f.write(topics_json)
+
+                    print(f"-> Generated {len(topics)} topics for {loc_area}/{loc_site}")
+
+                except Exception as e:
+                    print(f"-> Warning: Topic generation failed for {loc_area}/{loc_site}: {e}")
+                    # Continue with upload even if topic generation fails
+                    topics = []
+
                 # Upload to store
                 store_id = self.registry.get_store(loc_area, loc_site)
                 store_manager = StoreManager(
@@ -309,6 +373,7 @@ class UploadManager:
                     metadata={
                         "file_count": len(files_to_upload),
                         "chunk_count": len(chunk_files),
+                        "topic_count": len(topics),
                     },
                 )
 
