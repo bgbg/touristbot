@@ -5,12 +5,12 @@ Uses Gemini LLM to analyze content and extract 5-10 relevant topics that represe
 the main themes and subjects available for each location/site.
 """
 
-import json
 from typing import List
 
 import google.genai as genai
 from google.genai import types
 
+from gemini.json_helpers import parse_json
 from gemini.prompt_loader import PromptLoader
 
 
@@ -57,22 +57,14 @@ def extract_topics_from_chunks(
             ),
         )
 
-        # Parse response as JSON array
+        # Parse response using robust JSON parser
         response_text = response.text.strip()
-
-        # Handle markdown code blocks if present
-        if response_text.startswith("```json"):
-            response_text = response_text[7:]  # Remove ```json
-        if response_text.startswith("```"):
-            response_text = response_text[3:]  # Remove ```
-        if response_text.endswith("```"):
-            response_text = response_text[:-3]  # Remove trailing ```
-        response_text = response_text.strip()
-
-        # Parse JSON
-        topics = json.loads(response_text)
+        topics = parse_json(response_text)
 
         # Validate response format
+        if topics is None:
+            raise ValueError(f"Failed to parse JSON from response: {response_text[:100]}...")
+
         if not isinstance(topics, list):
             raise ValueError(f"Expected JSON array, got {type(topics).__name__}")
 
@@ -88,7 +80,8 @@ def extract_topics_from_chunks(
 
         return topics
 
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse topic extraction response as JSON: {e}") from e
+    except ValueError as e:
+        # Re-raise ValueError as-is (validation errors)
+        raise Exception(f"Topic extraction failed for {area}/{site}: {e}") from e
     except Exception as e:
         raise Exception(f"Topic extraction failed for {area}/{site}: {e}") from e
