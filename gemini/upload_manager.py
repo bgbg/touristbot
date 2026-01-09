@@ -61,11 +61,20 @@ class UploadManager:
             chunk_count = 0
             if self.storage_backend:
                 # Use storage backend (GCS)
-                chunks_path = f"{self.config.chunks_dir}/{area}/{site}"
-                chunk_files = self.storage_backend.list_files(chunks_path, "*.txt")
-                chunk_count = len(chunk_files)
+                try:
+                    chunks_path = f"{self.config.chunks_dir}/{area}/{site}"
+                    print(f"[DEBUG] Listing chunks from GCS: {chunks_path}")
+                    chunk_files = self.storage_backend.list_files(chunks_path, "*.txt")
+                    chunk_count = len(chunk_files)
+                    print(f"[DEBUG] Found {chunk_count} chunks for {area}/{site}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to list chunks from GCS for {area}/{site}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    chunk_count = 0
             else:
                 # Use local filesystem
+                print(f"[DEBUG] Storage backend is None, using local filesystem")
                 chunks_dir = os.path.join(self.config.chunks_dir, area, site)
                 if os.path.exists(chunks_dir):
                     chunk_count = len(
