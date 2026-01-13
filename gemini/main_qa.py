@@ -425,39 +425,15 @@ def main():
                 st.session_state.selected_site = site
                 st.session_state.messages = []  # Clear chat history on location change
 
-                # Load chunks for selected location
-                # For GCS: use blob path like "data/chunks/area/site"
-                # For local: use directory path like "data/chunks/area/site"
-                if st.session_state.storage_backend:
-                    chunks_dir = f"{st.session_state.config.chunks_dir}/{area}/{site}"
-                else:
-                    chunks_dir = os.path.join(
-                        st.session_state.config.chunks_dir, area, site
-                    )
-                context, chunk_files = load_chunks(chunks_dir, st.session_state.storage_backend)
-                st.session_state.context = context
-                st.session_state.chunk_files = chunk_files
-
                 # Load topics for selected location
-                topics = load_topics(area, site, st.session_state.storage_backend, st.session_state.config)
+                topics = load_topics(
+                    area, site, st.session_state.storage_backend, st.session_state.config
+                )
                 st.session_state.topics = topics
 
             # Display location info
-            store_id = st.session_state.registry.get_store(area, site)
             registry_data = st.session_state.registry.registry.get(f"{area}:{site}", {})
             metadata = registry_data.get("metadata", {})
-
-            # Get actual chunk count from storage
-            chunk_count = 0
-            if st.session_state.storage_backend:
-                try:
-                    chunks_path = f"{st.session_state.config.chunks_dir}/{area}/{site}"
-                    chunk_files_list = st.session_state.storage_backend.list_files(chunks_path, "*.txt")
-                    chunk_count = len(chunk_files_list)
-                except Exception:
-                    chunk_count = len(st.session_state.chunk_files)
-            else:
-                chunk_count = len(st.session_state.chunk_files)
 
             # Get topic count
             topic_count = len(st.session_state.topics) if st.session_state.topics else 0
@@ -466,8 +442,7 @@ def main():
                 f"""
                 **Area:** {area}
                 **Site:** {site}
-                **Documents:** {metadata.get('file_count', 'N/A')}
-                **Chunks:** {chunk_count}
+                **Files:** {metadata.get('file_count', 'N/A')}
                 **Topics:** {topic_count}
                 """
             )
@@ -483,66 +458,14 @@ def main():
                             st.session_state.topic_query = f"ספר לי על {topic}"
                             st.rerun()
 
-            # Button to extract/regenerate topics
+            # Note: Topic extraction from chunks removed with File Search migration
+            # Topics are now pre-generated during upload and stored in GCS
+            # To regenerate topics, use CLI: python gemini/generate_topics.py --area <area> --site <site>
             st.markdown("---")
-            if st.button("🔄 Extract Topics", help="Generate or regenerate topics from location content"):
-                with st.spinner("Extracting topics..."):
-                    try:
-                        # Load all chunks for this location
-                        chunks_content = []
-                        if st.session_state.storage_backend:
-                            # Read chunks from GCS
-                            chunks_path = f"{st.session_state.config.chunks_dir}/{area}/{site}"
-                            chunk_files_list = st.session_state.storage_backend.list_files(chunks_path, "*.txt")
-                            for chunk_file in chunk_files_list:
-                                chunk_text = st.session_state.storage_backend.read_file(chunk_file)
-                                chunks_content.append(chunk_text)
-                        else:
-                            # Read chunks from local filesystem
-                            chunks_dir = os.path.join(st.session_state.config.chunks_dir, area, site)
-                            if os.path.exists(chunks_dir):
-                                for filename in os.listdir(chunks_dir):
-                                    if filename.endswith(".txt"):
-                                        filepath = os.path.join(chunks_dir, filename)
-                                        with open(filepath, "r", encoding="utf-8") as f:
-                                            chunks_content.append(f.read())
-
-                        if not chunks_content:
-                            st.error("No chunks found for this location. Please upload content first.")
-                        else:
-                            # Combine chunks and extract topics
-                            combined_chunks = "\n\n".join(chunks_content)
-
-                            topics = extract_topics_from_chunks(
-                                chunks=combined_chunks,
-                                area=area,
-                                site=site,
-                                model=st.session_state.config.model_name,
-                                client=st.session_state.client,
-                            )
-
-                            # Save topics to storage
-                            topics_path = f"topics/{area}/{site}/topics.json"
-                            topics_json = json.dumps(topics, ensure_ascii=False, indent=2)
-
-                            if st.session_state.storage_backend:
-                                st.session_state.storage_backend.write_file(topics_path, topics_json)
-                            else:
-                                # Save to local filesystem
-                                topics_dir = os.path.join("topics", area, site)
-                                os.makedirs(topics_dir, exist_ok=True)
-                                topics_file = os.path.join(topics_dir, "topics.json")
-                                with open(topics_file, "w", encoding="utf-8") as f:
-                                    f.write(topics_json)
-
-                            # Update session state
-                            st.session_state.topics = topics
-
-                            st.success(f"✅ Successfully extracted {len(topics)} topics!")
-                            st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ Topic extraction failed: {str(e)}")
+            st.caption(
+                "ℹ️ Topics are generated during upload. "
+                "To regenerate, use: `python gemini/generate_topics.py --area <area> --site <site>`"
+            )
 
         st.markdown("---")
 
