@@ -35,3 +35,5 @@ data/chunks/
 todo_*.md
 tmp_*
 *secret*
+chunks/*
+
