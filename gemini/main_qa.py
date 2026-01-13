@@ -7,6 +7,7 @@ Usage:
     streamlit run gemini/main_qa.py
 """
 
+import json
 import os
 import sys
 import time
@@ -30,6 +31,7 @@ from gemini.prompt_loader import PromptLoader
 from gemini.query_logger import QueryLogger
 from gemini.storage import get_storage_backend
 from gemini.store_registry import StoreRegistry
+from gemini.topic_extractor import extract_topics_from_chunks
 from gemini.upload_manager import UploadManager
 from gemini.upload_tracker import UploadTracker
 
@@ -83,6 +85,40 @@ def load_chunks(chunks_dir: str, storage_backend=None) -> tuple[str, list[str]]:
                         st.warning(f"Could not read {file}: {e}")
 
     return "\n".join(chunks), chunk_files
+
+
+def load_topics(area: str, site: str, storage_backend=None, config=None) -> list[str]:
+    """
+    Load topics for a specific location from GCS or local filesystem
+
+    Args:
+        area: Area name
+        site: Site name
+        storage_backend: Optional storage backend (GCS or None for local filesystem)
+        config: Configuration object with chunks_dir path
+
+    Returns:
+        List of topic strings, empty list if topics not found
+    """
+    try:
+        if storage_backend:
+            # Load from GCS
+            topics_path = f"topics/{area}/{site}/topics.json"
+            topics_json = storage_backend.read_file(topics_path)
+            topics = json.loads(topics_json)
+            return topics if isinstance(topics, list) else []
+        else:
+            # Load from local filesystem
+            topics_file = os.path.join("topics", area, site, "topics.json")
+            if os.path.exists(topics_file):
+                with open(topics_file, "r", encoding="utf-8") as f:
+                    topics = json.load(f)
+                    return topics if isinstance(topics, list) else []
+            return []
+    except Exception as e:
+        # Topics not found or invalid, return empty list
+        print(f"Warning: Could not load topics for {area}/{site}: {e}")
+        return []
 
 
 def initialize_session_state():
@@ -213,6 +249,16 @@ def initialize_session_state():
             st.session_state.context = ""
             st.session_state.chunk_files = []
 
+    if "topics" not in st.session_state:
+        # Load topics for the initially selected location
+        if st.session_state.selected_area and st.session_state.selected_site:
+            area = st.session_state.selected_area
+            site = st.session_state.selected_site
+            topics = load_topics(area, site, st.session_state.storage_backend, st.session_state.config)
+            st.session_state.topics = topics
+        else:
+            st.session_state.topics = []
+
 
 def get_response(
     question: str, area: str, site: str, messages: list[dict] | None = None
@@ -232,6 +278,10 @@ def get_response(
     config = st.session_state.config
     client = st.session_state.client
     context = st.session_state.context
+    topics = st.session_state.topics if "topics" in st.session_state else []
+
+    # Format topics as bullet list for the prompt
+    topics_text = "\n".join([f"- {topic}" for topic in topics]) if topics else "אין נושאים זמינים"
 
     # Load prompt configuration from YAML (cached)
     prompt_path = f"{config.prompts_dir}tourism_qa.yaml"
@@ -239,7 +289,7 @@ def get_response(
 
     # Format prompts with variables
     system_instruction, user_message = prompt_config.format(
-        area=area, site=site, context=context, question=question
+        area=area, site=site, context=context, question=question, topics=topics_text
     )
 
     # Use model and temperature from YAML prompt configuration
@@ -336,6 +386,10 @@ def main():
                 st.session_state.context = context
                 st.session_state.chunk_files = chunk_files
 
+                # Load topics for selected location
+                topics = load_topics(area, site, st.session_state.storage_backend, st.session_state.config)
+                st.session_state.topics = topics
+
             # Display location info
             store_id = st.session_state.registry.get_store(area, site)
             registry_data = st.session_state.registry.registry.get(f"{area}:{site}", {})
@@ -353,14 +407,90 @@ def main():
             else:
                 chunk_count = len(st.session_state.chunk_files)
 
+            # Get topic count
+            topic_count = len(st.session_state.topics) if st.session_state.topics else 0
+
             st.info(
                 f"""
                 **Area:** {area}
                 **Site:** {site}
                 **Documents:** {metadata.get('file_count', 'N/A')}
                 **Chunks:** {chunk_count}
+                **Topics:** {topic_count}
                 """
             )
+
+            # Display available topics
+            if st.session_state.topics:
+                st.markdown("---")
+                with st.expander("📚 Available Topics", expanded=False):
+                    st.markdown("Click a topic to ask about it:")
+                    for i, topic in enumerate(st.session_state.topics):
+                        if st.button(topic, key=f"topic_btn_{i}"):
+                            # Set the query in session state to be used by chat input
+                            st.session_state.topic_query = f"ספר לי על {topic}"
+                            st.rerun()
+
+            # Button to extract/regenerate topics
+            st.markdown("---")
+            if st.button("🔄 Extract Topics", help="Generate or regenerate topics from location content"):
+                with st.spinner("Extracting topics..."):
+                    try:
+                        # Load all chunks for this location
+                        chunks_content = []
+                        if st.session_state.storage_backend:
+                            # Read chunks from GCS
+                            chunks_path = f"{st.session_state.config.chunks_dir}/{area}/{site}"
+                            chunk_files_list = st.session_state.storage_backend.list_files(chunks_path, "*.txt")
+                            for chunk_file in chunk_files_list:
+                                chunk_text = st.session_state.storage_backend.read_file(chunk_file)
+                                chunks_content.append(chunk_text)
+                        else:
+                            # Read chunks from local filesystem
+                            chunks_dir = os.path.join(st.session_state.config.chunks_dir, area, site)
+                            if os.path.exists(chunks_dir):
+                                for filename in os.listdir(chunks_dir):
+                                    if filename.endswith(".txt"):
+                                        filepath = os.path.join(chunks_dir, filename)
+                                        with open(filepath, "r", encoding="utf-8") as f:
+                                            chunks_content.append(f.read())
+
+                        if not chunks_content:
+                            st.error("No chunks found for this location. Please upload content first.")
+                        else:
+                            # Combine chunks and extract topics
+                            combined_chunks = "\n\n".join(chunks_content)
+
+                            topics = extract_topics_from_chunks(
+                                chunks=combined_chunks,
+                                area=area,
+                                site=site,
+                                model=st.session_state.config.model_name,
+                                client=st.session_state.client,
+                            )
+
+                            # Save topics to storage
+                            topics_path = f"topics/{area}/{site}/topics.json"
+                            topics_json = json.dumps(topics, ensure_ascii=False, indent=2)
+
+                            if st.session_state.storage_backend:
+                                st.session_state.storage_backend.write_file(topics_path, topics_json)
+                            else:
+                                # Save to local filesystem
+                                topics_dir = os.path.join("topics", area, site)
+                                os.makedirs(topics_dir, exist_ok=True)
+                                topics_file = os.path.join(topics_dir, "topics.json")
+                                with open(topics_file, "w", encoding="utf-8") as f:
+                                    f.write(topics_json)
+
+                            # Update session state
+                            st.session_state.topics = topics
+
+                            st.success(f"✅ Successfully extracted {len(topics)} topics!")
+                            st.rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ Topic extraction failed: {str(e)}")
 
         st.markdown("---")
 
@@ -437,7 +567,15 @@ def main():
                         st.caption(f"⏱️ {message['time']:.2f}s")
 
             # Chat input
-            if question := st.chat_input("Ask a question about this location..."):
+            # Check if user clicked a topic button
+            question = None
+            if "topic_query" in st.session_state:
+                question = st.session_state.topic_query
+                del st.session_state.topic_query  # Clear the query after using it
+            else:
+                question = st.chat_input("Ask a question about this location...")
+
+            if question:
                 # Display user message
                 st.session_state.messages.append({"role": "user", "content": question})
                 with st.chat_message("user"):
