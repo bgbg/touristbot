@@ -168,6 +168,7 @@ def test_end_to_end_tourism_qa():
     system, user = config.format(
         area="Galilee",
         site="Capernaum",
+        topics="Biblical sites, Ancient synagogue, Jesus ministry",
         context="Ancient fishing village...",
         question="What is significant about this site?",
     )
