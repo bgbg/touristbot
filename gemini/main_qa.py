@@ -231,23 +231,11 @@ def initialize_session_state():
             st.session_state.selected_area = None
             st.session_state.selected_site = None
 
+    # Note: context and chunk_files no longer needed with File Search
+    # File Search provides context automatically via metadata filtering
     if "context" not in st.session_state:
-        # Load chunks for the initially selected location
-        if st.session_state.selected_area and st.session_state.selected_site:
-            area = st.session_state.selected_area
-            site = st.session_state.selected_site
-            if st.session_state.storage_backend:
-                chunks_dir = f"{st.session_state.config.chunks_dir}/{area}/{site}"
-            else:
-                chunks_dir = os.path.join(
-                    st.session_state.config.chunks_dir, area, site
-                )
-            context, chunk_files = load_chunks(chunks_dir, st.session_state.storage_backend)
-            st.session_state.context = context
-            st.session_state.chunk_files = chunk_files
-        else:
-            st.session_state.context = ""
-            st.session_state.chunk_files = []
+        st.session_state.context = ""  # Kept for backwards compatibility
+        st.session_state.chunk_files = []
 
     if "topics" not in st.session_state:
         # Load topics for the initially selected location
@@ -260,11 +248,49 @@ def initialize_session_state():
             st.session_state.topics = []
 
 
+def extract_citations(response, top_k: int = 5) -> list[dict]:
+    """
+    Extract citation information from response grounding metadata
+
+    Args:
+        response: Gemini API response object
+        top_k: Maximum number of citations to return
+
+    Returns:
+        List of dicts with keys: uri, title, text, metadata
+    """
+    if not response.candidates:
+        return []
+
+    grounding_metadata = response.candidates[0].grounding_metadata
+    if not grounding_metadata or not grounding_metadata.grounding_chunks:
+        return []
+
+    chunks = grounding_metadata.grounding_chunks[:top_k]
+    citations = []
+
+    for chunk in chunks:
+        retrieved_context = chunk.retrieved_context
+        citation = {
+            "uri": retrieved_context.uri,
+            "title": retrieved_context.title,
+            "text": retrieved_context.text[:200] if retrieved_context.text else "",  # Preview
+        }
+
+        # Include custom metadata if available
+        if hasattr(retrieved_context, "metadata"):
+            citation["metadata"] = retrieved_context.metadata
+
+        citations.append(citation)
+
+    return citations
+
+
 def get_response(
     question: str, area: str, site: str, messages: list[dict] | None = None
-) -> tuple[str, float]:
+) -> tuple[str, float, list]:
     """
-    Get response from Gemini API with RAG context and conversation history
+    Get response from Gemini API using File Search for semantic retrieval
 
     Args:
         question: The user's current question
@@ -273,23 +299,48 @@ def get_response(
         messages: Optional list of previous messages in format {"role": str, "content": str}
 
     Returns:
-        Tuple of (response_text, response_time_seconds)
+        Tuple of (response_text, response_time_seconds, citations)
     """
     config = st.session_state.config
     client = st.session_state.client
-    context = st.session_state.context
     topics = st.session_state.topics if "topics" in st.session_state else []
 
     # Format topics as bullet list for the prompt
-    topics_text = "\n".join([f"- {topic}" for topic in topics]) if topics else "אין נושאים זמינים"
+    topics_text = (
+        "\n".join([f"- {topic}" for topic in topics]) if topics else "אין נושאים זמינים"
+    )
 
     # Load prompt configuration from YAML (cached)
     prompt_path = f"{config.prompts_dir}tourism_qa.yaml"
     prompt_config = PromptLoader.load(prompt_path)
 
-    # Format prompts with variables
-    system_instruction, user_message = prompt_config.format(
-        area=area, site=site, context=context, question=question, topics=topics_text
+    # Build metadata filter for this location (AIP-160 syntax)
+    metadata_filter = f"area={area} AND site={site}"
+
+    # Get File Search Store name from registry
+    file_search_store_name = st.session_state.registry.get_file_search_store_name()
+    if not file_search_store_name:
+        st.error("File Search Store not initialized. Please upload content first.")
+        return "Error: File Search Store not found.", 0.0, []
+
+    # Build conversation history from previous messages
+    if messages is None:
+        messages = []
+
+    # Convert messages to Gemini API format (handles sliding window, role mapping, etc.)
+    conversation_history = convert_messages_to_gemini_format(messages)
+
+    # Format system instruction (without context - File Search provides it)
+    system_instruction = prompt_config.system_template.format(
+        area=area, site=site, topics=topics_text
+    )
+
+    # Format user message
+    user_message = prompt_config.user_template.format(question=question)
+
+    # Append current question as the final user message
+    conversation_history.append(
+        types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
     )
 
     # Use model and temperature from YAML prompt configuration
@@ -299,31 +350,32 @@ def get_response(
 
     temperature = prompt_config.temperature
 
-    # Build conversation history from previous messages
-    if messages is None:
-        messages = []
-
-    # Convert messages to Gemini API format (handles sliding window, role mapping, etc.)
-    conversation_history = convert_messages_to_gemini_format(messages)
-
-    # Append current question as the final user message (using formatted user_prompt from YAML)
-    conversation_history.append(
-        types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
-    )
-
     start_time = time.time()
 
+    # Generate with File Search tool
     response = client.models.generate_content(
         model=model_name,
         contents=conversation_history,
         config=types.GenerateContentConfig(
-            system_instruction=system_instruction, temperature=temperature
+            system_instruction=system_instruction,
+            temperature=temperature,
+            tools=[
+                types.Tool(
+                    file_search=types.FileSearch(
+                        file_search_store_names=[file_search_store_name],
+                        metadata_filter=metadata_filter,
+                    )
+                ),
+            ],
         ),
     )
 
     response_time = time.time() - start_time
 
-    return response.text, response_time
+    # Extract citations from grounding metadata
+    citations = extract_citations(response)
+
+    return response.text, response_time, citations
 
 
 def main():
@@ -565,6 +617,26 @@ def main():
                     st.markdown(message["content"])
                     if "time" in message:
                         st.caption(f"⏱️ {message['time']:.2f}s")
+                    # Display citations for assistant messages
+                    if message["role"] == "assistant" and message.get("citations"):
+                        citations = message["citations"]
+                        with st.expander("📚 Sources", expanded=False):
+                            for i, citation in enumerate(citations, 1):
+                                st.markdown(f"**{i}. {citation.get('title', 'Unknown')}**")
+                                if citation.get("text"):
+                                    st.caption(citation["text"] + "...")
+                                if citation.get("metadata"):
+                                    metadata = citation["metadata"]
+                                    tags = []
+                                    if hasattr(metadata, "area"):
+                                        tags.append(f"Area: {metadata.area}")
+                                    if hasattr(metadata, "site"):
+                                        tags.append(f"Site: {metadata.site}")
+                                    if hasattr(metadata, "doc"):
+                                        tags.append(f"Doc: {metadata.doc}")
+                                    if tags:
+                                        st.caption(" | ".join(tags))
+                                st.markdown("---")
 
             # Chat input
             # Check if user clicked a topic button
@@ -586,12 +658,32 @@ def main():
                     with st.spinner("Searching content..."):
                         try:
                             # Pass conversation history (excluding the current question we just added)
-                            answer, response_time = get_response(
+                            answer, response_time, citations = get_response(
                                 question, area, site, st.session_state.messages[:-1]
                             )
 
                             st.markdown(answer)
                             st.caption(f"⏱️ {response_time:.2f}s")
+
+                            # Display citations if available
+                            if citations:
+                                with st.expander("📚 Sources", expanded=False):
+                                    for i, citation in enumerate(citations, 1):
+                                        st.markdown(f"**{i}. {citation.get('title', 'Unknown')}**")
+                                        if citation.get("text"):
+                                            st.caption(citation["text"] + "...")
+                                        if citation.get("metadata"):
+                                            metadata = citation["metadata"]
+                                            tags = []
+                                            if hasattr(metadata, "area"):
+                                                tags.append(f"Area: {metadata.area}")
+                                            if hasattr(metadata, "site"):
+                                                tags.append(f"Site: {metadata.site}")
+                                            if hasattr(metadata, "doc"):
+                                                tags.append(f"Doc: {metadata.doc}")
+                                            if tags:
+                                                st.caption(" | ".join(tags))
+                                        st.markdown("---")
 
                             # Save to messages
                             st.session_state.messages.append(
@@ -599,6 +691,7 @@ def main():
                                     "role": "assistant",
                                     "content": answer,
                                     "time": response_time,
+                                    "citations": citations,
                                 }
                             )
 
@@ -609,13 +702,16 @@ def main():
                                 query=question,
                                 answer=answer,
                                 model=config.model_name,
-                                context_chars=len(st.session_state.context),
+                                context_chars=0,  # No context with File Search
                                 response_time_seconds=response_time,
-                                chunks_used=st.session_state.chunk_files,
+                                chunks_used=[],  # Citations tracked separately
                             )
 
                         except Exception as e:
                             st.error(f"Error: {e}")
+                            import traceback
+
+                            traceback.print_exc()
 
     # ===== MANAGE CONTENT TAB =====
     with tab_manage:
