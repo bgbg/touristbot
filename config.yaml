@@ -43,6 +43,10 @@ gemini_rag:
   # Force re-upload all files (ignore tracking)
   force_reupload: false
 
+  # File Search Store configuration
+  # Single store for entire project with metadata filtering
+  file_search_store_name: "TARASA_Tourism_RAG"
+
 # Google Cloud Storage configuration
 # GCS is the single source of truth for all content and chunks
 # Both local development and Streamlit Cloud use GCS backend

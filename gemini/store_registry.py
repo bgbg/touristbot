@@ -26,6 +26,10 @@ class StoreRegistry:
         """
         self.registry_file = registry_file
         self.registry: Dict[str, Dict] = self._load_registry()
+        # Global File Search Store name (shared across all locations)
+        self._file_search_store_name: Optional[str] = self.registry.get(
+            "_global", {}
+        ).get("file_search_store_name")
 
     def _load_registry(self) -> Dict[str, Dict]:
         """Load registry from disk"""
@@ -56,16 +60,15 @@ class StoreRegistry:
         return f"{area.lower().strip()}:{site.lower().strip()}"
 
     def register_store(
-        self, area: str, site: str, store_name: str, metadata: Optional[Dict] = None
+        self, area: str, site: str, metadata: Optional[Dict] = None
     ):
         """
-        Register a store for an area/site pair
+        Register a location for File Search (all locations share same global store)
 
         Args:
-            area: Area name (e.g., "Old City", "Museum District")
-            site: Site name (e.g., "Western Wall", "National Museum")
-            store_name: Gemini store name (e.g., "fileSearchStores/xxx")
-            metadata: Optional additional metadata
+            area: Area name (e.g., "hefer_valley")
+            site: Site name (e.g., "agamon_hefer")
+            metadata: Optional metadata (file_count, document_count, etc.)
         """
         key = self._make_key(area, site)
 
@@ -76,7 +79,6 @@ class StoreRegistry:
             created_at = existing_entry.get("metadata", {}).get("created_at")
 
         entry = {
-            "store_id": store_name,
             "metadata": {
                 "area": area,
                 "site": site,
@@ -90,24 +92,28 @@ class StoreRegistry:
 
         self.registry[key] = entry
         self._save_registry()
-        print(f"-> Registered store '{store_name}' for {area} - {site}")
+
+        file_count = metadata.get("file_count", 0) if metadata else 0
+        print(f"-> Registered {area} - {site} ({file_count} files)")
 
     def get_store(self, area: str, site: str) -> Optional[str]:
         """
-        Get store ID for an area/site pair
+        Get File Search Store name for an area/site pair
+        (Returns global store name since all locations share same store)
 
         Args:
             area: Area name
             site: Site name
 
         Returns:
-            Store ID if found, None otherwise
+            Global File Search Store name if location is registered, None otherwise
         """
         key = self._make_key(area, site)
         entry = self.registry.get(key)
 
+        # If location is registered, return global store name
         if entry and isinstance(entry, dict):
-            return entry.get("store_id")
+            return self._file_search_store_name
         return None
 
     def get_entry(self, area: str, site: str) -> Optional[Dict]:
@@ -139,19 +145,29 @@ class StoreRegistry:
         return result
 
     def print_registry(self):
-        """Print all registered stores in a formatted way"""
+        """Print all registered locations in a formatted way"""
         if not self.registry:
             print("-> Registry is empty")
             return
 
         print("\n=== Store Registry (Tourism/Museum Sites) ===")
+        if self._file_search_store_name:
+            print(f"Global File Search Store: {self._file_search_store_name}")
+            print("-" * 70)
+
         for key, entry in sorted(self.registry.items()):
+            # Skip global entry
+            if key == "_global":
+                continue
+
             area, site = key.split(":", 1)
-            store_id = entry.get("store_id") if isinstance(entry, dict) else entry
             metadata = entry.get("metadata", {}) if isinstance(entry, dict) else {}
 
             print(f"  {area.title()} - {site.title()}")
-            print(f"    Store ID: {store_id}")
+            if metadata.get("file_count"):
+                print(f"    Files: {metadata['file_count']}")
+            if metadata.get("document_count"):
+                print(f"    Documents: {metadata['document_count']}")
             if metadata.get("last_updated"):
                 print(f"    Last Updated: {metadata['last_updated']}")
         print("=" * 70)
@@ -344,3 +360,27 @@ class StoreRegistry:
         self._save_registry()
         print("-> Registry cleared")
         return True
+
+    def set_file_search_store_name(self, store_name: str):
+        """
+        Set the global File Search Store name (shared across all locations)
+
+        Args:
+            store_name: File Search Store resource name (e.g., "fileSearchStores/xxx")
+        """
+        if "_global" not in self.registry:
+            self.registry["_global"] = {}
+
+        self.registry["_global"]["file_search_store_name"] = store_name
+        self._file_search_store_name = store_name
+        self._save_registry()
+        print(f"-> Set global File Search Store: {store_name}")
+
+    def get_file_search_store_name(self) -> Optional[str]:
+        """
+        Get the global File Search Store name
+
+        Returns:
+            Store name if set, None otherwise
+        """
+        return self._file_search_store_name
