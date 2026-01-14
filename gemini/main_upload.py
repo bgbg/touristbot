@@ -48,10 +48,9 @@ except:
 
 import google.genai as genai
 
-from gemini.chunker import chunk_file_tokens, chunk_text_file
 from gemini.config import GeminiConfig
 from gemini.directory_parser import DirectoryParser
-from gemini.store_manager import StoreManager
+from gemini.file_search_store import FileSearchStoreManager
 from gemini.store_registry import StoreRegistry
 from gemini.upload_tracker import UploadTracker
 
@@ -69,9 +68,6 @@ def main():
         "--force",
         action="store_true",
         help="Force re-upload all files (ignore tracking)",
-    )
-    parser.add_argument(
-        "--no-chunk", action="store_true", help="Upload files directly without chunking"
     )
     parser.add_argument(
         "--dry-run",
@@ -99,7 +95,7 @@ def main():
         print(f"DEBUG: Config loaded successfully")
         print(f"\n✓ Configuration loaded")
         print(f"  Content root: {config.content_root}")
-        print(f"  Chunks directory: {config.chunks_dir}")
+        print(f"  File Search Store: {config.file_search_store_name}")
     except FileNotFoundError as e:
         print(f"\n❌ Configuration error: {e}")
         sys.exit(1)
@@ -154,12 +150,22 @@ def main():
 
     # Connect to Gemini (skip in dry-run mode)
     if not args.dry_run:
-        print("\n[Step 3/4] Connecting to Gemini...")
+        print("\n[Step 3/4] Connecting to Gemini and initializing File Search Store...")
 
         try:
             client = genai.Client(api_key=config.api_key)
             registry = StoreRegistry(config.registry_path)
             print("✓ Connected to Gemini API")
+
+            # Initialize File Search Store Manager
+            fs_manager = FileSearchStoreManager(client)
+
+            # Get or create the global File Search Store
+            store_name = fs_manager.get_or_create_store(config.file_search_store_name)
+
+            # Save store name to registry if not already saved
+            if registry.get_file_search_store_name() != store_name:
+                registry.set_file_search_store_name(store_name)
 
         except Exception as e:
             print(f"❌ Error connecting to Gemini: {e}")
@@ -167,6 +173,8 @@ def main():
     else:
         client = None
         registry = StoreRegistry(config.registry_path)
+        fs_manager = None
+        store_name = registry.get_file_search_store_name() or "dry_run_store"
 
     # Process each area/site
     step_num = "3/3" if args.dry_run else "4/4"
@@ -176,7 +184,6 @@ def main():
 
     force_upload = args.force or config.force_reupload
     total_uploaded = 0
-    total_chunks = 0
 
     for (area, site), files in structure.items():
         print(f"\n-> Processing: {area} / {site}")
@@ -196,112 +203,43 @@ def main():
             print(f"   📋 Files to upload:")
             for file_path in files_to_upload:
                 print(f"      - {os.path.relpath(file_path, config.content_root)}")
-
-        # Process files (chunk if needed)
-        if args.no_chunk:
-            chunk_files = files_to_upload
-            if args.dry_run:
-                print(
-                    f"   -> Would upload {len(chunk_files)} files directly (no chunking)"
-                )
-        else:
-            # Determine chunking method
-            if config.use_token_chunking:
-                chunk_info = f"{config.chunk_tokens} tokens with {int(config.chunk_overlap_percent * 100)}% overlap"
-            else:
-                chunk_info = f"{config.chunk_size} characters"
-
-            if args.dry_run:
-                print(f"   -> Would chunk files into {chunk_info}")
-            else:
-                print(f"   -> Chunking files ({chunk_info})...")
-
-            chunk_files = []
-
-            for file_path in files_to_upload:
-                # Create chunks directory for this area/site
-                area_site_chunks_dir = os.path.join(config.chunks_dir, area, site)
-
-                # Generate unique ID for this file
-                file_id = os.path.splitext(os.path.basename(file_path))[0]
-
-                if not args.dry_run:
-                    # Use token-based or character-based chunking
-                    if config.use_token_chunking:
-                        chunks = chunk_file_tokens(
-                            file_path,
-                            file_id,
-                            chunk_tokens=config.chunk_tokens,
-                            overlap_percent=config.chunk_overlap_percent,
-                            output_dir=area_site_chunks_dir,
-                        )
-                    else:
-                        chunks = chunk_text_file(
-                            file_path,
-                            file_id,
-                            chunk_size=config.chunk_size,
-                            output_dir=area_site_chunks_dir,
-                        )
-                    chunk_files.extend(chunks)
-                else:
-                    # Estimate number of chunks for dry run
-                    try:
-                        from file_parser import parse_file
-
-                        content = parse_file(file_path)
-                        if config.use_token_chunking:
-                            # Estimate: ~4 chars per token
-                            est_tokens = len(content) // 4
-                            est_chunks = max(1, est_tokens // config.chunk_tokens)
-                        else:
-                            est_chunks = max(1, len(content) // config.chunk_size)
-                        chunk_files.extend([f"chunk_{i}" for i in range(est_chunks)])
-                    except:
-                        chunk_files.append("chunk_1")
-
-            if args.dry_run:
-                print(f"   -> Would create approximately {len(chunk_files)} chunks")
-            else:
-                print(f"   -> Created {len(chunk_files)} chunks")
-
-        total_chunks += len(chunk_files)
-
-        # Upload to store (skip in dry-run)
-        if args.dry_run:
-            store_id = registry.get_store(area, site)
-            if store_id:
-                print(f"   -> Would upload to existing store: {store_id}")
-            else:
-                print(f"   -> Would create new store: {area}_{site}_Tourism_RAG")
+            print(
+                f"   -> Would upload {len(files_to_upload)} files to File Search Store"
+            )
+            print(f"   -> Server-side chunking: {config.chunk_tokens} tokens/chunk")
             print(f"   ✓ Preview complete for {area}/{site}")
             total_uploaded += len(files_to_upload)
         else:
             try:
-                # Get or create store for this area/site
-                store_id = registry.get_store(area, site)
-
-                store_manager = StoreManager(
-                    client,
-                    f"{area}_{site}_Tourism_RAG",
-                    store_id=store_id,
-                    area=area,
-                    site=site,
+                print(f"   -> Uploading to File Search Store...")
+                print(
+                    f"      Server-side chunking: {config.chunk_tokens} tokens/chunk with {int(config.chunk_overlap_percent * 100)}% overlap"
                 )
 
-                print(f"   -> Uploading to Gemini store...")
-                store_manager.upload_files(
-                    chunk_files, max_wait_seconds=config.max_upload_wait_seconds
-                )
+                # Upload each file to File Search Store with metadata
+                for file_path in files_to_upload:
+                    # Generate document identifier from filename
+                    doc_name = os.path.splitext(os.path.basename(file_path))[0]
 
-                # Register the store
-                store_name = store_manager.store_name
+                    # Upload to File Search Store with metadata
+                    fs_manager.upload_to_file_search_store(
+                        file_search_store_name=store_name,
+                        file_path=file_path,
+                        area=area,
+                        site=site,
+                        doc=doc_name,
+                        max_tokens_per_chunk=config.chunk_tokens,
+                        max_overlap_tokens=int(
+                            config.chunk_tokens * config.chunk_overlap_percent
+                        ),
+                    )
+
+                # Register the location
                 registry.register_store(
                     area=area,
                     site=site,
-                    store_name=store_name,
                     metadata={
                         "file_count": len(files_to_upload),
-                        "chunk_count": len(chunk_files),
                     },
                 )
 
@@ -314,6 +252,9 @@ def main():
 
             except Exception as e:
                 print(f"   ❌ Error uploading {area}/{site}: {e}")
+                import traceback
+
+                traceback.print_exc()
                 continue
 
     # Summary
@@ -322,7 +263,8 @@ def main():
         print("🔍 DRY RUN SUMMARY")
         print("=" * 70)
         print(f"Would upload: {total_uploaded} files")
-        print(f"Would create: {total_chunks} chunks")
+        print(f"File Search Store: {store_name}")
+        print(f"Server-side chunking: {config.chunk_tokens} tokens/chunk")
         print(f"Areas/Sites: {len(structure)}")
         print("=" * 70)
         print("\n💡 To actually upload, run without --dry-run flag")
@@ -330,7 +272,7 @@ def main():
         print("✅ Upload Process Complete!")
         print("=" * 70)
         print(f"Total files uploaded: {total_uploaded}")
-        print(f"Total chunks created: {total_chunks}")
+        print(f"File Search Store: {store_name}")
         print(f"Areas/Sites processed: {len(structure)}")
         print("=" * 70)
 

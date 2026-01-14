@@ -43,6 +43,7 @@ class GeminiConfig:
 
     # Store Configuration
     store_display_name: str = "Tourism_RAG_Store"
+    file_search_store_name: str = "TARASA_Tourism_RAG"
 
     # Chunking Configuration
     use_token_chunking: bool = True
@@ -151,6 +152,9 @@ class GeminiConfig:
             app_name=app_config.get("name", "Tourism Guide Assistant"),
             app_type=app_config.get("type", "museum_tourism"),
             language=app_config.get("language", "English"),
+            file_search_store_name=gemini_config.get(
+                "file_search_store_name", "TARASA_Tourism_RAG"
+            ),
             use_token_chunking=gemini_config.get("use_token_chunking", True),
             chunk_tokens=gemini_config.get("chunk_tokens", 400),
             chunk_overlap_percent=gemini_config.get("chunk_overlap_percent", 0.15),

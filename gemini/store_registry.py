@@ -26,6 +26,10 @@ class StoreRegistry:
         """
         self.registry_file = registry_file
         self.registry: Dict[str, Dict] = self._load_registry()
+        # Global File Search Store name (shared across all locations)
+        self._file_search_store_name: Optional[str] = self.registry.get(
+            "_global", {}
+        ).get("file_search_store_name")
 
     def _load_registry(self) -> Dict[str, Dict]:
         """Load registry from disk"""
@@ -56,16 +60,15 @@ class StoreRegistry:
         return f"{area.lower().strip()}:{site.lower().strip()}"
 
     def register_store(
-        self, area: str, site: str, store_name: str, metadata: Optional[Dict] = None
+        self, area: str, site: str, metadata: Optional[Dict] = None
     ):
         """
-        Register a store for an area/site pair
+        Register a location for File Search (all locations share same global store)
 
         Args:
-            area: Area name (e.g., "Old City", "Museum District")
-            site: Site name (e.g., "Western Wall", "National Museum")
-            store_name: Gemini store name (e.g., "fileSearchStores/xxx")
-            metadata: Optional additional metadata
+            area: Area name (e.g., "hefer_valley")
+            site: Site name (e.g., "agamon_hefer")
+            metadata: Optional metadata (file_count, document_count, etc.)
         """
         key = self._make_key(area, site)
 
@@ -76,7 +79,6 @@ class StoreRegistry:
             created_at = existing_entry.get("metadata", {}).get("created_at")
 
         entry = {
-            "store_id": store_name,
             "metadata": {
                 "area": area,
                 "site": site,
@@ -90,24 +92,28 @@ class StoreRegistry:
 
         self.registry[key] = entry
         self._save_registry()
-        print(f"-> Registered store '{store_name}' for {area} - {site}")
+
+        file_count = metadata.get("file_count", 0) if metadata else 0
+        print(f"-> Registered {area} - {site} ({file_count} files)")
 
     def get_store(self, area: str, site: str) -> Optional[str]:
         """
-        Get store ID for an area/site pair
+        Get File Search Store name for an area/site pair
+        (Returns global store name since all locations share same store)
 
         Args:
             area: Area name
             site: Site name
 
         Returns:
-            Store ID if found, None otherwise
+            Global File Search Store name if location is registered, None otherwise
         """
         key = self._make_key(area, site)
         entry = self.registry.get(key)
 
+        # If location is registered, return global store name
         if entry and isinstance(entry, dict):
-            return entry.get("store_id")
+            return self._file_search_store_name
         return None
 
     def get_entry(self, area: str, site: str) -> Optional[Dict]:
@@ -133,25 +139,38 @@ class StoreRegistry:
         """
         result = {}
         for key, entry in self.registry.items():
+            # Skip global entry
+            if key == "_global":
+                continue
             area, site = key.split(":", 1)
             store_id = entry.get("store_id") if isinstance(entry, dict) else entry
             result[(area, site)] = store_id
         return result
 
     def print_registry(self):
-        """Print all registered stores in a formatted way"""
+        """Print all registered locations in a formatted way"""
         if not self.registry:
             print("-> Registry is empty")
             return
 
         print("\n=== Store Registry (Tourism/Museum Sites) ===")
+        if self._file_search_store_name:
+            print(f"Global File Search Store: {self._file_search_store_name}")
+            print("-" * 70)
+
         for key, entry in sorted(self.registry.items()):
+            # Skip global entry
+            if key == "_global":
+                continue
+
             area, site = key.split(":", 1)
-            store_id = entry.get("store_id") if isinstance(entry, dict) else entry
             metadata = entry.get("metadata", {}) if isinstance(entry, dict) else {}
 
             print(f"  {area.title()} - {site.title()}")
-            print(f"    Store ID: {store_id}")
+            if metadata.get("file_count"):
+                print(f"    Files: {metadata['file_count']}")
+            if metadata.get("document_count"):
+                print(f"    Documents: {metadata['document_count']}")
             if metadata.get("last_updated"):
                 print(f"    Last Updated: {metadata['last_updated']}")
         print("=" * 70)
@@ -160,10 +179,10 @@ class StoreRegistry:
         self, client: genai.Client, merge_with_existing: bool = True
     ) -> Dict[str, int]:
         """
-        Rebuild registry from Gemini Files API by listing all files and parsing metadata
+        Rebuild registry from File Search Store by listing all documents and extracting metadata
 
-        This method queries client.files.list() to get all uploaded files, parses
-        their display names to extract area/site information, and rebuilds the registry.
+        This method queries the File Search Store to get all uploaded documents, extracts
+        their custom_metadata (area, site, doc) fields, and rebuilds the registry.
 
         Args:
             client: Gemini API client
@@ -172,17 +191,17 @@ class StoreRegistry:
 
         Returns:
             Dictionary with rebuild statistics:
-                - files_found: Total files in Gemini API
-                - files_parsed: Files with valid area/site encoding
-                - files_skipped: Files without encoding or expired
+                - files_found: Total documents in File Search Store
+                - files_parsed: Documents with valid area/site metadata
+                - files_skipped: Documents without proper custom_metadata
                 - registry_entries: Number of (area, site) pairs created
                 - existing_preserved: Entries from local registry kept (if merging)
 
         Raises:
-            Exception: If API call fails
+            Exception: If API call fails or File Search Store not configured
         """
         print("\n" + "=" * 70)
-        print("REBUILDING REGISTRY FROM GEMINI FILES API")
+        print("REBUILDING REGISTRY FROM FILE SEARCH STORE")
         print("=" * 70)
 
         stats = {
@@ -199,18 +218,31 @@ class StoreRegistry:
             stats["existing_preserved"] = len(old_registry)
             print(f"-> Preserving {len(old_registry)} existing registry entries")
 
-        # List all files from Gemini API
+        # Get File Search Store name from registry
+        file_search_store_name = self.get_file_search_store_name()
+        if not file_search_store_name:
+            print("✗ Error: File Search Store not configured in registry")
+            print("   Run upload first to create a File Search Store")
+            if merge_with_existing:
+                print("-> Keeping existing local registry")
+                return stats
+            else:
+                raise ValueError("No File Search Store configured")
+
+        # List all documents from File Search Store
         try:
-            print("-> Querying Gemini Files API...")
-            files = list(client.files.list())
-            stats["files_found"] = len(files)
-            print(f"-> Found {len(files)} file(s) in Gemini API")
+            print(f"-> Querying File Search Store: {file_search_store_name}...")
+            from gemini.file_search_store import FileSearchStoreManager
+            file_search_manager = FileSearchStoreManager(client)
+            documents = file_search_manager.list_documents_in_store(file_search_store_name)
+            stats["files_found"] = len(documents)
+            print(f"-> Found {len(documents)} document(s) in File Search Store")
         except Exception as e:
-            print(f"✗ Error listing files from Gemini API: {e}")
+            print(f"✗ Error listing documents from File Search Store: {e}")
             raise
 
-        if not files:
-            print("-> No files found in Gemini API")
+        if not documents:
+            print("-> No documents found in File Search Store")
             if merge_with_existing:
                 print("-> Keeping existing local registry")
                 return stats
@@ -219,29 +251,31 @@ class StoreRegistry:
                 self._save_registry()
                 return stats
 
-        # Group files by (area, site) pairs
+        # Group documents by (area, site) pairs
         location_files: Dict[Tuple[str, str], List] = defaultdict(list)
         skipped_files = []
 
-        for file in files:
-            # Check if file is expired (optional, as API may filter these out)
-            if hasattr(file, "expiration_time") and file.expiration_time:
-                # File will expire - API handles deletion, but we could check here
-                pass
+        for doc in documents:
+            # Extract metadata from custom_metadata field
+            metadata_dict = {}
+            if hasattr(doc, "custom_metadata") and doc.custom_metadata:
+                for meta_item in doc.custom_metadata:
+                    if hasattr(meta_item, "key") and hasattr(meta_item, "string_value"):
+                        metadata_dict[meta_item.key] = meta_item.string_value
 
-            # Parse display name to extract area/site
-            display_name = getattr(file, "display_name", None) or getattr(
-                file, "name", "unknown"
-            )
+            # Get area, site, and doc name from custom_metadata
+            area = metadata_dict.get("area")
+            site = metadata_dict.get("site")
+            doc_name = metadata_dict.get("doc", "unknown")
 
-            parsed = parse_display_name(display_name)
-
-            if parsed:
-                area, site, filename = parsed
-                location_files[(area, site)].append(file)
+            if area and site:
+                location_files[(area, site)].append(doc)
                 stats["files_parsed"] += 1
             else:
-                # File doesn't have encoded metadata (legacy file or non-encoded)
+                # Document doesn't have proper custom_metadata
+                display_name = getattr(doc, "display_name", None) or getattr(
+                    doc, "name", "unknown"
+                )
                 skipped_files.append(display_name)
                 stats["files_skipped"] += 1
 
@@ -315,12 +349,12 @@ class StoreRegistry:
         print("\n" + "-" * 70)
         print("REBUILD SUMMARY:")
         print("-" * 70)
-        print(f"  Files in Gemini API:         {stats['files_found']}")
-        print(f"  Files with encoding:         {stats['files_parsed']}")
-        print(f"  Files skipped (no encoding): {stats['files_skipped']}")
-        print(f"  Registry entries created:    {stats['registry_entries']}")
+        print(f"  Documents in File Search Store: {stats['files_found']}")
+        print(f"  Documents with metadata:        {stats['files_parsed']}")
+        print(f"  Documents skipped (no metadata): {stats['files_skipped']}")
+        print(f"  Registry entries created:       {stats['registry_entries']}")
         if merge_with_existing:
-            print(f"  Existing entries preserved:  {stats['existing_preserved']}")
+            print(f"  Existing entries preserved:     {stats['existing_preserved']}")
         print("-" * 70)
 
         return stats
@@ -344,3 +378,27 @@ class StoreRegistry:
         self._save_registry()
         print("-> Registry cleared")
         return True
+
+    def set_file_search_store_name(self, store_name: str):
+        """
+        Set the global File Search Store name (shared across all locations)
+
+        Args:
+            store_name: File Search Store resource name (e.g., "fileSearchStores/xxx")
+        """
+        if "_global" not in self.registry:
+            self.registry["_global"] = {}
+
+        self.registry["_global"]["file_search_store_name"] = store_name
+        self._file_search_store_name = store_name
+        self._save_registry()
+        print(f"-> Set global File Search Store: {store_name}")
+
+    def get_file_search_store_name(self) -> Optional[str]:
+        """
+        Get the global File Search Store name
+
+        Returns:
+            Store name if set, None otherwise
+        """
+        return self._file_search_store_name

@@ -231,23 +231,11 @@ def initialize_session_state():
             st.session_state.selected_area = None
             st.session_state.selected_site = None
 
+    # Note: context and chunk_files no longer needed with File Search
+    # File Search provides context automatically via metadata filtering
     if "context" not in st.session_state:
-        # Load chunks for the initially selected location
-        if st.session_state.selected_area and st.session_state.selected_site:
-            area = st.session_state.selected_area
-            site = st.session_state.selected_site
-            if st.session_state.storage_backend:
-                chunks_dir = f"{st.session_state.config.chunks_dir}/{area}/{site}"
-            else:
-                chunks_dir = os.path.join(
-                    st.session_state.config.chunks_dir, area, site
-                )
-            context, chunk_files = load_chunks(chunks_dir, st.session_state.storage_backend)
-            st.session_state.context = context
-            st.session_state.chunk_files = chunk_files
-        else:
-            st.session_state.context = ""
-            st.session_state.chunk_files = []
+        st.session_state.context = ""  # Kept for backwards compatibility
+        st.session_state.chunk_files = []
 
     if "topics" not in st.session_state:
         # Load topics for the initially selected location
@@ -260,11 +248,49 @@ def initialize_session_state():
             st.session_state.topics = []
 
 
+def extract_citations(response, top_k: int = 5) -> list[dict]:
+    """
+    Extract citation information from response grounding metadata
+
+    Args:
+        response: Gemini API response object
+        top_k: Maximum number of citations to return
+
+    Returns:
+        List of dicts with keys: uri, title, text, metadata
+    """
+    if not response.candidates:
+        return []
+
+    grounding_metadata = response.candidates[0].grounding_metadata
+    if not grounding_metadata or not grounding_metadata.grounding_chunks:
+        return []
+
+    chunks = grounding_metadata.grounding_chunks[:top_k]
+    citations = []
+
+    for chunk in chunks:
+        retrieved_context = chunk.retrieved_context
+        citation = {
+            "uri": retrieved_context.uri,
+            "title": retrieved_context.title,
+            "text": retrieved_context.text[:200] if retrieved_context.text else "",  # Preview
+        }
+
+        # Include custom metadata if available
+        if hasattr(retrieved_context, "metadata"):
+            citation["metadata"] = retrieved_context.metadata
+
+        citations.append(citation)
+
+    return citations
+
+
 def get_response(
     question: str, area: str, site: str, messages: list[dict] | None = None
-) -> tuple[str, float]:
+) -> tuple[str, float, list]:
     """
-    Get response from Gemini API with RAG context and conversation history
+    Get response from Gemini API using File Search for semantic retrieval
 
     Args:
         question: The user's current question
@@ -273,23 +299,48 @@ def get_response(
         messages: Optional list of previous messages in format {"role": str, "content": str}
 
     Returns:
-        Tuple of (response_text, response_time_seconds)
+        Tuple of (response_text, response_time_seconds, citations)
     """
     config = st.session_state.config
     client = st.session_state.client
-    context = st.session_state.context
     topics = st.session_state.topics if "topics" in st.session_state else []
 
     # Format topics as bullet list for the prompt
-    topics_text = "\n".join([f"- {topic}" for topic in topics]) if topics else "אין נושאים זמינים"
+    topics_text = (
+        "\n".join([f"- {topic}" for topic in topics]) if topics else "אין נושאים זמינים"
+    )
 
     # Load prompt configuration from YAML (cached)
     prompt_path = f"{config.prompts_dir}tourism_qa.yaml"
     prompt_config = PromptLoader.load(prompt_path)
 
-    # Format prompts with variables
-    system_instruction, user_message = prompt_config.format(
-        area=area, site=site, context=context, question=question, topics=topics_text
+    # Build metadata filter for this location (AIP-160 syntax)
+    metadata_filter = f"area={area} AND site={site}"
+
+    # Get File Search Store name from registry
+    file_search_store_name = st.session_state.registry.get_file_search_store_name()
+    if not file_search_store_name:
+        st.error("File Search Store not initialized. Please upload content first.")
+        return "Error: File Search Store not found.", 0.0, []
+
+    # Build conversation history from previous messages
+    if messages is None:
+        messages = []
+
+    # Convert messages to Gemini API format (handles sliding window, role mapping, etc.)
+    conversation_history = convert_messages_to_gemini_format(messages)
+
+    # Format system instruction (without context - File Search provides it)
+    system_instruction = prompt_config.system_prompt.format(
+        area=area, site=site, topics=topics_text
+    )
+
+    # Format user message
+    user_message = prompt_config.user_prompt.format(question=question)
+
+    # Append current question as the final user message
+    conversation_history.append(
+        types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
     )
 
     # Use model and temperature from YAML prompt configuration
@@ -299,31 +350,32 @@ def get_response(
 
     temperature = prompt_config.temperature
 
-    # Build conversation history from previous messages
-    if messages is None:
-        messages = []
-
-    # Convert messages to Gemini API format (handles sliding window, role mapping, etc.)
-    conversation_history = convert_messages_to_gemini_format(messages)
-
-    # Append current question as the final user message (using formatted user_prompt from YAML)
-    conversation_history.append(
-        types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
-    )
-
     start_time = time.time()
 
+    # Generate with File Search tool
     response = client.models.generate_content(
         model=model_name,
         contents=conversation_history,
         config=types.GenerateContentConfig(
-            system_instruction=system_instruction, temperature=temperature
+            system_instruction=system_instruction,
+            temperature=temperature,
+            tools=[
+                types.Tool(
+                    file_search=types.FileSearch(
+                        file_search_store_names=[file_search_store_name],
+                        metadata_filter=metadata_filter,
+                    )
+                ),
+            ],
         ),
     )
 
     response_time = time.time() - start_time
 
-    return response.text, response_time
+    # Extract citations from grounding metadata
+    citations = extract_citations(response)
+
+    return response.text, response_time, citations
 
 
 def main():
@@ -373,39 +425,15 @@ def main():
                 st.session_state.selected_site = site
                 st.session_state.messages = []  # Clear chat history on location change
 
-                # Load chunks for selected location
-                # For GCS: use blob path like "data/chunks/area/site"
-                # For local: use directory path like "data/chunks/area/site"
-                if st.session_state.storage_backend:
-                    chunks_dir = f"{st.session_state.config.chunks_dir}/{area}/{site}"
-                else:
-                    chunks_dir = os.path.join(
-                        st.session_state.config.chunks_dir, area, site
-                    )
-                context, chunk_files = load_chunks(chunks_dir, st.session_state.storage_backend)
-                st.session_state.context = context
-                st.session_state.chunk_files = chunk_files
-
                 # Load topics for selected location
-                topics = load_topics(area, site, st.session_state.storage_backend, st.session_state.config)
+                topics = load_topics(
+                    area, site, st.session_state.storage_backend, st.session_state.config
+                )
                 st.session_state.topics = topics
 
             # Display location info
-            store_id = st.session_state.registry.get_store(area, site)
             registry_data = st.session_state.registry.registry.get(f"{area}:{site}", {})
             metadata = registry_data.get("metadata", {})
-
-            # Get actual chunk count from storage
-            chunk_count = 0
-            if st.session_state.storage_backend:
-                try:
-                    chunks_path = f"{st.session_state.config.chunks_dir}/{area}/{site}"
-                    chunk_files_list = st.session_state.storage_backend.list_files(chunks_path, "*.txt")
-                    chunk_count = len(chunk_files_list)
-                except Exception:
-                    chunk_count = len(st.session_state.chunk_files)
-            else:
-                chunk_count = len(st.session_state.chunk_files)
 
             # Get topic count
             topic_count = len(st.session_state.topics) if st.session_state.topics else 0
@@ -414,8 +442,7 @@ def main():
                 f"""
                 **Area:** {area}
                 **Site:** {site}
-                **Documents:** {metadata.get('file_count', 'N/A')}
-                **Chunks:** {chunk_count}
+                **Files:** {metadata.get('file_count', 'N/A')}
                 **Topics:** {topic_count}
                 """
             )
@@ -431,66 +458,14 @@ def main():
                             st.session_state.topic_query = f"ספר לי על {topic}"
                             st.rerun()
 
-            # Button to extract/regenerate topics
+            # Note: Topic extraction from chunks removed with File Search migration
+            # Topics are now pre-generated during upload and stored in GCS
+            # To regenerate topics, use CLI: python gemini/generate_topics.py --area <area> --site <site>
             st.markdown("---")
-            if st.button("🔄 Extract Topics", help="Generate or regenerate topics from location content"):
-                with st.spinner("Extracting topics..."):
-                    try:
-                        # Load all chunks for this location
-                        chunks_content = []
-                        if st.session_state.storage_backend:
-                            # Read chunks from GCS
-                            chunks_path = f"{st.session_state.config.chunks_dir}/{area}/{site}"
-                            chunk_files_list = st.session_state.storage_backend.list_files(chunks_path, "*.txt")
-                            for chunk_file in chunk_files_list:
-                                chunk_text = st.session_state.storage_backend.read_file(chunk_file)
-                                chunks_content.append(chunk_text)
-                        else:
-                            # Read chunks from local filesystem
-                            chunks_dir = os.path.join(st.session_state.config.chunks_dir, area, site)
-                            if os.path.exists(chunks_dir):
-                                for filename in os.listdir(chunks_dir):
-                                    if filename.endswith(".txt"):
-                                        filepath = os.path.join(chunks_dir, filename)
-                                        with open(filepath, "r", encoding="utf-8") as f:
-                                            chunks_content.append(f.read())
-
-                        if not chunks_content:
-                            st.error("No chunks found for this location. Please upload content first.")
-                        else:
-                            # Combine chunks and extract topics
-                            combined_chunks = "\n\n".join(chunks_content)
-
-                            topics = extract_topics_from_chunks(
-                                chunks=combined_chunks,
-                                area=area,
-                                site=site,
-                                model=st.session_state.config.model_name,
-                                client=st.session_state.client,
-                            )
-
-                            # Save topics to storage
-                            topics_path = f"topics/{area}/{site}/topics.json"
-                            topics_json = json.dumps(topics, ensure_ascii=False, indent=2)
-
-                            if st.session_state.storage_backend:
-                                st.session_state.storage_backend.write_file(topics_path, topics_json)
-                            else:
-                                # Save to local filesystem
-                                topics_dir = os.path.join("topics", area, site)
-                                os.makedirs(topics_dir, exist_ok=True)
-                                topics_file = os.path.join(topics_dir, "topics.json")
-                                with open(topics_file, "w", encoding="utf-8") as f:
-                                    f.write(topics_json)
-
-                            # Update session state
-                            st.session_state.topics = topics
-
-                            st.success(f"✅ Successfully extracted {len(topics)} topics!")
-                            st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ Topic extraction failed: {str(e)}")
+            st.caption(
+                "ℹ️ Topics are generated during upload. "
+                "To regenerate, use: `python gemini/generate_topics.py --area <area> --site <site>`"
+            )
 
         st.markdown("---")
 
@@ -554,68 +529,124 @@ def main():
             st.info(
                 "📤 No content available. Please upload content using the 'Manage Content' tab."
             )
-        elif not st.session_state.context:
-            st.warning(
-                f"⚠️ No content found for {area} / {site}. Please upload documents first."
-            )
         else:
-            # Display chat messages
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
-                    if "time" in message:
-                        st.caption(f"⏱️ {message['time']:.2f}s")
-
-            # Chat input
-            # Check if user clicked a topic button
-            question = None
-            if "topic_query" in st.session_state:
-                question = st.session_state.topic_query
-                del st.session_state.topic_query  # Clear the query after using it
+            # Check if location has content in File Search Store via registry
+            registry_entry = st.session_state.registry.get_store(area, site)
+            # Handle both dict format (with metadata) and string format (old store_id)
+            if isinstance(registry_entry, dict):
+                has_content = registry_entry.get("metadata", {}).get("file_count", 0) > 0
+            elif isinstance(registry_entry, str):
+                # Old format - assume it has content if there's a store_id
+                has_content = True
             else:
-                question = st.chat_input("Ask a question about this location...")
+                has_content = False
 
-            if question:
-                # Display user message
-                st.session_state.messages.append({"role": "user", "content": question})
-                with st.chat_message("user"):
-                    st.markdown(question)
+            if not has_content:
+                st.warning(
+                    f"⚠️ No content found for {area} / {site}. Please upload documents first."
+                )
+            else:
+                # Display chat messages
+                for message in st.session_state.messages:
+                    with st.chat_message(message["role"]):
+                        st.markdown(message["content"])
+                        if "time" in message:
+                            st.caption(f"⏱️ {message['time']:.2f}s")
+                        # Display citations for assistant messages
+                        if message["role"] == "assistant" and message.get("citations"):
+                            citations = message["citations"]
+                            with st.expander("📚 Sources", expanded=False):
+                                for i, citation in enumerate(citations, 1):
+                                    st.markdown(f"**{i}. {citation.get('title', 'Unknown')}**")
+                                    if citation.get("text"):
+                                        st.caption(citation["text"] + "...")
+                                    if citation.get("metadata"):
+                                        metadata = citation["metadata"]
+                                        tags = []
+                                        if hasattr(metadata, "area"):
+                                            tags.append(f"Area: {metadata.area}")
+                                        if hasattr(metadata, "site"):
+                                            tags.append(f"Site: {metadata.site}")
+                                        if hasattr(metadata, "doc"):
+                                            tags.append(f"Doc: {metadata.doc}")
+                                        if tags:
+                                            st.caption(" | ".join(tags))
+                                    st.markdown("---")
 
-                # Get and display assistant response
-                with st.chat_message("assistant"):
-                    with st.spinner("Searching content..."):
-                        try:
-                            # Pass conversation history (excluding the current question we just added)
-                            answer, response_time = get_response(
-                                question, area, site, st.session_state.messages[:-1]
-                            )
+                # Chat input
+                # Check if user clicked a topic button
+                question = None
+                if "topic_query" in st.session_state:
+                    question = st.session_state.topic_query
+                    del st.session_state.topic_query  # Clear the query after using it
+                else:
+                    question = st.chat_input("Ask a question about this location...")
 
-                            st.markdown(answer)
-                            st.caption(f"⏱️ {response_time:.2f}s")
+                if question:
+                    # Display user message
+                    st.session_state.messages.append({"role": "user", "content": question})
+                    with st.chat_message("user"):
+                        st.markdown(question)
 
-                            # Save to messages
-                            st.session_state.messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": answer,
-                                    "time": response_time,
-                                }
-                            )
+                    # Get and display assistant response
+                    with st.chat_message("assistant"):
+                        with st.spinner("Searching content..."):
+                            try:
+                                # Pass conversation history (excluding the current question we just added)
+                                answer, response_time, citations = get_response(
+                                    question, area, site, st.session_state.messages[:-1]
+                                )
 
-                            # Log the query
-                            st.session_state.logger.area = area
-                            st.session_state.logger.site = site
-                            st.session_state.logger.log_query(
-                                query=question,
-                                answer=answer,
-                                model=config.model_name,
-                                context_chars=len(st.session_state.context),
-                                response_time_seconds=response_time,
-                                chunks_used=st.session_state.chunk_files,
-                            )
+                                st.markdown(answer)
+                                st.caption(f"⏱️ {response_time:.2f}s")
 
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+                                # Display citations if available
+                                if citations:
+                                    with st.expander("📚 Sources", expanded=False):
+                                        for i, citation in enumerate(citations, 1):
+                                            st.markdown(f"**{i}. {citation.get('title', 'Unknown')}**")
+                                            if citation.get("text"):
+                                                st.caption(citation["text"] + "...")
+                                            if citation.get("metadata"):
+                                                metadata = citation["metadata"]
+                                                tags = []
+                                                if hasattr(metadata, "area"):
+                                                    tags.append(f"Area: {metadata.area}")
+                                                if hasattr(metadata, "site"):
+                                                    tags.append(f"Site: {metadata.site}")
+                                                if hasattr(metadata, "doc"):
+                                                    tags.append(f"Doc: {metadata.doc}")
+                                                if tags:
+                                                    st.caption(" | ".join(tags))
+                                            st.markdown("---")
+
+                                # Save to messages
+                                st.session_state.messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": answer,
+                                        "time": response_time,
+                                        "citations": citations,
+                                    }
+                                )
+
+                                # Log the query
+                                st.session_state.logger.area = area
+                                st.session_state.logger.site = site
+                                st.session_state.logger.log_query(
+                                    query=question,
+                                    answer=answer,
+                                    model=config.model_name,
+                                    context_chars=0,  # No context with File Search
+                                    response_time_seconds=response_time,
+                                    chunks_used=[],  # Citations tracked separately
+                                )
+
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                                import traceback
+
+                                traceback.print_exc()
 
     # ===== MANAGE CONTENT TAB =====
     with tab_manage:
@@ -631,7 +662,7 @@ def main():
             import pandas as pd
 
             for idx, item in enumerate(summary):
-                col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 3, 1, 1, 1])
+                col1, col2, col3, col4 = st.columns([3, 3, 2, 1])
 
                 with col1:
                     st.write(f"**{item['area']}**")
@@ -640,19 +671,11 @@ def main():
                     st.write(item["site"])
 
                 with col3:
-                    st.caption(
-                        item["store_id"][:40] + "..."
-                        if len(item["store_id"]) > 40
-                        else item["store_id"]
-                    )
+                    # Show file count from metadata
+                    file_count = item.get("file_count", 0)
+                    st.metric("Files", file_count)
 
                 with col4:
-                    st.metric("Files", item["file_count"])
-
-                with col5:
-                    st.metric("Chunks", item["chunk_count"])
-
-                with col6:
                     if st.button(
                         "🗑️",
                         key=f"delete_{idx}",

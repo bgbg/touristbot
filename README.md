@@ -6,13 +6,15 @@ A Retrieval-Augmented Generation (RAG) system for tourism Q&A using Google Gemin
 
 - **Streamlit Web Interface**: Modern web UI for Q&A and content management
 - **Location-Based RAG**: Organize content by area/site hierarchy (e.g., Tel Aviv District → Jaffa Port)
+- **File Search API Integration**: Semantic retrieval using Gemini's File Search with metadata filtering
+- **Citation Support**: Automatic source attribution with grounding metadata
 - **YAML-Based Prompt Configuration**: Separate prompt engineering from code with version-controlled YAML files
 - **Flexible Content Upload**: Upload from structured directories or flat folders with custom location mapping
 - **Content Management**: View, delete, and manage uploaded content through the web interface
-- **Token-Based Chunking**: Smart content chunking with configurable overlap
+- **Server-Side Chunking**: Gemini handles all chunking automatically with configurable parameters
 - **Bilingual Support**: Handle content in multiple languages (English, Hebrew, etc.)
-- **Auto-Registry Rebuild**: Registry automatically rebuilds from Gemini Files API on startup (solves Streamlit Cloud restart issue)
-- **48-Hour File Persistence**: Uploaded files persist in Gemini API for 48 hours, enabling registry recovery after restarts
+- **Proactive Topic Suggestions**: Pre-generated topics guide users to relevant information
+- **48-Hour File Persistence**: Uploaded files persist in Gemini API for 48 hours
 
 ## Installation
 
@@ -42,9 +44,9 @@ cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 
 **Important**: Never commit `.streamlit/secrets.toml` to git - it's already in `.gitignore`
 
-5. Configure Google Cloud Storage (required for chunk storage):
+5. Configure Google Cloud Storage (required for topics storage):
 
-**Why GCS?** The system stores processed chunks in Google Cloud Storage, ensuring they're available both locally and when deployed to Streamlit Cloud. All developers use the same GCS bucket as the single source of truth.
+**Why GCS?** The system stores pre-generated topics in Google Cloud Storage, ensuring they're available both locally and when deployed to Streamlit Cloud. All developers use the same GCS bucket as the single source of truth for topics.
 
 a. Create a GCS bucket (if not already created):
    - Go to [Google Cloud Console](https://console.cloud.google.com)
@@ -80,10 +82,10 @@ client_email = "your-sa@your-project.iam.gserviceaccount.com"
 6. Configure the system by editing `config.yaml`:
 ```yaml
 content_root: "data/locations"
-chunks_dir: "data/chunks"
-chunk_tokens: 7000
-chunk_overlap_percent: 0.20
-model_name: "gemini-2.0-flash-exp"
+file_search_store_name: "TARASA_Tourism_RAG"
+chunk_tokens: 400  # Server-side chunking parameter
+chunk_overlap_percent: 0.15  # 15% overlap for server-side chunking
+model_name: "gemini-2.0-flash"
 ```
 
 ## Usage
@@ -317,20 +319,18 @@ roy_chat/
 │   ├── config.py               # Configuration management
 │   ├── config.yaml             # Configuration file
 │   ├── prompt_loader.py        # YAML-based prompt configuration loader
-│   ├── chunker.py              # Content chunking logic
+│   ├── file_search_store.py    # File Search Store management
 │   ├── directory_parser.py     # Parse content directory structure
-│   ├── store_manager.py        # Gemini File Search API wrapper
-│   ├── store_registry.py       # Map locations to Gemini stores (with rebuild_from_api)
-│   ├── display_name_utils.py   # Encode/decode area/site metadata in display names
+│   ├── store_registry.py       # Map locations to File Search Store
 │   ├── upload_tracker.py       # Track uploaded files with hashes
 │   ├── upload_manager.py       # Upload operations and content management
-│   └── query_processor.py      # Query processing and RAG logic
+│   └── topic_extractor.py      # Topic extraction logic
 ├── prompts/
 │   ├── tourism_qa.yaml         # Tourism Q&A prompt configuration
-│   └── README.md               # Prompt configuration documentation
+│   └── topic_extraction.yaml   # Topic extraction prompt
 ├── data/
-│   ├── locations/              # Source content (area/site hierarchy)
-│   └── chunks/                 # Generated chunks (auto-created)
+│   └── locations/              # Source content (area/site hierarchy)
+├── topics/                     # Pre-generated topics (GCS storage)
 ├── config.yaml                 # Main configuration file
 ├── requirements.txt            # Python dependencies
 └── README.md                   # This file
@@ -362,12 +362,13 @@ Alternatively, use the web interface to upload files from any folder and assign 
 
 ## How It Works
 
-1. **Upload**: Content files are chunked using token-based or character-based chunking
-2. **Store**: Chunks are uploaded to Gemini File Search stores (one per location)
-3. **Registry**: Mapping between locations and store IDs is maintained in `store_registry.json`
-4. **Tracking**: File hashes prevent duplicate uploads (`upload_tracking.json`)
-5. **Query**: Questions are processed with relevant chunks loaded based on selected location
-6. **Response**: Gemini generates answers using RAG with the uploaded content
+1. **Upload**: Whole files uploaded to File Search Store with metadata (area, site, doc)
+2. **Store**: Single File Search Store for all locations with metadata filtering for isolation
+3. **Server-Side Chunking**: Gemini automatically chunks files (400 tokens/chunk with 15% overlap)
+4. **Registry**: Mapping between locations and file counts maintained in `store_registry.json`
+5. **Tracking**: File hashes prevent duplicate uploads (`upload_tracking.json`)
+6. **Query**: Metadata filters (area AND site) retrieve relevant content automatically
+7. **Response**: Gemini generates answers with citations from grounding metadata
 
 ## YAML-Based Prompt Configuration
 
@@ -434,22 +435,22 @@ See [prompts/README.md](prompts/README.md) for detailed documentation.
 Key settings in `config.yaml`:
 
 - `content_root`: Directory containing source content
-- `chunks_dir`: Directory for generated chunks
-- `chunk_tokens`: Tokens per chunk (default: 7000)
-- `chunk_overlap_percent`: Overlap between chunks (default: 0.20)
-- `model_name`: Gemini model to use (e.g., "gemini-2.0-flash-exp")
+- `file_search_store_name`: Name of File Search Store (default: "TARASA_Tourism_RAG")
+- `chunk_tokens`: Tokens per chunk for server-side chunking (default: 400)
+- `chunk_overlap_percent`: Overlap between chunks (default: 0.15 = 15%)
+- `model_name`: Gemini model to use (e.g., "gemini-2.0-flash")
 - `temperature`: Model temperature for responses (0.0-2.0)
 - `prompts_dir`: Directory containing YAML prompt configurations (default: "prompts/")
-- `supported_formats`: File extensions to process (.txt, .md, etc.)
+- `supported_formats`: File extensions to process (.txt, .md, .pdf, .docx)
 
 ## Generated Files
 
 These files are auto-generated and git-ignored:
 
-- `gemini/store_registry.json`: Maps locations to Gemini store IDs
+- `gemini/store_registry.json`: Maps locations to File Search Store and tracks file counts
 - `gemini/upload_tracking.json`: Tracks uploaded files with hashes
 - `gemini/query_log.jsonl`: Query and response logs (if enabled)
-- `data/chunks/`: Generated chunk files
+- `topics/`: Pre-generated topics stored in GCS (JSON format)
 
 ## Dependencies
 
@@ -461,7 +462,9 @@ These files are auto-generated and git-ignored:
 
 ## Notes
 
-- Deleting content from the web interface removes local tracking and chunks but does not delete from Gemini API
-- The system maintains separate stores for each area/site combination
+- Deleting content from the web interface removes local tracking but does not delete from Gemini API
+- The system uses a single File Search Store for all locations with metadata filtering
 - Upload tracking uses SHA-256 hashes to detect file changes
-- Chunks are stored locally for transparency and debugging
+- Files are uploaded whole - Gemini handles chunking server-side (400 tokens/chunk)
+- Citations are automatically extracted from grounding metadata
+- Topics are pre-generated and stored in GCS for proactive suggestions
