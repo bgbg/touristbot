@@ -1,0 +1,16 @@
+{
+  "hefer_valley/agamon_hefer/אגמון חפר/image_001": {
+    "image_key": "hefer_valley/agamon_hefer/אגמון חפר/image_001",
+    "area": "hefer_valley",
+    "site": "agamon_hefer",
+    "doc": "אגמון חפר",
+    "image_index": 1,
+    "caption": "שקנאי – ציפור נודדת שאוהבת לחנות באגמון. שקנאים חיים בקבוצות של 20-200 פריטים",
+    "context_before": "צומת אווירי: ישראל נחשבת לצוואר בקבוק עולמי בנדידת ציפורים. יותר מ-200 מיני ציפורים נצפו באגמון חפר, כולל שקנאים, אנפות, שלדגים ועגורים. בעונות השיא של הנדידה, השמורה הופכת לפסיפס חי של מבקרים עופות בינלאומיים הנודדים בין אירופה, אסיה ואפריקה.",
+    "context_after": "",
+    "gcs_path": "images/hefer_valley/agamon_hefer/אגמון חפר/image_001.jpg",
+    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/eqasrfacqjp7",
+    "file_api_name": "files/eqasrfacqjp7",
+    "image_format": "jpg"
+  }
+}

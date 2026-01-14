@@ -50,9 +50,153 @@ import google.genai as genai
 
 from gemini.config import GeminiConfig
 from gemini.directory_parser import DirectoryParser
+from gemini.file_api_manager import FileAPIManager
 from gemini.file_search_store import FileSearchStoreManager
+from gemini.image_extractor import extract_images_from_docx
+from gemini.image_registry import ImageRegistry
+from gemini.image_storage import ImageStorage
 from gemini.store_registry import StoreRegistry
 from gemini.upload_tracker import UploadTracker
+
+
+def process_docx_images(
+    file_path: str,
+    area: str,
+    site: str,
+    doc: str,
+    file_api_manager: FileAPIManager,
+    image_storage: ImageStorage,
+    image_registry: ImageRegistry,
+) -> int:
+    """
+    Extract and upload images from a DOCX file
+
+    Args:
+        file_path: Path to DOCX file
+        area: Area identifier
+        site: Site identifier
+        doc: Document identifier
+        file_api_manager: File API manager instance
+        image_storage: Image storage instance
+        image_registry: Image registry instance
+
+    Returns:
+        Number of images processed
+    """
+    import shutil
+    import tempfile
+
+    try:
+        # Check if file is DOCX
+        if not file_path.lower().endswith('.docx'):
+            return 0
+
+        # Handle Hebrew filenames by copying to temp file
+        temp_file_path = None
+        docx_path = file_path
+
+        try:
+            # Check if filename contains non-ASCII characters
+            try:
+                os.path.basename(file_path).encode('ascii')
+            except UnicodeEncodeError:
+                # Copy to temp file with ASCII name
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix='.docx', prefix='upload_'
+                ) as temp_file:
+                    temp_file_path = temp_file.name
+                shutil.copy2(file_path, temp_file_path)
+                docx_path = temp_file_path
+
+            # Extract images
+            images = extract_images_from_docx(docx_path)
+
+            if not images:
+                return 0
+
+            print(f"      -> Found {len(images)} image(s) in DOCX")
+
+            # Upload images to GCS
+            uploaded_gcs = image_storage.upload_images_from_extraction(
+                images=images,
+                area=area,
+                site=site,
+                doc=doc,
+                make_public=False,
+            )
+
+            print(f"      -> Uploaded {len(uploaded_gcs)} image(s) to GCS")
+
+            # Upload images to File API
+            uploaded_file_api = file_api_manager.upload_images_from_extraction(
+                images=images,
+                area=area,
+                site=site,
+                doc=doc,
+            )
+
+            print(f"      -> Uploaded {len(uploaded_file_api)} image(s) to File API")
+
+            # Validate all uploads succeeded before registering
+            if len(uploaded_gcs) != len(images):
+                # Rollback GCS uploads
+                print(f"      ⚠️  GCS upload incomplete ({len(uploaded_gcs)}/{len(images)}), rolling back...")
+                for gcs_path, _ in uploaded_gcs:
+                    try:
+                        image_storage.delete_image(gcs_path)
+                    except Exception as e:
+                        print(f"      Warning: Could not delete {gcs_path}: {e}")
+                raise Exception(f"GCS upload incomplete: {len(uploaded_gcs)}/{len(images)}")
+
+            if len(uploaded_file_api) != len(images):
+                # Rollback all uploads
+                print(f"      ⚠️  File API upload incomplete ({len(uploaded_file_api)}/{len(images)}), rolling back...")
+                for gcs_path, _ in uploaded_gcs:
+                    try:
+                        image_storage.delete_image(gcs_path)
+                    except Exception as e:
+                        print(f"      Warning: Could not delete {gcs_path}: {e}")
+                for _, _, file_name, _ in uploaded_file_api:
+                    try:
+                        file_api_manager.delete_file(file_name)
+                    except Exception as e:
+                        print(f"      Warning: Could not delete {file_name}: {e}")
+                raise Exception(f"File API upload incomplete: {len(uploaded_file_api)}/{len(images)}")
+
+            # Only register if ALL uploads succeeded
+            for i, image in enumerate(images, 1):
+                gcs_path, gcs_url = uploaded_gcs[i - 1]
+                image_index, file_uri, file_name, caption = uploaded_file_api[i - 1]
+
+                image_registry.add_image(
+                    area=area,
+                    site=site,
+                    doc=doc,
+                    image_index=image_index,
+                    caption=caption,
+                    context_before=image.context_before,
+                    context_after=image.context_after,
+                    gcs_path=gcs_path,
+                    file_api_uri=file_uri,
+                    file_api_name=file_name,
+                    image_format=image.image_format,
+                )
+
+            print(f"      -> Registered {len(images)} image(s) in registry")
+
+            return len(images)
+
+        finally:
+            # Clean up temp file - guaranteed to run even on exception
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                except Exception as e:
+                    print(f"      Warning: Could not remove temp file {temp_file_path}: {e}")
+
+    except Exception as e:
+        print(f"      ⚠️  Warning: Could not process images: {e}")
+        return 0
 
 
 def main():
@@ -167,6 +311,22 @@ def main():
             if registry.get_file_search_store_name() != store_name:
                 registry.set_file_search_store_name(store_name)
 
+            # Initialize image managers
+            try:
+                file_api_manager = FileAPIManager(client)
+                image_storage = ImageStorage(
+                    bucket_name=config.gcs_bucket_name,
+                    credentials_json=config.gcs_credentials_json,
+                )
+                image_registry = ImageRegistry(config.image_registry_path)
+                print("✓ Initialized image upload system")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not initialize image system: {e}")
+                print("   Image upload will be skipped")
+                file_api_manager = None
+                image_storage = None
+                image_registry = None
+
         except Exception as e:
             print(f"❌ Error connecting to Gemini: {e}")
             sys.exit(1)
@@ -175,6 +335,9 @@ def main():
         registry = StoreRegistry(config.registry_path)
         fs_manager = None
         store_name = registry.get_file_search_store_name() or "dry_run_store"
+        file_api_manager = None
+        image_storage = None
+        image_registry = None
 
     # Process each area/site
     step_num = "3/3" if args.dry_run else "4/4"
@@ -217,6 +380,7 @@ def main():
                 )
 
                 # Upload each file to File Search Store with metadata
+                total_images_uploaded = 0
                 for file_path in files_to_upload:
                     # Generate document identifier from filename
                     doc_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -234,6 +398,24 @@ def main():
                         ),
                     )
 
+                    # Process images if this is a DOCX file and image system is available
+                    if (
+                        file_api_manager
+                        and image_storage
+                        and image_registry
+                        and file_path.lower().endswith('.docx')
+                    ):
+                        num_images = process_docx_images(
+                            file_path=file_path,
+                            area=area,
+                            site=site,
+                            doc=doc_name,
+                            file_api_manager=file_api_manager,
+                            image_storage=image_storage,
+                            image_registry=image_registry,
+                        )
+                        total_images_uploaded += num_images
+
                 # Register the location
                 registry.register_store(
                     area=area,
@@ -248,7 +430,12 @@ def main():
                     tracker.mark_file_uploaded(file_path, area, site)
 
                 total_uploaded += len(files_to_upload)
-                print(f"   ✓ Upload complete for {area}/{site}")
+
+                # Report image uploads
+                if total_images_uploaded > 0:
+                    print(f"   ✓ Upload complete for {area}/{site} ({total_images_uploaded} images)")
+                else:
+                    print(f"   ✓ Upload complete for {area}/{site}")
 
             except Exception as e:
                 print(f"   ❌ Error uploading {area}/{site}: {e}")

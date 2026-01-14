@@ -62,7 +62,11 @@ def main():
         sys.exit(1)
 
     # Get storage backend
-    storage_backend = get_storage_backend(config)
+    storage_backend = get_storage_backend(
+        bucket_name=config.gcs_bucket_name,
+        credentials_json=config.gcs_credentials_json,
+        enable_cache=config.enable_local_cache
+    )
 
     # Load chunks from GCS or local filesystem
     print(f"\nLoading chunks from storage...")

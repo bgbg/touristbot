@@ -97,6 +97,10 @@ class DirectoryParser:
 
         for root, _, filenames in os.walk(directory):
             for filename in filenames:
+                # Skip Word temp files (start with ~$)
+                if filename.startswith('~$'):
+                    continue
+
                 file_path = os.path.join(root, filename)
                 file_ext = os.path.splitext(filename)[1].lower()
 

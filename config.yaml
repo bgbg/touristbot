@@ -33,6 +33,7 @@ gemini_rag:
   # Store registry and tracking
   registry_path: "gemini/store_registry.json"
   upload_tracking_path: "gemini/upload_tracking.json"
+  image_registry_path: "image_registry.json"
 
   # Prompts directory for YAML-based LLM configurations
   prompts_dir: "prompts/"
@@ -45,7 +46,11 @@ gemini_rag:
 
   # File Search Store configuration
   # Single store for entire project with metadata filtering
-  file_search_store_name: "TARASA_Tourism_RAG"
+  file_search_store_name: "TARASA_Tourism_RAG_v2"
+
+  # Image upload limits
+  max_image_size_mb: 10  # Maximum size per image in MB
+  max_total_images_size_mb: 50  # Maximum total size of images per document in MB
 
 # Google Cloud Storage configuration
 # GCS is the single source of truth for all content and chunks
