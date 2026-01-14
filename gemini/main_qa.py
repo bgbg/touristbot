@@ -54,6 +54,22 @@ class ImageAwareResponse(BaseModel):
         description="Relevance scores (0-100) for each image URI. Only include images that are contextually relevant to the query. Key is the image file_api_uri, value is relevance score."
     )
 
+    @classmethod
+    def get_gemini_schema(cls):
+        """Generate JSON schema without additionalProperties for Gemini API compatibility."""
+        schema = cls.model_json_schema()
+        # Remove additionalProperties recursively
+        def remove_additional_properties(obj):
+            if isinstance(obj, dict):
+                obj.pop("additionalProperties", None)
+                for value in obj.values():
+                    remove_additional_properties(value)
+            elif isinstance(obj, list):
+                for item in obj:
+                    remove_additional_properties(item)
+        remove_additional_properties(schema)
+        return schema
+
 
 def load_chunks(chunks_dir: str, storage_backend=None) -> tuple[str, list[str]]:
     """
@@ -522,7 +538,7 @@ def get_response(
             system_instruction=system_instruction,
             temperature=temperature,
             response_mime_type="application/json",
-            response_schema=ImageAwareResponse,
+            response_schema=ImageAwareResponse.get_gemini_schema(),
             tools=[
                 types.Tool(
                     file_search=types.FileSearch(

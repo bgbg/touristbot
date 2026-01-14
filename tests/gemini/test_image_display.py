@@ -116,6 +116,22 @@ def test_structured_output_schema():
     assert "should_include_images" in schema["properties"]
     assert "image_relevance" in schema["properties"]
 
+    # Test that Gemini-compatible schema doesn't have additionalProperties
+    gemini_schema = ImageAwareResponse.get_gemini_schema()
+    assert "properties" in gemini_schema
+
+    # Recursively check that no additionalProperties exists anywhere in the schema
+    def check_no_additional_properties(obj, path="root"):
+        if isinstance(obj, dict):
+            assert "additionalProperties" not in obj, f"Found additionalProperties at {path}"
+            for key, value in obj.items():
+                check_no_additional_properties(value, f"{path}.{key}")
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                check_no_additional_properties(item, f"{path}[{i}]")
+
+    check_no_additional_properties(gemini_schema)
+
 
 def test_greeting_detection_structured_output():
     """Test that structured output can indicate greeting without images"""
