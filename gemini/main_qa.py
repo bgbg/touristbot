@@ -331,12 +331,12 @@ def get_response(
     conversation_history = convert_messages_to_gemini_format(messages)
 
     # Format system instruction (without context - File Search provides it)
-    system_instruction = prompt_config.system_template.format(
+    system_instruction = prompt_config.system_prompt.format(
         area=area, site=site, topics=topics_text
     )
 
     # Format user message
-    user_message = prompt_config.user_template.format(question=question)
+    user_message = prompt_config.user_prompt.format(question=question)
 
     # Append current question as the final user message
     conversation_history.append(
