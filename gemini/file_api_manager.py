@@ -17,6 +17,28 @@ from gemini.image_extractor import ExtractedImage
 class FileAPIManager:
     """Manages uploads to Gemini File API"""
 
+    # Maximum wait time for file processing (5 minutes)
+    MAX_WAIT_SECONDS = 300
+
+    @staticmethod
+    def _sanitize_path_component(value: str) -> str:
+        """
+        Sanitize path component to prevent path traversal attacks
+
+        Args:
+            value: Path component to sanitize
+
+        Returns:
+            Sanitized path component
+        """
+        # Remove path traversal sequences
+        sanitized = value.replace('../', '').replace('..\\', '')
+        # Replace path separators with underscores
+        sanitized = sanitized.replace('/', '_').replace('\\', '_')
+        # Remove any remaining dots at start
+        sanitized = sanitized.lstrip('.')
+        return sanitized
+
     def __init__(self, client: genai.Client):
         """
         Initialize File API manager
@@ -50,10 +72,23 @@ class FileAPIManager:
             else:
                 file = self.client.files.upload(file=image_path)
 
-            # Wait for file to be active
-            while file.state.name == "PROCESSING":
+            # Wait for file to be active with timeout
+            elapsed = 0
+            while file.state.name == "PROCESSING" and elapsed < self.MAX_WAIT_SECONDS:
                 time.sleep(1)
+                elapsed += 1
                 file = self.client.files.get(name=file.name)
+
+            if file.state.name == "PROCESSING":
+                # Clean up stuck file
+                try:
+                    self.client.files.delete(name=file.name)
+                except Exception:
+                    pass
+                raise Exception(
+                    f"File upload timeout after {self.MAX_WAIT_SECONDS}s. "
+                    f"File stuck in PROCESSING state: {file.name}"
+                )
 
             if file.state.name != "ACTIVE":
                 raise Exception(f"File upload failed with state: {file.state.name}")
@@ -127,6 +162,11 @@ class FileAPIManager:
             Exception: If any upload fails
         """
         uploaded = []
+
+        # Sanitize path components to prevent path traversal
+        area = self._sanitize_path_component(area)
+        site = self._sanitize_path_component(site)
+        doc = self._sanitize_path_component(doc)
 
         for i, image in enumerate(images, 1):
             # Create display name

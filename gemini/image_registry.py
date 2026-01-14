@@ -41,6 +41,25 @@ class ImageRecord:
 class ImageRegistry:
     """Manages image registry (image_registry.json)"""
 
+    @staticmethod
+    def _sanitize_path_component(value: str) -> str:
+        """
+        Sanitize path component to prevent path traversal attacks
+
+        Args:
+            value: Path component to sanitize
+
+        Returns:
+            Sanitized path component
+        """
+        # Remove path traversal sequences
+        sanitized = value.replace('../', '').replace('..\\', '')
+        # Replace path separators with underscores
+        sanitized = sanitized.replace('/', '_').replace('\\', '_')
+        # Remove any remaining dots at start
+        sanitized = sanitized.lstrip('.')
+        return sanitized
+
     def __init__(self, registry_path: str = "image_registry.json"):
         """
         Initialize image registry
@@ -71,15 +90,46 @@ class ImageRegistry:
             self.registry = {}
 
     def _save(self):
-        """Save registry to JSON file"""
+        """Save registry to JSON file with atomic write and locking"""
+        import fcntl
+        import tempfile
+
+        temp_path = None
         try:
             # Convert ImageRecord objects to dicts
             data = {key: record.to_dict() for key, record in self.registry.items()}
 
-            with open(self.registry_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            # Create temp file in same directory for atomic write
+            registry_dir = os.path.dirname(self.registry_path) or "."
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=registry_dir,
+                delete=False,
+                suffix=".json.tmp"
+            ) as f:
+                temp_path = f.name
+
+                # Acquire exclusive lock
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except (AttributeError, ImportError):
+                    # fcntl not available on Windows, just write without locking
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+
+            # Atomic rename (overwrites safely)
+            os.replace(temp_path, self.registry_path)
+            temp_path = None
 
         except Exception as e:
+            # Clean up temp file on error
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
             raise Exception(f"Failed to save image registry: {e}")
 
     def add_image(
@@ -118,6 +168,11 @@ class ImageRegistry:
         Raises:
             Exception: If save fails
         """
+        # Sanitize path components to prevent path traversal
+        area = self._sanitize_path_component(area)
+        site = self._sanitize_path_component(site)
+        doc = self._sanitize_path_component(doc)
+
         # Generate image key
         image_key = f"{area}/{site}/{doc}/image_{image_index:03d}"
 
@@ -136,6 +191,9 @@ class ImageRegistry:
             file_api_name=file_api_name,
             image_format=image_format,
         )
+
+        # Reload from disk before adding to avoid race condition
+        self._load()
 
         # Add to registry
         self.registry[image_key] = record
@@ -251,6 +309,15 @@ class ImageRegistry:
             self._save()
 
         return len(to_remove)
+
+    def list_all_images(self) -> List[ImageRecord]:
+        """
+        List all images in registry
+
+        Returns:
+            List of all ImageRecord objects
+        """
+        return list(self.registry.values())
 
     def list_all_locations(self) -> List[tuple]:
         """

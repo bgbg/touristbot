@@ -17,6 +17,25 @@ from gemini.image_extractor import ExtractedImage
 class ImageStorage:
     """Manages image storage in Google Cloud Storage"""
 
+    @staticmethod
+    def _sanitize_path_component(value: str) -> str:
+        """
+        Sanitize path component to prevent path traversal attacks
+
+        Args:
+            value: Path component to sanitize
+
+        Returns:
+            Sanitized path component
+        """
+        # Remove path traversal sequences
+        sanitized = value.replace('../', '').replace('..\\', '')
+        # Replace path separators with underscores
+        sanitized = sanitized.replace('/', '_').replace('\\', '_')
+        # Remove any remaining dots at start
+        sanitized = sanitized.lstrip('.')
+        return sanitized
+
     def __init__(self, bucket_name: str, credentials_json: Optional[str] = None):
         """
         Initialize image storage
@@ -106,6 +125,11 @@ class ImageStorage:
             Exception: If any upload fails
         """
         uploaded = []
+
+        # Sanitize path components to prevent path traversal
+        area = self._sanitize_path_component(area)
+        site = self._sanitize_path_component(site)
+        doc = self._sanitize_path_component(doc)
 
         for i, image in enumerate(images, 1):
             # Construct GCS path

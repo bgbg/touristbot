@@ -92,7 +92,7 @@ def process_docx_images(
             return 0
 
         # Handle Hebrew filenames by copying to temp file
-        temp_file = None
+        temp_file_path = None
         docx_path = file_path
 
         try:
@@ -101,12 +101,12 @@ def process_docx_images(
                 os.path.basename(file_path).encode('ascii')
             except UnicodeEncodeError:
                 # Copy to temp file with ASCII name
-                temp_file = tempfile.NamedTemporaryFile(
+                with tempfile.NamedTemporaryFile(
                     delete=False, suffix='.docx', prefix='upload_'
-                )
-                temp_file.close()
-                shutil.copy2(file_path, temp_file.name)
-                docx_path = temp_file.name
+                ) as temp_file:
+                    temp_file_path = temp_file.name
+                shutil.copy2(file_path, temp_file_path)
+                docx_path = temp_file_path
 
             # Extract images
             images = extract_images_from_docx(docx_path)
@@ -137,7 +137,33 @@ def process_docx_images(
 
             print(f"      -> Uploaded {len(uploaded_file_api)} image(s) to File API")
 
-            # Register images in registry
+            # Validate all uploads succeeded before registering
+            if len(uploaded_gcs) != len(images):
+                # Rollback GCS uploads
+                print(f"      ⚠️  GCS upload incomplete ({len(uploaded_gcs)}/{len(images)}), rolling back...")
+                for gcs_path, _ in uploaded_gcs:
+                    try:
+                        image_storage.delete_image(gcs_path)
+                    except Exception as e:
+                        print(f"      Warning: Could not delete {gcs_path}: {e}")
+                raise Exception(f"GCS upload incomplete: {len(uploaded_gcs)}/{len(images)}")
+
+            if len(uploaded_file_api) != len(images):
+                # Rollback all uploads
+                print(f"      ⚠️  File API upload incomplete ({len(uploaded_file_api)}/{len(images)}), rolling back...")
+                for gcs_path, _ in uploaded_gcs:
+                    try:
+                        image_storage.delete_image(gcs_path)
+                    except Exception as e:
+                        print(f"      Warning: Could not delete {gcs_path}: {e}")
+                for _, _, file_name, _ in uploaded_file_api:
+                    try:
+                        file_api_manager.delete_file(file_name)
+                    except Exception as e:
+                        print(f"      Warning: Could not delete {file_name}: {e}")
+                raise Exception(f"File API upload incomplete: {len(uploaded_file_api)}/{len(images)}")
+
+            # Only register if ALL uploads succeeded
             for i, image in enumerate(images, 1):
                 gcs_path, gcs_url = uploaded_gcs[i - 1]
                 image_index, file_uri, file_name, caption = uploaded_file_api[i - 1]
@@ -161,9 +187,12 @@ def process_docx_images(
             return len(images)
 
         finally:
-            # Clean up temp file
-            if temp_file and os.path.exists(temp_file.name):
-                os.remove(temp_file.name)
+            # Clean up temp file - guaranteed to run even on exception
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                except Exception as e:
+                    print(f"      Warning: Could not remove temp file {temp_file_path}: {e}")
 
     except Exception as e:
         print(f"      ⚠️  Warning: Could not process images: {e}")

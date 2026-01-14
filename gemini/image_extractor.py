@@ -30,6 +30,10 @@ class ExtractedImage:
 class ImageExtractor:
     """Extracts images and metadata from DOCX files"""
 
+    # Image validation limits
+    MAX_IMAGE_SIZE_MB = 10
+    VALID_IMAGE_FORMATS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
+
     def __init__(self, docx_path: str):
         """
         Initialize image extractor
@@ -118,11 +122,22 @@ class ImageExtractor:
 
             # Extract image data and format
             image_data = image_part.blob
-            image_format = image_part.content_type.split('/')[-1]  # e.g., 'image/jpeg' -> 'jpeg'
+            image_format = image_part.content_type.split('/')[-1].lower()  # e.g., 'image/jpeg' -> 'jpeg'
 
             # Normalize format
             if image_format == 'jpeg':
                 image_format = 'jpg'
+
+            # Validate format
+            if image_format not in self.VALID_IMAGE_FORMATS:
+                print(f"Warning: Invalid image format '{image_format}', skipping")
+                return None, ""
+
+            # Validate size
+            size_mb = len(image_data) / (1024 * 1024)
+            if size_mb > self.MAX_IMAGE_SIZE_MB:
+                print(f"Warning: Skipping image (size {size_mb:.1f}MB exceeds {self.MAX_IMAGE_SIZE_MB}MB limit)")
+                return None, ""
 
             return image_data, image_format
 

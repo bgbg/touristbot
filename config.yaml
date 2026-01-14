@@ -48,6 +48,10 @@ gemini_rag:
   # Single store for entire project with metadata filtering
   file_search_store_name: "TARASA_Tourism_RAG_v2"
 
+  # Image upload limits
+  max_image_size_mb: 10  # Maximum size per image in MB
+  max_total_images_size_mb: 50  # Maximum total size of images per document in MB
+
 # Google Cloud Storage configuration
 # GCS is the single source of truth for all content and chunks
 # Both local development and Streamlit Cloud use GCS backend
