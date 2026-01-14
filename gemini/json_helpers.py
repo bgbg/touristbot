@@ -70,13 +70,25 @@ def parse_json(text: str) -> Optional[Any]:
             except json.JSONDecodeError:
                 pass
 
-    # Try to extract JSON from the text (using non-greedy quantifiers)
-    json_pattern = r"\{.*?\}"
+    # Try to extract JSON from the text
+    # Use greedy matching to get the largest JSON object (handles nested structures)
+    json_pattern = r"\{.*\}"
     match = re.search(json_pattern, text, re.DOTALL)
     if match:
         json_text = match.group()
         try:
-            return json.loads(json_text)
+            parsed = json.loads(json_text)
+            # Check for double-encoded JSON in response_text field
+            if isinstance(parsed, dict) and "response_text" in parsed:
+                response_text = parsed["response_text"]
+                if isinstance(response_text, str) and response_text.strip().startswith("{"):
+                    try:
+                        inner_parsed = json.loads(response_text)
+                        if isinstance(inner_parsed, dict) and "response_text" in inner_parsed:
+                            return inner_parsed
+                    except json.JSONDecodeError:
+                        pass
+            return parsed
         except json.JSONDecodeError:
             # Try repairing if it looks truncated
             if _is_truncated_json(json_text):

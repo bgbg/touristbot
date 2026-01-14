@@ -355,6 +355,34 @@ class TestDoubleEncodedJSON:
         assert "המבנה {כמו כן} נבנה" in result["response_text"]
         assert result["should_include_images"] == False
 
+    def test_json_with_leading_text(self):
+        """Test extraction of JSON when LLM adds conversational text before it."""
+        # Simulates the issue where Gemini adds text before the JSON (File Search limitation)
+        text_before_json = """שאלה מצוינת! האמת היא שאין לי מידע ספציפי על "יפו בלילה" בחומרים ששלי. {"response_text": "אני מצטער, אבל אין לי מידע ספציפי על יפו בלילה בחומרי הרקע שלי.", "should_include_images": false, "image_relevance": []}"""
+
+        result = parse_json(text_before_json)
+
+        assert result is not None
+        assert isinstance(result, dict)
+        # Should extract the JSON and ignore the leading text
+        assert result["response_text"] == "אני מצטער, אבל אין לי מידע ספציפי על יפו בלילה בחומרי הרקע שלי."
+        assert result["should_include_images"] == False
+        assert result["image_relevance"] == []
+
+    def test_json_with_multiline_leading_text(self):
+        """Test extraction when there's multiline text before JSON."""
+        multiline_before_json = """Here's my response to your question.
+I'll provide the information you need.
+
+{"response_text": "The answer is here", "should_include_images": true, "image_relevance": []}"""
+
+        result = parse_json(multiline_before_json)
+
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result["response_text"] == "The answer is here"
+        assert result["should_include_images"] == True
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
