@@ -529,112 +529,124 @@ def main():
             st.info(
                 "📤 No content available. Please upload content using the 'Manage Content' tab."
             )
-        elif not st.session_state.context:
-            st.warning(
-                f"⚠️ No content found for {area} / {site}. Please upload documents first."
-            )
         else:
-            # Display chat messages
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
-                    if "time" in message:
-                        st.caption(f"⏱️ {message['time']:.2f}s")
-                    # Display citations for assistant messages
-                    if message["role"] == "assistant" and message.get("citations"):
-                        citations = message["citations"]
-                        with st.expander("📚 Sources", expanded=False):
-                            for i, citation in enumerate(citations, 1):
-                                st.markdown(f"**{i}. {citation.get('title', 'Unknown')}**")
-                                if citation.get("text"):
-                                    st.caption(citation["text"] + "...")
-                                if citation.get("metadata"):
-                                    metadata = citation["metadata"]
-                                    tags = []
-                                    if hasattr(metadata, "area"):
-                                        tags.append(f"Area: {metadata.area}")
-                                    if hasattr(metadata, "site"):
-                                        tags.append(f"Site: {metadata.site}")
-                                    if hasattr(metadata, "doc"):
-                                        tags.append(f"Doc: {metadata.doc}")
-                                    if tags:
-                                        st.caption(" | ".join(tags))
-                                st.markdown("---")
-
-            # Chat input
-            # Check if user clicked a topic button
-            question = None
-            if "topic_query" in st.session_state:
-                question = st.session_state.topic_query
-                del st.session_state.topic_query  # Clear the query after using it
+            # Check if location has content in File Search Store via registry
+            registry_entry = st.session_state.registry.get_store(area, site)
+            # Handle both dict format (with metadata) and string format (old store_id)
+            if isinstance(registry_entry, dict):
+                has_content = registry_entry.get("metadata", {}).get("file_count", 0) > 0
+            elif isinstance(registry_entry, str):
+                # Old format - assume it has content if there's a store_id
+                has_content = True
             else:
-                question = st.chat_input("Ask a question about this location...")
+                has_content = False
 
-            if question:
-                # Display user message
-                st.session_state.messages.append({"role": "user", "content": question})
-                with st.chat_message("user"):
-                    st.markdown(question)
+            if not has_content:
+                st.warning(
+                    f"⚠️ No content found for {area} / {site}. Please upload documents first."
+                )
+            else:
+                # Display chat messages
+                for message in st.session_state.messages:
+                    with st.chat_message(message["role"]):
+                        st.markdown(message["content"])
+                        if "time" in message:
+                            st.caption(f"⏱️ {message['time']:.2f}s")
+                        # Display citations for assistant messages
+                        if message["role"] == "assistant" and message.get("citations"):
+                            citations = message["citations"]
+                            with st.expander("📚 Sources", expanded=False):
+                                for i, citation in enumerate(citations, 1):
+                                    st.markdown(f"**{i}. {citation.get('title', 'Unknown')}**")
+                                    if citation.get("text"):
+                                        st.caption(citation["text"] + "...")
+                                    if citation.get("metadata"):
+                                        metadata = citation["metadata"]
+                                        tags = []
+                                        if hasattr(metadata, "area"):
+                                            tags.append(f"Area: {metadata.area}")
+                                        if hasattr(metadata, "site"):
+                                            tags.append(f"Site: {metadata.site}")
+                                        if hasattr(metadata, "doc"):
+                                            tags.append(f"Doc: {metadata.doc}")
+                                        if tags:
+                                            st.caption(" | ".join(tags))
+                                    st.markdown("---")
 
-                # Get and display assistant response
-                with st.chat_message("assistant"):
-                    with st.spinner("Searching content..."):
-                        try:
-                            # Pass conversation history (excluding the current question we just added)
-                            answer, response_time, citations = get_response(
-                                question, area, site, st.session_state.messages[:-1]
-                            )
+                # Chat input
+                # Check if user clicked a topic button
+                question = None
+                if "topic_query" in st.session_state:
+                    question = st.session_state.topic_query
+                    del st.session_state.topic_query  # Clear the query after using it
+                else:
+                    question = st.chat_input("Ask a question about this location...")
 
-                            st.markdown(answer)
-                            st.caption(f"⏱️ {response_time:.2f}s")
+                if question:
+                    # Display user message
+                    st.session_state.messages.append({"role": "user", "content": question})
+                    with st.chat_message("user"):
+                        st.markdown(question)
 
-                            # Display citations if available
-                            if citations:
-                                with st.expander("📚 Sources", expanded=False):
-                                    for i, citation in enumerate(citations, 1):
-                                        st.markdown(f"**{i}. {citation.get('title', 'Unknown')}**")
-                                        if citation.get("text"):
-                                            st.caption(citation["text"] + "...")
-                                        if citation.get("metadata"):
-                                            metadata = citation["metadata"]
-                                            tags = []
-                                            if hasattr(metadata, "area"):
-                                                tags.append(f"Area: {metadata.area}")
-                                            if hasattr(metadata, "site"):
-                                                tags.append(f"Site: {metadata.site}")
-                                            if hasattr(metadata, "doc"):
-                                                tags.append(f"Doc: {metadata.doc}")
-                                            if tags:
-                                                st.caption(" | ".join(tags))
-                                        st.markdown("---")
+                    # Get and display assistant response
+                    with st.chat_message("assistant"):
+                        with st.spinner("Searching content..."):
+                            try:
+                                # Pass conversation history (excluding the current question we just added)
+                                answer, response_time, citations = get_response(
+                                    question, area, site, st.session_state.messages[:-1]
+                                )
 
-                            # Save to messages
-                            st.session_state.messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": answer,
-                                    "time": response_time,
-                                    "citations": citations,
-                                }
-                            )
+                                st.markdown(answer)
+                                st.caption(f"⏱️ {response_time:.2f}s")
 
-                            # Log the query
-                            st.session_state.logger.area = area
-                            st.session_state.logger.site = site
-                            st.session_state.logger.log_query(
-                                query=question,
-                                answer=answer,
-                                model=config.model_name,
-                                context_chars=0,  # No context with File Search
-                                response_time_seconds=response_time,
-                                chunks_used=[],  # Citations tracked separately
-                            )
+                                # Display citations if available
+                                if citations:
+                                    with st.expander("📚 Sources", expanded=False):
+                                        for i, citation in enumerate(citations, 1):
+                                            st.markdown(f"**{i}. {citation.get('title', 'Unknown')}**")
+                                            if citation.get("text"):
+                                                st.caption(citation["text"] + "...")
+                                            if citation.get("metadata"):
+                                                metadata = citation["metadata"]
+                                                tags = []
+                                                if hasattr(metadata, "area"):
+                                                    tags.append(f"Area: {metadata.area}")
+                                                if hasattr(metadata, "site"):
+                                                    tags.append(f"Site: {metadata.site}")
+                                                if hasattr(metadata, "doc"):
+                                                    tags.append(f"Doc: {metadata.doc}")
+                                                if tags:
+                                                    st.caption(" | ".join(tags))
+                                            st.markdown("---")
 
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-                            import traceback
+                                # Save to messages
+                                st.session_state.messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": answer,
+                                        "time": response_time,
+                                        "citations": citations,
+                                    }
+                                )
 
-                            traceback.print_exc()
+                                # Log the query
+                                st.session_state.logger.area = area
+                                st.session_state.logger.site = site
+                                st.session_state.logger.log_query(
+                                    query=question,
+                                    answer=answer,
+                                    model=config.model_name,
+                                    context_chars=0,  # No context with File Search
+                                    response_time_seconds=response_time,
+                                    chunks_used=[],  # Citations tracked separately
+                                )
+
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                                import traceback
+
+                                traceback.print_exc()
 
     # ===== MANAGE CONTENT TAB =====
     with tab_manage:
@@ -650,7 +662,7 @@ def main():
             import pandas as pd
 
             for idx, item in enumerate(summary):
-                col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 3, 1, 1, 1])
+                col1, col2, col3, col4 = st.columns([3, 3, 2, 1])
 
                 with col1:
                     st.write(f"**{item['area']}**")
@@ -659,19 +671,11 @@ def main():
                     st.write(item["site"])
 
                 with col3:
-                    st.caption(
-                        item["store_id"][:40] + "..."
-                        if len(item["store_id"]) > 40
-                        else item["store_id"]
-                    )
+                    # Show file count from metadata
+                    file_count = item.get("file_count", 0)
+                    st.metric("Files", file_count)
 
                 with col4:
-                    st.metric("Files", item["file_count"])
-
-                with col5:
-                    st.metric("Chunks", item["chunk_count"])
-
-                with col6:
                     if st.button(
                         "🗑️",
                         key=f"delete_{idx}",

@@ -139,6 +139,9 @@ class StoreRegistry:
         """
         result = {}
         for key, entry in self.registry.items():
+            # Skip global entry
+            if key == "_global":
+                continue
             area, site = key.split(":", 1)
             store_id = entry.get("store_id") if isinstance(entry, dict) else entry
             result[(area, site)] = store_id
