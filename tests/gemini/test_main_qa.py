@@ -16,7 +16,7 @@ class TestPromptTemplateAttributes:
     def test_prompt_config_has_system_prompt_not_template(self):
         """Verify PromptConfig has system_prompt attribute (not system_template)"""
         # Create a mock prompt config like what PromptLoader returns
-        prompt_config = Mock()
+        prompt_config = Mock(spec=["system_prompt", "user_prompt", "temperature", "model_name"])
         prompt_config.system_prompt = "Test system prompt with {area} and {site}"
         prompt_config.user_prompt = "Test user prompt with {question}"
         prompt_config.temperature = 0.6
@@ -26,7 +26,7 @@ class TestPromptTemplateAttributes:
         assert hasattr(prompt_config, "system_prompt")
         assert hasattr(prompt_config, "user_prompt")
 
-        # This should fail - system_template doesn't exist
+        # This should fail - system_template doesn't exist (spec restricts attributes)
         with pytest.raises(AttributeError):
             _ = prompt_config.system_template
 
@@ -133,3 +133,5 @@ class TestCodeUsesCorrectAttributes:
 
         with pytest.raises(AttributeError, match="user_template"):
             _ = prompt_config.user_template.format(question="test")
+
+

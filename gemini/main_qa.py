@@ -319,6 +319,8 @@ def get_response(
 
     # Get File Search Store name from registry
     file_search_store_name = st.session_state.registry.get_file_search_store_name()
+    print(f"[DEBUG] File Search Store name: {file_search_store_name}")
+    print(f"[DEBUG] Metadata filter: {metadata_filter}")
     if not file_search_store_name:
         st.error("File Search Store not initialized. Please upload content first.")
         return "Error: File Search Store not found.", 0.0, []

@@ -157,7 +157,7 @@ def test_prompt_loader_load_relative_path():
     assert config.temperature == 0.6
     assert "{area}" in config.system_prompt
     assert "{site}" in config.system_prompt
-    assert "{context}" in config.user_prompt
+    # Note: {context} removed for File Search API - context provided automatically
     assert "{question}" in config.user_prompt
 
 
@@ -165,11 +165,11 @@ def test_end_to_end_tourism_qa():
     """Test full workflow with tourism_qa.yaml"""
     config = PromptLoader.load("prompts/tourism_qa.yaml")
 
+    # Note: context removed for File Search API - context provided automatically via File Search
     system, user = config.format(
         area="Galilee",
         site="Capernaum",
         topics="Biblical sites, Ancient synagogue, Jesus ministry",
-        context="Ancient fishing village...",
         question="What is significant about this site?",
     )
 
@@ -177,6 +177,5 @@ def test_end_to_end_tourism_qa():
     assert "Galilee" in system
     assert "Capernaum" in system
 
-    # User prompt should have context and question
-    assert "Ancient fishing village" in user
+    # User prompt should have question (no context needed with File Search)
     assert "What is significant about this site?" in user
