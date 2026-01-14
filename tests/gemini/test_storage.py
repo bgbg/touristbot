@@ -35,10 +35,12 @@ def gcs_config():
     return GeminiConfig.from_yaml()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def test_prefix():
-    """Generate unique test prefix with timestamp to avoid conflicts"""
-    return f"test_gcs_storage_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    """Generate unique test prefix with timestamp to avoid conflicts between parallel workers"""
+    import uuid
+    # Use UUID to ensure uniqueness across parallel workers
+    return f"test_gcs_storage_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
 
 @pytest.fixture(scope="module")
@@ -54,23 +56,27 @@ def gcs_storage(gcs_config):
     return storage
 
 
-@pytest.fixture(scope="module", autouse=True)
-def cleanup_test_files(gcs_storage, test_prefix):
+@pytest.fixture(scope="function", autouse=True)
+def cleanup_test_files(request, gcs_storage, test_prefix):
     """
-    Cleanup fixture that runs after all tests in module complete
+    Cleanup fixture that runs after each test completes
 
-    Deletes all test files created during test execution
+    Deletes all test files created during test execution.
+    Function-scoped for parallel safety - each test gets its own prefix.
     """
-    yield  # Let tests run first
+    yield  # Let test run first
 
-    try:
-        # List and delete all files under test prefix
-        test_files = gcs_storage.list_files(test_prefix)
-        for file_path in test_files:
-            gcs_storage.delete_file(file_path)
-        print(f"\nCleaned up {len(test_files)} test files from bucket")
-    except Exception as e:
-        print(f"\nWarning: Failed to clean up test files: {e}")
+    # Only cleanup if test uses gcs_storage (check if it's a GCS test)
+    if "gcs" in [mark.name for mark in request.node.iter_markers()]:
+        try:
+            # List and delete all files under this test's unique prefix
+            test_files = gcs_storage.list_files(test_prefix)
+            for file_path in test_files:
+                gcs_storage.delete_file(file_path)
+            if test_files:
+                print(f"\n  Cleaned up {len(test_files)} test files for {test_prefix}")
+        except Exception as e:
+            print(f"\n  Warning: Failed to clean up test files for {test_prefix}: {e}")
 
 
 # GCSStorage Tests
@@ -235,16 +241,16 @@ def test_overwrite_file(gcs_storage, test_prefix):
 # CachedGCSStorage Tests
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def cache_dir():
-    """Create temporary cache directory for cached storage tests"""
+    """Create temporary cache directory for cached storage tests (unique per test for parallel safety)"""
     with tempfile.TemporaryDirectory(prefix="gcs_cache_test_") as tmpdir:
         yield tmpdir
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def cached_gcs_storage(gcs_config, cache_dir):
-    """Create CachedGCSStorage instance for testing"""
+    """Create CachedGCSStorage instance for testing (function-scoped for parallel safety)"""
     storage = CachedGCSStorage(
         bucket_name=gcs_config.gcs_bucket_name,
         credentials_json=gcs_config.gcs_credentials_json,
