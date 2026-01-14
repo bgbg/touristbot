@@ -24,6 +24,8 @@ os.chdir(parent_dir)
 
 import google.genai as genai
 from google.genai import types
+from pydantic import BaseModel, Field
+from typing import Dict, Optional
 
 from gemini.config import GeminiConfig
 from gemini.conversation_utils import convert_messages_to_gemini_format
@@ -35,6 +37,22 @@ from gemini.store_registry import StoreRegistry
 from gemini.topic_extractor import extract_topics_from_chunks
 from gemini.upload_manager import UploadManager
 from gemini.upload_tracker import UploadTracker
+
+
+# Pydantic schema for structured output from Gemini API
+class ImageAwareResponse(BaseModel):
+    """Structured response from Gemini that includes image relevance signals."""
+
+    response_text: str = Field(
+        description="The main response text to the user's query in Hebrew or the query language"
+    )
+    should_include_images: bool = Field(
+        description="Whether images should be included in this response. Set to false for initial greetings, true for substantive queries where images add value."
+    )
+    image_relevance: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Relevance scores (0-100) for each image URI. Only include images that are contextually relevant to the query. Key is the image file_api_uri, value is relevance score."
+    )
 
 
 def load_chunks(chunks_dir: str, storage_backend=None) -> tuple[str, list[str]]:
@@ -496,14 +514,16 @@ def get_response(
 
     start_time = time.time()
 
-    # Generate with File Search tool
+    # Generate with File Search tool and structured output
     response = client.models.generate_content(
         model=model_name,
         contents=conversation_history,
-        config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            temperature=temperature,
-            tools=[
+        config={
+            "system_instruction": system_instruction,
+            "temperature": temperature,
+            "response_mime_type": "application/json",
+            "response_json_schema": ImageAwareResponse.model_json_schema(),
+            "tools": [
                 types.Tool(
                     file_search=types.FileSearch(
                         file_search_store_names=[file_search_store_name],
@@ -511,7 +531,7 @@ def get_response(
                     )
                 ),
             ],
-        ),
+        },
     )
 
     response_time = time.time() - start_time
@@ -519,18 +539,29 @@ def get_response(
     # Extract citations from grounding metadata
     citations = extract_citations(response)
 
-    # Filter images based on relevance to query and response
+    # Parse structured output
+    try:
+        structured_response = json.loads(response.text)
+        response_text = structured_response.get("response_text", response.text)
+        should_include_images = structured_response.get("should_include_images", True)
+        image_relevance = structured_response.get("image_relevance", {})
+    except (json.JSONDecodeError, KeyError) as e:
+        # Fallback to raw response if parsing fails
+        print(f"Warning: Could not parse structured output: {e}")
+        response_text = response.text
+        should_include_images = True
+        image_relevance = {}
+
+    # Filter images based on LLM-provided relevance scores
     relevant_images = []
-    if images:
-        # Extract captions for relevance checking
-        image_captions = [img.caption for img in images if img.caption]
+    if images and should_include_images:
+        # Filter images with relevance score >= 60
+        for image in images:
+            relevance_score = image_relevance.get(image.file_api_uri, 0)
+            if relevance_score >= 60:
+                relevant_images.append(image)
 
-        # Check if images are relevant based on query + response
-        combined_text = f"{question} {response.text}"
-        if _should_display_images(combined_text, image_captions):
-            relevant_images = images
-
-    return response.text, response_time, citations, relevant_images
+    return response_text, response_time, citations, relevant_images
 
 
 def main():
