@@ -1,0 +1,41 @@
+{
+  "_global": {
+    "file_search_store_name": "fileSearchStores/tarasatourismragv2-96gk481xbypj"
+  },
+  "hefer_valley:agamon_hefer": {
+    "metadata": {
+      "area": "hefer_valley",
+      "site": "agamon_hefer",
+      "created_at": "2026-01-14T14:22:32.872588+00:00",
+      "last_updated": "2026-01-14T18:48:28.584140",
+      "file_count": 3
+    }
+  },
+  "tel_aviv_district:jaffa_port": {
+    "metadata": {
+      "area": "tel_aviv_district",
+      "site": "jaffa_port",
+      "created_at": "2026-01-14T18:47:39.828379",
+      "last_updated": "2026-01-14T18:47:39.828402",
+      "file_count": 3
+    }
+  },
+  "tel_aviv_district:yarkon_park": {
+    "metadata": {
+      "area": "tel_aviv_district",
+      "site": "yarkon_park",
+      "created_at": "2026-01-14T18:48:08.884076",
+      "last_updated": "2026-01-14T18:48:08.884100",
+      "file_count": 3
+    }
+  },
+  "hefer_valley:alexander_stream": {
+    "metadata": {
+      "area": "hefer_valley",
+      "site": "alexander_stream",
+      "created_at": "2026-01-14T18:48:58.860788",
+      "last_updated": "2026-01-14T18:48:58.860798",
+      "file_count": 3
+    }
+  }
+}

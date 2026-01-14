@@ -4,7 +4,6 @@
 
 # Query logs and runtime tracking files
 gemini/query_log.jsonl
-gemini/store_registry.json
 gemini/upload_tracking.json
 
 # Python
