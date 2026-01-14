@@ -25,7 +25,7 @@ os.chdir(parent_dir)
 import google.genai as genai
 from google.genai import types
 from pydantic import BaseModel, Field
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from gemini.config import GeminiConfig
 from gemini.conversation_utils import convert_messages_to_gemini_format
@@ -40,6 +40,12 @@ from gemini.upload_tracker import UploadTracker
 
 
 # Pydantic schema for structured output from Gemini API
+class ImageRelevance(BaseModel):
+    """Relevance score for a single image."""
+    image_uri: str = Field(description="The file_api_uri of the image")
+    relevance_score: int = Field(description="Relevance score 0-100. Scores >= 60 will be displayed.")
+
+
 class ImageAwareResponse(BaseModel):
     """Structured response from Gemini that includes image relevance signals."""
 
@@ -49,9 +55,9 @@ class ImageAwareResponse(BaseModel):
     should_include_images: bool = Field(
         description="Whether images should be included in this response. Set to false for initial greetings, true for substantive queries where images add value."
     )
-    image_relevance: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Relevance scores (0-100) for each image URI. Only include images that are contextually relevant to the query. Key is the image file_api_uri, value is relevance score."
+    image_relevance: List[ImageRelevance] = Field(
+        default_factory=list,
+        description="List of relevance scores for each image. Only include images that are contextually relevant to the query."
     )
 
     @classmethod
@@ -560,7 +566,13 @@ def get_response(
         structured_response = json.loads(response.text)
         response_text = structured_response.get("response_text", response.text)
         should_include_images = structured_response.get("should_include_images", True)
-        image_relevance = structured_response.get("image_relevance", {})
+        image_relevance_list = structured_response.get("image_relevance", [])
+
+        # Convert list format to dict for easier lookup
+        image_relevance = {}
+        for item in image_relevance_list:
+            if isinstance(item, dict) and "image_uri" in item and "relevance_score" in item:
+                image_relevance[item["image_uri"]] = item["relevance_score"]
     except (json.JSONDecodeError, KeyError) as e:
         # Fallback to raw response if parsing fails
         print(f"Warning: Could not parse structured output: {e}")

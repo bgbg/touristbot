@@ -85,29 +85,31 @@ def test_image_relevance_detection():
 
 def test_structured_output_schema():
     """Test that ImageAwareResponse Pydantic schema is properly defined"""
-    from gemini.main_qa import ImageAwareResponse
+    from gemini.main_qa import ImageAwareResponse, ImageRelevance
 
     # Test schema can be instantiated with valid data
     response = ImageAwareResponse(
         response_text="שלום! איך אפשר לעזור?",
         should_include_images=False,
-        image_relevance={}
+        image_relevance=[]
     )
     assert response.response_text == "שלום! איך אפשר לעזור?"
     assert response.should_include_images == False
-    assert response.image_relevance == {}
+    assert response.image_relevance == []
 
-    # Test with images
+    # Test with images (list format)
     response_with_images = ImageAwareResponse(
         response_text="הנה תמונות יפות של שקנאים",
         should_include_images=True,
-        image_relevance={
-            "https://example.com/image1": 85,
-            "https://example.com/image2": 92
-        }
+        image_relevance=[
+            ImageRelevance(image_uri="https://example.com/image1", relevance_score=85),
+            ImageRelevance(image_uri="https://example.com/image2", relevance_score=92)
+        ]
     )
     assert response_with_images.should_include_images == True
-    assert response_with_images.image_relevance["https://example.com/image1"] == 85
+    assert len(response_with_images.image_relevance) == 2
+    assert response_with_images.image_relevance[0].image_uri == "https://example.com/image1"
+    assert response_with_images.image_relevance[0].relevance_score == 85
 
     # Test schema can be converted to JSON schema
     schema = ImageAwareResponse.model_json_schema()
@@ -138,11 +140,11 @@ def test_greeting_detection_structured_output():
     import json
     from gemini.main_qa import ImageAwareResponse
 
-    # Simulate structured output for a greeting
+    # Simulate structured output for a greeting (list format)
     greeting_response = {
         "response_text": "שלום! אני חיליק, המדריך שלך באזור. במה אוכל לעזור?",
         "should_include_images": False,
-        "image_relevance": {}
+        "image_relevance": []
     }
 
     # Verify it can be parsed
@@ -160,20 +162,23 @@ def test_image_relevance_scoring_structured_output():
     """Test that structured output includes relevance scores for images"""
     import json
 
-    # Simulate structured output with relevance scores
+    # Simulate structured output with relevance scores (list format)
     image_response = {
         "response_text": "שימו לב כמה יפים השקנאים האלה! הם חיים באזור הזה כל השנה.",
         "should_include_images": True,
-        "image_relevance": {
-            "https://generativelanguage.googleapis.com/v1beta/files/image1": 95,
-            "https://generativelanguage.googleapis.com/v1beta/files/image2": 88,
-            "https://generativelanguage.googleapis.com/v1beta/files/image3": 45  # Low score, should be filtered
-        }
+        "image_relevance": [
+            {"image_uri": "https://generativelanguage.googleapis.com/v1beta/files/image1", "relevance_score": 95},
+            {"image_uri": "https://generativelanguage.googleapis.com/v1beta/files/image2", "relevance_score": 88},
+            {"image_uri": "https://generativelanguage.googleapis.com/v1beta/files/image3", "relevance_score": 45}  # Low score, should be filtered
+        ]
     }
+
+    # Convert to dict format for easier lookup (simulating main_qa.py logic)
+    image_relevance_dict = {item["image_uri"]: item["relevance_score"] for item in image_response["image_relevance"]}
 
     # Verify scoring logic
     threshold = 60
-    relevant_uris = [uri for uri, score in image_response["image_relevance"].items() if score >= threshold]
+    relevant_uris = [uri for uri, score in image_relevance_dict.items() if score >= threshold]
     assert len(relevant_uris) == 2
     assert "https://generativelanguage.googleapis.com/v1beta/files/image1" in relevant_uris
     assert "https://generativelanguage.googleapis.com/v1beta/files/image2" in relevant_uris
@@ -198,10 +203,10 @@ def test_structured_output_parsing_fallback():
             # If it parses, check fallback behavior
             response_text = parsed.get("response_text", malformed)
             should_include_images = parsed.get("should_include_images", True)
-            image_relevance = parsed.get("image_relevance", {})
+            image_relevance_list = parsed.get("image_relevance", [])
             # Fallback should provide defaults
             assert isinstance(should_include_images, bool)
-            assert isinstance(image_relevance, dict)
+            assert isinstance(image_relevance_list, list)
         except json.JSONDecodeError:
             # Expected for malformed JSON
             # Fallback should use raw text
