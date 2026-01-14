@@ -214,3 +214,59 @@ def test_structured_output_parsing_fallback():
             should_include_images = True
             image_relevance = {}
             assert response_text == malformed
+
+
+def test_double_encoded_response_text():
+    """Test that double-encoded JSON in response_text is properly decoded"""
+    import json
+
+    # Simulate double-encoded response_text (where response_text itself is JSON-encoded)
+    # This can happen if the LLM returns escaped JSON within the structured output
+    double_encoded_response = {
+        "response_text": '"\\u05e9\\u05dc\\u05d5\\u05dd! \\u05d0\\u05e0\\u05d9 \\u05d7\\u05d9\\u05dc\\u05d9\\u05e7"',  # "שלום! אני חיליק" double-encoded
+        "should_include_images": False,
+        "image_relevance": []
+    }
+
+    # Simulate parsing logic from main_qa.py
+    response_text = double_encoded_response.get("response_text")
+
+    # Check if response_text itself is JSON-encoded (double encoding issue)
+    if isinstance(response_text, str) and response_text.startswith('"') and response_text.endswith('"'):
+        try:
+            # Try to decode once more to handle double-encoded JSON
+            response_text = json.loads(response_text)
+        except json.JSONDecodeError:
+            # If it fails, keep the original text
+            pass
+
+    # Verify that double-encoding was decoded
+    assert response_text == "שלום! אני חיליק"
+    assert not response_text.startswith('"')
+    assert "\\u" not in response_text  # No escape sequences
+
+
+def test_properly_encoded_response_text():
+    """Test that properly encoded response_text is not double-decoded"""
+    import json
+
+    # Simulate properly encoded response (single encoding)
+    proper_response = {
+        "response_text": "שלום! אני חיליק, המדריך שלך",
+        "should_include_images": False,
+        "image_relevance": []
+    }
+
+    # Simulate parsing logic from main_qa.py
+    response_text = proper_response.get("response_text")
+
+    # Check if response_text itself is JSON-encoded
+    if isinstance(response_text, str) and response_text.startswith('"') and response_text.endswith('"'):
+        try:
+            response_text = json.loads(response_text)
+        except json.JSONDecodeError:
+            pass
+
+    # Verify that properly encoded text is unchanged
+    assert response_text == "שלום! אני חיליק, המדריך שלך"
+    assert "\\u" not in response_text

@@ -2,9 +2,12 @@
 Directory Parser - Parse area/site directory structure and collect files
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class DirectoryParser:
@@ -46,40 +49,40 @@ class DirectoryParser:
         result = {}
 
         # Walk through area directories
-        print(f"   Scanning content root: {self.content_root}")
+        logger.debug(f"Scanning content root: {self.content_root}")
         areas = os.listdir(self.content_root)
-        print(f"   Found {len(areas)} potential areas")
+        logger.debug(f"Found {len(areas)} potential areas")
 
         for area_name in areas:
             area_path = os.path.join(self.content_root, area_name)
 
             if not os.path.isdir(area_path):
-                print(f"   Skipping non-directory: {area_name}")
+                logger.debug(f"Skipping non-directory: {area_name}")
                 continue
 
-            print(f"   Scanning area: {area_name}")
+            logger.debug(f"Scanning area: {area_name}")
 
             # Walk through site directories within area
             sites = os.listdir(area_path)
-            print(f"     Found {len(sites)} potential sites")
+            logger.debug(f"Found {len(sites)} potential sites")
 
             for site_name in sites:
                 site_path = os.path.join(area_path, site_name)
 
                 if not os.path.isdir(site_path):
-                    print(f"     Skipping non-directory: {site_name}")
+                    logger.debug(f"Skipping non-directory: {site_name}")
                     continue
 
-                print(f"     Scanning site: {site_name}")
+                logger.debug(f"Scanning site: {site_name}")
 
                 # Collect supported files from this site
                 files = self._collect_files(site_path)
 
                 if files:
-                    print(f"     Found {len(files)} supported files")
+                    logger.debug(f"Found {len(files)} supported files")
                     result[(area_name, site_name)] = files
                 else:
-                    print(f"     No supported files found")
+                    logger.debug(f"No supported files found")
 
         return result
 
@@ -135,19 +138,17 @@ class DirectoryParser:
         structure = self.parse_directory_structure()
 
         if not structure:
-            print("-> No valid area/site structure found")
+            logger.info("No valid area/site structure found")
             return
 
-        print(f"\n=== Content Structure ===")
-        print(f"Content Root: {self.content_root}")
-        print(f"\nFound {len(structure)} area/site combinations:\n")
+        logger.info("Content Structure")
+        logger.info(f"Content Root: {self.content_root}")
+        logger.info(f"Found {len(structure)} area/site combinations")
 
         for (area, site), files in sorted(structure.items()):
-            print(f"  {area} / {site}")
-            print(f"    Files: {len(files)}")
+            logger.info(f"{area} / {site}")
+            logger.debug(f"  Files: {len(files)}")
             for file in files[:3]:  # Show first 3 files
-                print(f"      - {os.path.basename(file)}")
+                logger.debug(f"  - {os.path.basename(file)}")
             if len(files) > 3:
-                print(f"      ... and {len(files) - 3} more")
-
-        print("=" * 50)
+                logger.debug(f"  ... and {len(files) - 3} more")
