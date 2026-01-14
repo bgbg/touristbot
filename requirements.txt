@@ -9,3 +9,4 @@ tiktoken
 streamlit
 pandas
 pytest
+pytest-xdist

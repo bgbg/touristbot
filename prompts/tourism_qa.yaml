@@ -2,7 +2,7 @@
 # Note: {context} variable removed - File Search provides context automatically
 # via semantic retrieval with metadata filtering (area AND site)
 
-model_name: gemini-2.0-flash
+model_name: gemini-2.5-flash
 temperature: 0.6
 
 system_prompt: |

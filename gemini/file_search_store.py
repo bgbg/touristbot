@@ -177,3 +177,27 @@ class FileSearchStoreManager:
         except Exception as e:
             print(f"   ❌ Error uploading file: {e}")
             raise
+
+    def list_documents_in_store(self, file_search_store_name: str):
+        """
+        List all documents in a File Search Store
+
+        Args:
+            file_search_store_name: Store resource name (e.g., "fileSearchStores/xxx")
+
+        Returns:
+            List of document objects with metadata
+
+        Raises:
+            Exception: If API call fails
+        """
+        try:
+            documents = list(
+                self.client.file_search_stores.documents.list(
+                    parent=file_search_store_name
+                )
+            )
+            return documents
+        except Exception as e:
+            print(f"❌ Error listing documents in store: {e}")
+            raise

@@ -179,10 +179,10 @@ class StoreRegistry:
         self, client: genai.Client, merge_with_existing: bool = True
     ) -> Dict[str, int]:
         """
-        Rebuild registry from Gemini Files API by listing all files and parsing metadata
+        Rebuild registry from File Search Store by listing all documents and extracting metadata
 
-        This method queries client.files.list() to get all uploaded files, parses
-        their display names to extract area/site information, and rebuilds the registry.
+        This method queries the File Search Store to get all uploaded documents, extracts
+        their custom_metadata (area, site, doc) fields, and rebuilds the registry.
 
         Args:
             client: Gemini API client
@@ -191,17 +191,17 @@ class StoreRegistry:
 
         Returns:
             Dictionary with rebuild statistics:
-                - files_found: Total files in Gemini API
-                - files_parsed: Files with valid area/site encoding
-                - files_skipped: Files without encoding or expired
+                - files_found: Total documents in File Search Store
+                - files_parsed: Documents with valid area/site metadata
+                - files_skipped: Documents without proper custom_metadata
                 - registry_entries: Number of (area, site) pairs created
                 - existing_preserved: Entries from local registry kept (if merging)
 
         Raises:
-            Exception: If API call fails
+            Exception: If API call fails or File Search Store not configured
         """
         print("\n" + "=" * 70)
-        print("REBUILDING REGISTRY FROM GEMINI FILES API")
+        print("REBUILDING REGISTRY FROM FILE SEARCH STORE")
         print("=" * 70)
 
         stats = {
@@ -218,18 +218,31 @@ class StoreRegistry:
             stats["existing_preserved"] = len(old_registry)
             print(f"-> Preserving {len(old_registry)} existing registry entries")
 
-        # List all files from Gemini API
+        # Get File Search Store name from registry
+        file_search_store_name = self.get_file_search_store_name()
+        if not file_search_store_name:
+            print("✗ Error: File Search Store not configured in registry")
+            print("   Run upload first to create a File Search Store")
+            if merge_with_existing:
+                print("-> Keeping existing local registry")
+                return stats
+            else:
+                raise ValueError("No File Search Store configured")
+
+        # List all documents from File Search Store
         try:
-            print("-> Querying Gemini Files API...")
-            files = list(client.files.list())
-            stats["files_found"] = len(files)
-            print(f"-> Found {len(files)} file(s) in Gemini API")
+            print(f"-> Querying File Search Store: {file_search_store_name}...")
+            from gemini.file_search_store import FileSearchStoreManager
+            file_search_manager = FileSearchStoreManager(client)
+            documents = file_search_manager.list_documents_in_store(file_search_store_name)
+            stats["files_found"] = len(documents)
+            print(f"-> Found {len(documents)} document(s) in File Search Store")
         except Exception as e:
-            print(f"✗ Error listing files from Gemini API: {e}")
+            print(f"✗ Error listing documents from File Search Store: {e}")
             raise
 
-        if not files:
-            print("-> No files found in Gemini API")
+        if not documents:
+            print("-> No documents found in File Search Store")
             if merge_with_existing:
                 print("-> Keeping existing local registry")
                 return stats
@@ -238,29 +251,31 @@ class StoreRegistry:
                 self._save_registry()
                 return stats
 
-        # Group files by (area, site) pairs
+        # Group documents by (area, site) pairs
         location_files: Dict[Tuple[str, str], List] = defaultdict(list)
         skipped_files = []
 
-        for file in files:
-            # Check if file is expired (optional, as API may filter these out)
-            if hasattr(file, "expiration_time") and file.expiration_time:
-                # File will expire - API handles deletion, but we could check here
-                pass
+        for doc in documents:
+            # Extract metadata from custom_metadata field
+            metadata_dict = {}
+            if hasattr(doc, "custom_metadata") and doc.custom_metadata:
+                for meta_item in doc.custom_metadata:
+                    if hasattr(meta_item, "key") and hasattr(meta_item, "string_value"):
+                        metadata_dict[meta_item.key] = meta_item.string_value
 
-            # Parse display name to extract area/site
-            display_name = getattr(file, "display_name", None) or getattr(
-                file, "name", "unknown"
-            )
+            # Get area, site, and doc name from custom_metadata
+            area = metadata_dict.get("area")
+            site = metadata_dict.get("site")
+            doc_name = metadata_dict.get("doc", "unknown")
 
-            parsed = parse_display_name(display_name)
-
-            if parsed:
-                area, site, filename = parsed
-                location_files[(area, site)].append(file)
+            if area and site:
+                location_files[(area, site)].append(doc)
                 stats["files_parsed"] += 1
             else:
-                # File doesn't have encoded metadata (legacy file or non-encoded)
+                # Document doesn't have proper custom_metadata
+                display_name = getattr(doc, "display_name", None) or getattr(
+                    doc, "name", "unknown"
+                )
                 skipped_files.append(display_name)
                 stats["files_skipped"] += 1
 
@@ -334,12 +349,12 @@ class StoreRegistry:
         print("\n" + "-" * 70)
         print("REBUILD SUMMARY:")
         print("-" * 70)
-        print(f"  Files in Gemini API:         {stats['files_found']}")
-        print(f"  Files with encoding:         {stats['files_parsed']}")
-        print(f"  Files skipped (no encoding): {stats['files_skipped']}")
-        print(f"  Registry entries created:    {stats['registry_entries']}")
+        print(f"  Documents in File Search Store: {stats['files_found']}")
+        print(f"  Documents with metadata:        {stats['files_parsed']}")
+        print(f"  Documents skipped (no metadata): {stats['files_skipped']}")
+        print(f"  Registry entries created:       {stats['registry_entries']}")
         if merge_with_existing:
-            print(f"  Existing entries preserved:  {stats['existing_preserved']}")
+            print(f"  Existing entries preserved:     {stats['existing_preserved']}")
         print("-" * 70)
 
         return stats
