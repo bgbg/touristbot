@@ -51,7 +51,7 @@ class UploadManager:
         Get summary of all uploaded content
 
         Returns:
-            List of dicts with area, site, store_id, metadata
+            List of dicts with area, site, store_id, metadata, topic_count, image_count
         """
         all_stores = self.registry.list_all()
         summary = []
@@ -84,6 +84,39 @@ class UploadManager:
                         [f for f in os.listdir(chunks_dir) if f.endswith(".txt")]
                     )
 
+            # Count topics from storage backend or disk
+            topic_count = 0
+            try:
+                if self.storage_backend:
+                    # Load from GCS
+                    topics_path = f"topics/{area}/{site}/topics.json"
+                    topics_json = self.storage_backend.read_file(topics_path)
+                    topics = json.loads(topics_json)
+                    if isinstance(topics, list):
+                        topic_count = len(topics)
+                else:
+                    # Load from local filesystem
+                    topics_file = os.path.join("topics", area, site, "topics.json")
+                    if os.path.exists(topics_file):
+                        with open(topics_file, "r", encoding="utf-8") as f:
+                            topics = json.load(f)
+                            if isinstance(topics, list):
+                                topic_count = len(topics)
+            except Exception:
+                # Topics not found or invalid, count remains 0
+                pass
+
+            # Count images from image registry
+            image_count = 0
+            try:
+                from gemini.image_registry import ImageRegistry
+                image_registry = ImageRegistry(self.config.image_registry_path)
+                images = image_registry.get_images_for_location(area=area, site=site, doc=None)
+                image_count = len(images)
+            except Exception:
+                # Image registry not available or no images
+                pass
+
             summary.append(
                 {
                     "area": area,
@@ -91,6 +124,8 @@ class UploadManager:
                     "store_id": store_id,
                     "file_count": metadata.get("file_count", 0),
                     "chunk_count": chunk_count,
+                    "topic_count": topic_count,
+                    "image_count": image_count,
                     "created_at": metadata.get("created_at", "N/A"),
                     "last_updated": metadata.get("last_updated", "N/A"),
                 }

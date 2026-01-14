@@ -118,7 +118,7 @@ def load_topics(area: str, site: str, storage_backend=None, config=None) -> list
             return []
     except Exception as e:
         # Topics not found or invalid, return empty list
-        print(f"Warning: Could not load topics for {area}/{site}: {e}")
+        # This is expected for locations without generated topics
         return []
 
 
@@ -213,6 +213,17 @@ def initialize_session_state():
                 "To enable GCS storage, configure credentials in .streamlit/secrets.toml"
             )
 
+    if "image_storage" not in st.session_state:
+        try:
+            # Initialize image storage for signed URL generation
+            from gemini.image_storage import ImageStorage
+            st.session_state.image_storage = ImageStorage(
+                bucket_name=st.session_state.config.gcs_bucket_name,
+                credentials_json=st.session_state.config.gcs_credentials_json,
+            )
+        except Exception as e:
+            st.session_state.image_storage = None
+
     if "upload_manager" not in st.session_state:
         st.session_state.upload_manager = UploadManager(
             st.session_state.config,
@@ -238,15 +249,25 @@ def initialize_session_state():
         st.session_state.context = ""  # Kept for backwards compatibility
         st.session_state.chunk_files = []
 
-    if "topics" not in st.session_state:
-        # Load topics for the initially selected location
-        if st.session_state.selected_area and st.session_state.selected_site:
-            area = st.session_state.selected_area
-            site = st.session_state.selected_site
+    # Initialize or reload topics for current location
+    # Always reload topics if location is set to ensure they're fresh
+    if st.session_state.selected_area and st.session_state.selected_site:
+        area = st.session_state.selected_area
+        site = st.session_state.selected_site
+
+        # Only reload if topics are not set OR if we need to verify they match current location
+        # Store the location for which topics were loaded to detect stale topics
+        current_location = f"{area}:{site}"
+
+        if ("topics" not in st.session_state or
+            st.session_state.get("topics_location") != current_location):
             topics = load_topics(area, site, st.session_state.storage_backend, st.session_state.config)
             st.session_state.topics = topics
-        else:
+            st.session_state.topics_location = current_location
+    else:
+        if "topics" not in st.session_state:
             st.session_state.topics = []
+            st.session_state.topics_location = None
 
     if "image_registry" not in st.session_state:
         try:
@@ -295,6 +316,99 @@ def extract_citations(response, top_k: int = 5) -> list[dict]:
         citations.append(citation)
 
     return citations
+
+
+def _get_image_mime_type(image_format: str) -> str:
+    """
+    Get correct MIME type for image format
+
+    Args:
+        image_format: Image format (jpg, png, webp, etc.)
+
+    Returns:
+        Correct MIME type string for Gemini API
+    """
+    mime_types = {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "webp": "image/webp",
+        "gif": "image/gif",
+        "heic": "image/heic",
+        "heif": "image/heif",
+    }
+    return mime_types.get(image_format.lower(), "image/jpeg")
+
+
+def _should_display_images(text: str, image_captions: list[str]) -> bool:
+    """
+    Determine if images should be displayed based on query/response relevance
+
+    Args:
+        text: Query text or response text to check
+        image_captions: List of image captions to check for mentions
+
+    Returns:
+        True if images are relevant and should be displayed
+    """
+    text_lower = text.lower()
+
+    # Visual content keywords (English and Hebrew)
+    visual_keywords = [
+        # English
+        "image", "picture", "photo", "show", "look", "see", "view", "appearance",
+        "bird", "birds", "animal", "animals", "pelican", "wildlife", "flora", "fauna",
+        # Hebrew
+        "תמונ", "צילום", "תצלום", "להראות", "נראה", "מראה", "ציפור", "ציפורים",
+        "חי", "שקנא", "פלמינגו", "עגור"
+    ]
+
+    # Check if query/response contains visual keywords
+    for keyword in visual_keywords:
+        if keyword in text_lower:
+            return True
+
+    # Check if any image captions are mentioned in the text
+    for caption in image_captions:
+        if caption and len(caption) > 3:  # Avoid very short captions
+            # Check if caption appears in text (case-insensitive, partial match)
+            caption_words = caption.lower().split()
+            for word in caption_words:
+                if len(word) > 3 and word in text_lower:  # Meaningful words only
+                    return True
+
+    return False
+
+
+def _get_image_display_url(gcs_path: str, bucket_name: str, image_storage=None) -> str:
+    """
+    Convert GCS path to displayable URL (signed URL for private images or public URL)
+
+    Args:
+        gcs_path: GCS path (can be gs://bucket/path or relative path)
+        bucket_name: GCS bucket name
+        image_storage: Optional ImageStorage instance for generating signed URLs
+
+    Returns:
+        URL for image display (signed URL if image_storage provided, otherwise public URL)
+    """
+    # Normalize path to remove gs:// prefix if present
+    if gcs_path.startswith("gs://"):
+        # Remove gs://bucket/ prefix to get relative path
+        parts = gcs_path[5:].split('/', 1)
+        if len(parts) > 1:
+            gcs_path = parts[1]  # Get path after bucket name
+
+    # If image_storage is available, generate signed URL for private images
+    if image_storage:
+        try:
+            return image_storage.get_signed_url(gcs_path, expiration_minutes=60)
+        except Exception:
+            # Fall back to public URL if signed URL generation fails
+            pass
+
+    # Fallback: construct public URL (will only work if bucket/object is public)
+    return f"https://storage.googleapis.com/{bucket_name}/{gcs_path}"
 
 
 def get_response(
@@ -362,7 +476,8 @@ def get_response(
             for image in images[:5]:  # Limit to 5 images per query
                 user_parts.append(
                     types.Part.from_uri(
-                        file_uri=image.file_api_uri, mime_type=f"image/{image.image_format}"
+                        file_uri=image.file_api_uri,
+                        mime_type=_get_image_mime_type(image.image_format)
                     )
                 )
         except Exception as e:
@@ -404,7 +519,18 @@ def get_response(
     # Extract citations from grounding metadata
     citations = extract_citations(response)
 
-    return response.text, response_time, citations, images
+    # Filter images based on relevance to query and response
+    relevant_images = []
+    if images:
+        # Extract captions for relevance checking
+        image_captions = [img.caption for img in images if img.caption]
+
+        # Check if images are relevant based on query + response
+        combined_text = f"{question} {response.text}"
+        if _should_display_images(combined_text, image_captions):
+            relevant_images = images
+
+    return response.text, response_time, citations, relevant_images
 
 
 def main():
@@ -459,6 +585,7 @@ def main():
                     area, site, st.session_state.storage_backend, st.session_state.config
                 )
                 st.session_state.topics = topics
+                st.session_state.topics_location = f"{area}:{site}"
 
             # Display location info
             registry_data = st.session_state.registry.registry.get(f"{area}:{site}", {})
@@ -606,9 +733,14 @@ def main():
                             images = message["images"]
                             with st.expander(f"🖼️ Images ({len(images)})", expanded=False):
                                 for image in images:
-                                    # Display image from GCS
+                                    # Display image from GCS using helper function with signed URLs
+                                    image_url = _get_image_display_url(
+                                        image.gcs_path,
+                                        st.session_state.config.gcs_bucket_name,
+                                        st.session_state.image_storage
+                                    )
                                     st.image(
-                                        image.gcs_path.replace("gs://", f"https://storage.googleapis.com/"),
+                                        image_url,
                                         caption=image.caption,
                                         use_container_width=True
                                     )
@@ -670,9 +802,14 @@ def main():
                                 if images:
                                     with st.expander(f"🖼️ Images ({len(images)})", expanded=False):
                                         for image in images:
-                                            # Display image from GCS
+                                            # Display image from GCS using helper function with signed URLs
+                                            image_url = _get_image_display_url(
+                                                image.gcs_path,
+                                                st.session_state.config.gcs_bucket_name,
+                                                st.session_state.image_storage
+                                            )
                                             st.image(
-                                                image.gcs_path.replace("gs://", f"https://storage.googleapis.com/"),
+                                                image_url,
                                                 caption=image.caption,
                                                 use_container_width=True
                                             )
@@ -726,7 +863,7 @@ def main():
             import pandas as pd
 
             for idx, item in enumerate(summary):
-                col1, col2, col3, col4 = st.columns([3, 3, 2, 1])
+                col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
 
                 with col1:
                     st.write(f"**{item['area']}**")
@@ -740,6 +877,16 @@ def main():
                     st.metric("Files", file_count)
 
                 with col4:
+                    # Show topic count
+                    topic_count = item.get("topic_count", 0)
+                    st.metric("Topics", topic_count)
+
+                with col5:
+                    # Show image count
+                    image_count = item.get("image_count", 0)
+                    st.metric("Images", image_count)
+
+                with col6:
                     if st.button(
                         "🗑️",
                         key=f"delete_{idx}",
