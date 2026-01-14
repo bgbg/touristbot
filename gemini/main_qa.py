@@ -27,6 +27,7 @@ from google.genai import types
 
 from gemini.config import GeminiConfig
 from gemini.conversation_utils import convert_messages_to_gemini_format
+from gemini.image_registry import ImageRegistry
 from gemini.prompt_loader import PromptLoader
 from gemini.query_logger import QueryLogger
 from gemini.storage import get_storage_backend
@@ -247,6 +248,16 @@ def initialize_session_state():
         else:
             st.session_state.topics = []
 
+    if "image_registry" not in st.session_state:
+        try:
+            st.session_state.image_registry = ImageRegistry(
+                st.session_state.config.image_registry_path
+            )
+        except Exception as e:
+            # Graceful fallback - images won't be displayed
+            st.session_state.image_registry = None
+            st.info(f"ℹ Image registry not available: {e}")
+
 
 def extract_citations(response, top_k: int = 5) -> list[dict]:
     """
@@ -288,7 +299,7 @@ def extract_citations(response, top_k: int = 5) -> list[dict]:
 
 def get_response(
     question: str, area: str, site: str, messages: list[dict] | None = None
-) -> tuple[str, float, list]:
+) -> tuple[str, float, list, list]:
     """
     Get response from Gemini API using File Search for semantic retrieval
 
@@ -299,7 +310,7 @@ def get_response(
         messages: Optional list of previous messages in format {"role": str, "content": str}
 
     Returns:
-        Tuple of (response_text, response_time_seconds, citations)
+        Tuple of (response_text, response_time_seconds, citations, images)
     """
     config = st.session_state.config
     client = st.session_state.client
@@ -338,10 +349,28 @@ def get_response(
     # Format user message
     user_message = prompt_config.user_prompt.format(question=question)
 
-    # Append current question as the final user message
-    conversation_history.append(
-        types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
-    )
+    # Query images for this location
+    images = []
+    user_parts = [types.Part.from_text(text=user_message)]
+
+    if st.session_state.image_registry:
+        try:
+            images = st.session_state.image_registry.get_images_for_location(
+                area=area, site=site, doc=None
+            )
+            # Add image URIs to the user message for multimodal context
+            for image in images[:5]:  # Limit to 5 images per query
+                user_parts.append(
+                    types.Part.from_uri(
+                        file_uri=image.file_api_uri, mime_type=f"image/{image.image_format}"
+                    )
+                )
+        except Exception as e:
+            # Log error but continue without images
+            print(f"Warning: Could not load images: {e}")
+
+    # Append current question as the final user message (with optional images)
+    conversation_history.append(types.Content(role="user", parts=user_parts))
 
     # Use model and temperature from YAML prompt configuration
     model_name = prompt_config.model_name
@@ -375,7 +404,7 @@ def get_response(
     # Extract citations from grounding metadata
     citations = extract_citations(response)
 
-    return response.text, response_time, citations
+    return response.text, response_time, citations, images
 
 
 def main():
@@ -572,6 +601,23 @@ def main():
                                         if tags:
                                             st.caption(" | ".join(tags))
                                     st.markdown("---")
+                        # Display images for assistant messages
+                        if message["role"] == "assistant" and message.get("images"):
+                            images = message["images"]
+                            with st.expander(f"🖼️ Images ({len(images)})", expanded=False):
+                                for image in images:
+                                    # Display image from GCS
+                                    st.image(
+                                        image.gcs_path.replace("gs://", f"https://storage.googleapis.com/"),
+                                        caption=image.caption,
+                                        use_container_width=True
+                                    )
+                                    if image.context_before or image.context_after:
+                                        with st.expander("Context", expanded=False):
+                                            if image.context_before:
+                                                st.caption(f"Before: {image.context_before}")
+                                            if image.context_after:
+                                                st.caption(f"After: {image.context_after}")
 
                 # Chat input
                 # Check if user clicked a topic button
@@ -593,7 +639,7 @@ def main():
                         with st.spinner("Searching content..."):
                             try:
                                 # Pass conversation history (excluding the current question we just added)
-                                answer, response_time, citations = get_response(
+                                answer, response_time, citations, images = get_response(
                                     question, area, site, st.session_state.messages[:-1]
                                 )
 
@@ -620,6 +666,23 @@ def main():
                                                     st.caption(" | ".join(tags))
                                             st.markdown("---")
 
+                                # Display images if available
+                                if images:
+                                    with st.expander(f"🖼️ Images ({len(images)})", expanded=False):
+                                        for image in images:
+                                            # Display image from GCS
+                                            st.image(
+                                                image.gcs_path.replace("gs://", f"https://storage.googleapis.com/"),
+                                                caption=image.caption,
+                                                use_container_width=True
+                                            )
+                                            if image.context_before or image.context_after:
+                                                with st.expander("Context", expanded=False):
+                                                    if image.context_before:
+                                                        st.caption(f"Before: {image.context_before}")
+                                                    if image.context_after:
+                                                        st.caption(f"After: {image.context_after}")
+
                                 # Save to messages
                                 st.session_state.messages.append(
                                     {
@@ -627,6 +690,7 @@ def main():
                                         "content": answer,
                                         "time": response_time,
                                         "citations": citations,
+                                        "images": images,
                                     }
                                 )
 
