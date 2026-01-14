@@ -4,6 +4,7 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 
 ## Overview
 - Tourism RAG system using Google Gemini File Search API with metadata filtering.
+- Multimodal support: Automatically extracts, uploads, and displays images from MS Word documents.
 - Streamlit UI for Q&A and content management; CLI uploader for batch loads.
 - Content organized by area/site under data/locations/.
 - Server-side chunking: Gemini handles all chunking automatically (no local chunks).
@@ -20,15 +21,20 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 - CLI upload: `python gemini/main_upload.py [--area <area> --site <site> --force]`.
 
 ## Project Layout
-- gemini/: core logic for File Search uploads, QA flow, registry, logging, topic extraction.
+- gemini/: core logic for File Search uploads, QA flow, registry, logging, topic extraction, image handling.
   - file_search_store.py: File Search Store management (create, upload with metadata).
-  - main_qa.py: Streamlit UI with citation display.
-  - main_upload.py: CLI uploader (whole files with metadata, no chunking).
+  - main_qa.py: Streamlit UI with citation and image display.
+  - main_upload.py: CLI uploader (whole files with metadata, no chunking, automatic image extraction).
   - store_registry.py: Maps locations to File Search Store name.
+  - image_extractor.py: Extracts images and metadata from DOCX files.
+  - image_storage.py: Uploads images to GCS bucket.
+  - file_api_manager.py: Uploads images to Gemini File API for multimodal context.
+  - image_registry.py: JSON-based registry mapping images to metadata (area/site/doc).
 - data/locations/: source content organized by area/site hierarchy.
 - topics/: generated topic lists stored in GCS at `topics/<area>/<site>/topics.json`.
 - prompts/: prompt YAMLs for the QA system (tourism_qa.yaml, topic_extraction.yaml).
-- config.yaml: app settings including file_search_store_name.
+- config.yaml: app settings including file_search_store_name, image_registry_path.
+- image_registry.json: image metadata registry (area/site/doc → image URIs and captions).
 - .streamlit/secrets.toml: API keys (never commit).
 
 ## Topic Generation Feature
@@ -51,6 +57,19 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 - Citations extracted from grounding_metadata in responses.
 - Upload process: whole files → File Search Store → metadata tags → server chunks.
 - Query process: metadata filter → File Search retrieval → Gemini response → citations.
+
+## Multimodal Image Support
+- Automatically extracts images from DOCX files during upload (Phase 2B hybrid approach).
+- Image extraction: python-docx library extracts inline images with captions and context.
+- Triple storage: Images stored in GCS bucket, uploaded to Gemini File API, tracked in image_registry.json.
+- Image registry: JSON-based system mapping area/site/doc → image metadata (URIs, captions, context).
+- Sequential naming: image_001.jpg, image_002.jpg, etc. within each document.
+- Hebrew support: Full UTF-8 support for captions and context text.
+- Multimodal context: Image URIs included in user messages for Gemini API (up to 5 images per query).
+- UI display: Images shown in expandable sections with captions and context (before/after text).
+- Upload process: DOCX text → File Search Store → extract images → upload to GCS & File API → register metadata.
+- Query process: query images by area/site → include URIs in API call → display in UI.
+- Note: File Search API does NOT extract images from DOCX (text-only), hence separate image pipeline.
 
 ## Testing Policy (CRITICAL)
 - Use pytest to run the full test suite.
