@@ -269,12 +269,11 @@ def test_write_through_cache(cached_gcs_storage, gcs_storage, test_prefix, cache
     gcs_content = gcs_storage.read_file(test_path)
     assert gcs_content == test_content, "Content should be in GCS (write-through)"
 
-    # Verify file exists in local cache
-    cache_path = os.path.join(cache_dir, test_path)
-    assert os.path.exists(cache_path), "File should exist in local cache"
+    # Verify file exists in local cache (using hash-based cache path)
+    cache_path = cached_gcs_storage._get_cache_path(test_path)
+    assert cache_path.exists(), "File should exist in local cache"
 
-    with open(cache_path, "r", encoding="utf-8") as f:
-        cache_content = f.read()
+    cache_content = cache_path.read_text(encoding="utf-8")
     assert cache_content == test_content, "Content should match in local cache"
 
 
@@ -292,9 +291,9 @@ def test_read_through_cache(cached_gcs_storage, gcs_storage, test_prefix, cache_
     read_content = cached_gcs_storage.read_file(test_path)
     assert read_content == test_content, "First read should get content from GCS"
 
-    # Verify cache was populated
-    cache_path = os.path.join(cache_dir, test_path)
-    assert os.path.exists(cache_path), "Cache should be populated after first read"
+    # Verify cache was populated (using hash-based cache path)
+    cache_path = cached_gcs_storage._get_cache_path(test_path)
+    assert cache_path.exists(), "Cache should be populated after first read"
 
     # Second read should use cache
     read_content_2 = cached_gcs_storage.read_file(test_path)
@@ -360,9 +359,9 @@ def test_cached_delete(cached_gcs_storage, gcs_storage, test_prefix, cache_dir):
     # Write file (goes to both cache and GCS)
     cached_gcs_storage.write_file(test_path, "to be deleted")
 
-    # Verify file exists in both places
-    cache_path = os.path.join(cache_dir, test_path)
-    assert os.path.exists(cache_path), "File should be in cache"
+    # Verify file exists in both places (using hash-based cache path)
+    cache_path = cached_gcs_storage._get_cache_path(test_path)
+    assert cache_path.exists(), "File should be in cache"
     assert gcs_storage.file_exists(test_path), "File should be in GCS"
 
     # Delete file
@@ -370,7 +369,7 @@ def test_cached_delete(cached_gcs_storage, gcs_storage, test_prefix, cache_dir):
     assert result, "Delete should succeed"
 
     # Verify file is removed from both places
-    assert not os.path.exists(cache_path), "File should be removed from cache"
+    assert not cache_path.exists(), "File should be removed from cache"
     assert not gcs_storage.file_exists(test_path), "File should be removed from GCS"
 
 
