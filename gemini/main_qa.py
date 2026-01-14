@@ -50,7 +50,7 @@ os.chdir(parent_dir)
 import google.genai as genai
 from google.genai import types
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
+from typing import List
 
 from gemini.config import GeminiConfig
 from gemini.conversation_utils import convert_messages_to_gemini_format
@@ -539,7 +539,7 @@ def get_response(
             image_uris_list = [image.file_api_uri for image in images[:5]]  # Limit to 5 images
         except Exception as e:
             # Log error but continue without images
-            logger.error(f"Warning: Could not load images: {e}", exc_info=True)
+            logger.error(f"Could not load images: {e}", exc_info=True)
 
     # Format user message with explicit image URIs list
     user_message = prompt_config.user_prompt.format(question=question)
@@ -605,8 +605,8 @@ def get_response(
     # Parse JSON from text response (LLM returns JSON in text since we can't use structured output with File Search)
     try:
         # Log raw response.text
-        logger.info(f"Raw response.text type: {type(response.text)}")
-        logger.info(f"Raw response.text (first 500 chars): {response.text[:500] if len(response.text) > 500 else response.text}")
+        logger.debug(f"Raw response.text type: {type(response.text)}")
+        logger.debug(f"Raw response.text (first 500 chars): {response.text[:500] if len(response.text) > 500 else response.text}")
 
         # Extract JSON from response text (may be wrapped in markdown code blocks)
         from gemini.json_helpers import parse_json
@@ -649,10 +649,10 @@ def get_response(
 
         if structured_response:
             # Log structured_response keys
-            logger.info(f"Structured response keys: {structured_response.keys()}")
-            logger.info(f"should_include_images value: {structured_response.get('should_include_images')}")
-            logger.info(f"response_text type: {type(structured_response.get('response_text'))}")
-            logger.info(f"response_text (first 200 chars): {str(structured_response.get('response_text'))[:200] if structured_response.get('response_text') else 'None'}")
+            logger.debug(f"Structured response keys: {structured_response.keys()}")
+            logger.debug(f"should_include_images value: {structured_response.get('should_include_images')}")
+            logger.debug(f"response_text type: {type(structured_response.get('response_text'))}")
+            logger.debug(f"response_text (first 200 chars): {str(structured_response.get('response_text'))[:200] if structured_response.get('response_text') else 'None'}")
 
             response_text = structured_response.get("response_text", response.text)
 
@@ -670,9 +670,9 @@ def get_response(
             should_include_images = structured_response.get("should_include_images", True)
             image_relevance_list = structured_response.get("image_relevance", [])
 
-            logger.info(f"Final should_include_images: {should_include_images}")
-            logger.info(f"image_relevance_list length: {len(image_relevance_list)}")
-            logger.info(f"images available: {len(images) if images else 0}")
+            logger.debug(f"Final should_include_images: {should_include_images}")
+            logger.debug(f"image_relevance_list length: {len(image_relevance_list)}")
+            logger.debug(f"images available: {len(images) if images else 0}")
 
             # Convert list format to dict for easier lookup
             image_relevance = {}
@@ -680,7 +680,7 @@ def get_response(
                 if isinstance(item, dict) and "image_uri" in item and "relevance_score" in item:
                     image_relevance[item["image_uri"]] = item["relevance_score"]
 
-            logger.info(f"image_relevance dict: {image_relevance}")
+            logger.debug(f"image_relevance dict: {image_relevance}")
         else:
             # No JSON structure found, use plain text response
             logger.warning("No structured output found, using plain text response")
@@ -698,19 +698,19 @@ def get_response(
     # Filter images based on LLM-provided relevance scores
     relevant_images = []
     if images and should_include_images:
-        logger.info(f"Filtering images (should_include_images={should_include_images})")
-        logger.info(f"Available image URIs: {[image.file_api_uri for image in images]}")
-        logger.info(f"LLM provided relevance for URIs: {list(image_relevance.keys())}")
+        logger.debug(f"Filtering images (should_include_images={should_include_images})")
+        logger.debug(f"Available image URIs: {[image.file_api_uri for image in images]}")
+        logger.debug(f"LLM provided relevance for URIs: {list(image_relevance.keys())}")
         # Filter images with relevance score >= 60
         for image in images:
             relevance_score = image_relevance.get(image.file_api_uri, 0)
-            logger.info(f"Checking image URI: {image.file_api_uri}")
-            logger.info(f"  Relevance score: {relevance_score}, threshold: 60")
+            logger.debug(f"Checking image URI: {image.file_api_uri}")
+            logger.debug(f"  Relevance score: {relevance_score}, threshold: 60")
             if relevance_score >= 60:
-                logger.info("  ✓ Image passed threshold, adding to relevant_images")
+                logger.debug("  ✓ Image passed threshold, adding to relevant_images")
                 relevant_images.append(image)
             else:
-                logger.info("  ✗ Image below threshold, skipping")
+                logger.debug("  ✗ Image below threshold, skipping")
     else:
         logger.info(f"Skipping image filtering (images={len(images) if images else 0}, should_include_images={should_include_images})")
 

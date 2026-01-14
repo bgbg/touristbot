@@ -201,7 +201,6 @@ def test_structured_output_parsing_fallback():
         try:
             parsed = json.loads(malformed)
             # If it parses, check fallback behavior
-            response_text = parsed.get("response_text", malformed)
             should_include_images = parsed.get("should_include_images", True)
             image_relevance_list = parsed.get("image_relevance", [])
             # Fallback should provide defaults
@@ -211,8 +210,6 @@ def test_structured_output_parsing_fallback():
             # Expected for malformed JSON
             # Fallback should use raw text
             response_text = malformed
-            should_include_images = True
-            image_relevance = {}
             assert response_text == malformed
 
 
@@ -265,6 +262,7 @@ def test_properly_encoded_response_text():
         try:
             response_text = json.loads(response_text)
         except json.JSONDecodeError:
+            # If decoding fails, keep the original text (it's just a string with quotes)
             pass
 
     # Verify that properly encoded text is unchanged
