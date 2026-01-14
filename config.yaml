@@ -34,6 +34,7 @@ gemini_rag:
   registry_path: "gemini/store_registry.json"
   upload_tracking_path: "gemini/upload_tracking.json"
   image_registry_path: "image_registry.json"
+  auto_rebuild_registry: false  # Disable slow registry rebuild on startup
 
   # Prompts directory for YAML-based LLM configurations
   prompts_dir: "prompts/"

@@ -8,12 +8,37 @@ Usage:
 """
 
 import json
+import logging
 import os
 import sys
 import time
 from datetime import datetime
 
 import streamlit as st
+
+# Configure logging to both file and console
+log_file = os.path.join(os.path.dirname(__file__), "..", "logs", "main_qa.log")
+os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+# Create logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Prevent duplicate handlers if module is reloaded
+if not logger.handlers:
+    # File handler
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
 
 # Add parent directory to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -24,6 +49,8 @@ os.chdir(parent_dir)
 
 import google.genai as genai
 from google.genai import types
+from pydantic import BaseModel, Field
+from typing import List
 
 from gemini.config import GeminiConfig
 from gemini.conversation_utils import convert_messages_to_gemini_format
@@ -35,6 +62,44 @@ from gemini.store_registry import StoreRegistry
 from gemini.topic_extractor import extract_topics_from_chunks
 from gemini.upload_manager import UploadManager
 from gemini.upload_tracker import UploadTracker
+
+
+# Pydantic schema for structured output from Gemini API
+class ImageRelevance(BaseModel):
+    """Relevance score for a single image."""
+    image_uri: str = Field(description="The file_api_uri of the image")
+    relevance_score: int = Field(description="Relevance score 0-100. Scores >= 60 will be displayed.")
+
+
+class ImageAwareResponse(BaseModel):
+    """Structured response from Gemini that includes image relevance signals."""
+
+    response_text: str = Field(
+        description="The main response text to the user's query in Hebrew or the query language"
+    )
+    should_include_images: bool = Field(
+        description="Whether images should be included in this response. Set to false for initial greetings, true for substantive queries where images add value."
+    )
+    image_relevance: List[ImageRelevance] = Field(
+        default_factory=list,
+        description="List of relevance scores for each image. Only include images that are contextually relevant to the query."
+    )
+
+    @classmethod
+    def get_gemini_schema(cls):
+        """Generate JSON schema without additionalProperties for Gemini API compatibility."""
+        schema = cls.model_json_schema()
+        # Remove additionalProperties recursively
+        def remove_additional_properties(obj):
+            if isinstance(obj, dict):
+                obj.pop("additionalProperties", None)
+                for value in obj.values():
+                    remove_additional_properties(value)
+            elif isinstance(obj, list):
+                for item in obj:
+                    remove_additional_properties(item)
+        remove_additional_properties(schema)
+        return schema
 
 
 def load_chunks(chunks_dir: str, storage_backend=None) -> tuple[str, list[str]]:
@@ -460,29 +525,43 @@ def get_response(
         area=area, site=site, topics=topics_text
     )
 
-    # Format user message
-    user_message = prompt_config.user_prompt.format(question=question)
-
-    # Query images for this location
+    # Query images for this location FIRST (before formatting user message)
     images = []
-    user_parts = [types.Part.from_text(text=user_message)]
+    image_uris_list = []
 
     if st.session_state.image_registry:
         try:
             images = st.session_state.image_registry.get_images_for_location(
                 area=area, site=site, doc=None
             )
-            # Add image URIs to the user message for multimodal context
-            for image in images[:5]:  # Limit to 5 images per query
-                user_parts.append(
-                    types.Part.from_uri(
-                        file_uri=image.file_api_uri,
-                        mime_type=_get_image_mime_type(image.image_format)
-                    )
-                )
+            logger.info(f"Found {len(images)} images for location {area}/{site}")
+            # Collect URIs for text inclusion
+            image_uris_list = [image.file_api_uri for image in images[:5]]  # Limit to 5 images
         except Exception as e:
             # Log error but continue without images
-            print(f"Warning: Could not load images: {e}")
+            logger.error(f"Could not load images: {e}", exc_info=True)
+
+    # Format user message with explicit image URIs list
+    user_message = prompt_config.user_prompt.format(question=question)
+
+    # Add explicit list of available image URIs to the message text
+    if image_uris_list:
+        image_uris_text = "\n\nAvailable image URIs (use these EXACT URIs in your image_relevance response):\n" + "\n".join([f"- {uri}" for uri in image_uris_list])
+        user_message = user_message + image_uris_text
+        logger.info(f"Added {len(image_uris_list)} image URIs to user message text")
+
+    user_parts = [types.Part.from_text(text=user_message)]
+
+    # Add image URIs to the user message for multimodal context
+    if images:
+        for image in images[:5]:  # Limit to 5 images per query
+            logger.info(f"Adding image to LLM context: {image.file_api_uri}")
+            user_parts.append(
+                types.Part.from_uri(
+                    file_uri=image.file_api_uri,
+                    mime_type=_get_image_mime_type(image.image_format)
+                )
+            )
 
     # Append current question as the final user message (with optional images)
     conversation_history.append(types.Content(role="user", parts=user_parts))
@@ -496,13 +575,17 @@ def get_response(
 
     start_time = time.time()
 
-    # Generate with File Search tool
+    # Generate with File Search tool (without structured output due to API limitation)
+    # Note: Gemini API does not support combining tools with response_mime_type="application/json"
+    # Instead, we ask the LLM to return JSON in text and parse it ourselves
     response = client.models.generate_content(
         model=model_name,
         contents=conversation_history,
         config=types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=temperature,
+            # response_mime_type removed - cannot use with File Search tool
+            # response_schema removed - cannot use with File Search tool
             tools=[
                 types.Tool(
                     file_search=types.FileSearch(
@@ -519,18 +602,120 @@ def get_response(
     # Extract citations from grounding metadata
     citations = extract_citations(response)
 
-    # Filter images based on relevance to query and response
+    # Parse JSON from text response (LLM returns JSON in text since we can't use structured output with File Search)
+    try:
+        # Log raw response.text
+        logger.debug(f"Raw response.text type: {type(response.text)}")
+        logger.debug(f"Raw response.text (first 500 chars): {response.text[:500] if len(response.text) > 500 else response.text}")
+
+        # Extract JSON from response text (may be wrapped in markdown code blocks)
+        from gemini.json_helpers import parse_json
+
+        structured_response = parse_json(response.text)
+
+        if structured_response is None:
+            # Fallback: try to parse the entire response as JSON
+            try:
+                structured_response = json.loads(response.text)
+            except json.JSONDecodeError as e:
+                # No JSON found, check if response looks like JSON but has issues
+                logger.warning(f"No JSON found in response: {e}")
+                logger.info("Response text looks like JSON but failed to parse")
+
+                # Check if LLM returned JSON-like text without proper quotes
+                # Example: {"response_text": "הטקסט כאן", ...} but as a string
+                if response.text.strip().startswith('{') and '"response_text"' in response.text:
+                    logger.info("Attempting to repair JSON-like response")
+                    # Try to extract just the response_text value using regex
+                    import re
+                    match = re.search(r'"response_text"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', response.text)
+                    if match:
+                        extracted_text = match.group(1)
+                        # Unescape any escaped quotes
+                        extracted_text = extracted_text.replace('\\"', '"')
+                        logger.info(f"Extracted response_text via regex: {extracted_text[:200]}")
+                        # Create a minimal structured response
+                        structured_response = {
+                            "response_text": extracted_text,
+                            "should_include_images": False,  # Default to safe value
+                            "image_relevance": []
+                        }
+                    else:
+                        logger.warning("Could not extract response_text via regex")
+                        structured_response = None
+                else:
+                    logger.info("No JSON found in response, treating as plain text")
+                    structured_response = None
+
+        if structured_response:
+            # Log structured_response keys
+            logger.debug(f"Structured response keys: {structured_response.keys()}")
+            logger.debug(f"should_include_images value: {structured_response.get('should_include_images')}")
+            logger.debug(f"response_text type: {type(structured_response.get('response_text'))}")
+            logger.debug(f"response_text (first 200 chars): {str(structured_response.get('response_text'))[:200] if structured_response.get('response_text') else 'None'}")
+
+            response_text = structured_response.get("response_text", response.text)
+
+            # Check if response_text itself is JSON-encoded (double encoding issue)
+            # This can happen if the LLM returns escaped JSON within the structured output
+            if isinstance(response_text, str) and response_text.startswith('"') and response_text.endswith('"'):
+                try:
+                    # Try to decode once more to handle double-encoded JSON
+                    response_text = json.loads(response_text)
+                    logger.info(f"Double-decoded response_text (first 200 chars): {response_text[:200]}")
+                except json.JSONDecodeError:
+                    # If it fails, keep the original text (it's just a string that starts/ends with quotes)
+                    pass
+
+            should_include_images = structured_response.get("should_include_images", True)
+            image_relevance_list = structured_response.get("image_relevance", [])
+
+            logger.debug(f"Final should_include_images: {should_include_images}")
+            logger.debug(f"image_relevance_list length: {len(image_relevance_list)}")
+            logger.debug(f"images available: {len(images) if images else 0}")
+
+            # Convert list format to dict for easier lookup
+            image_relevance = {}
+            for item in image_relevance_list:
+                if isinstance(item, dict) and "image_uri" in item and "relevance_score" in item:
+                    image_relevance[item["image_uri"]] = item["relevance_score"]
+
+            logger.debug(f"image_relevance dict: {image_relevance}")
+        else:
+            # No JSON structure found, use plain text response
+            logger.warning("No structured output found, using plain text response")
+            response_text = response.text
+            should_include_images = True
+            image_relevance = {}
+
+    except Exception as e:
+        # Fallback to raw response if parsing fails
+        logger.error(f"Could not parse structured output: {e}", exc_info=True)
+        response_text = response.text
+        should_include_images = True
+        image_relevance = {}
+
+    # Filter images based on LLM-provided relevance scores
     relevant_images = []
-    if images:
-        # Extract captions for relevance checking
-        image_captions = [img.caption for img in images if img.caption]
+    if images and should_include_images:
+        logger.debug(f"Filtering images (should_include_images={should_include_images})")
+        logger.debug(f"Available image URIs: {[image.file_api_uri for image in images]}")
+        logger.debug(f"LLM provided relevance for URIs: {list(image_relevance.keys())}")
+        # Filter images with relevance score >= 60
+        for image in images:
+            relevance_score = image_relevance.get(image.file_api_uri, 0)
+            logger.debug(f"Checking image URI: {image.file_api_uri}")
+            logger.debug(f"  Relevance score: {relevance_score}, threshold: 60")
+            if relevance_score >= 60:
+                logger.debug("  ✓ Image passed threshold, adding to relevant_images")
+                relevant_images.append(image)
+            else:
+                logger.debug("  ✗ Image below threshold, skipping")
+    else:
+        logger.info(f"Skipping image filtering (images={len(images) if images else 0}, should_include_images={should_include_images})")
 
-        # Check if images are relevant based on query + response
-        combined_text = f"{question} {response.text}"
-        if _should_display_images(combined_text, image_captions):
-            relevant_images = images
-
-    return response.text, response_time, citations, relevant_images
+    logger.info(f"Returning {len(relevant_images)} relevant images")
+    return response_text, response_time, citations, relevant_images
 
 
 def main():

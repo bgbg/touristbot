@@ -10,3 +10,4 @@ streamlit
 pandas
 pytest
 pytest-xdist
+watchdog

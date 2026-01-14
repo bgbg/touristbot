@@ -4,6 +4,7 @@ For tourism/museum app hierarchy
 """
 
 import json
+import logging
 import os
 from collections import defaultdict
 from datetime import datetime
@@ -12,6 +13,8 @@ from typing import Dict, List, Optional, Tuple
 import google.genai as genai
 
 from gemini.display_name_utils import parse_display_name
+
+logger = logging.getLogger(__name__)
 
 
 class StoreRegistry:
@@ -38,8 +41,8 @@ class StoreRegistry:
                 with open(self.registry_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except json.JSONDecodeError:
-                print(
-                    f"Warning: Could not parse {self.registry_file}. Starting with empty registry."
+                logger.warning(
+                    f"Could not parse {self.registry_file}. Starting with empty registry."
                 )
                 return {}
         return {}
@@ -50,9 +53,9 @@ class StoreRegistry:
             os.makedirs(os.path.dirname(self.registry_file) or ".", exist_ok=True)
             with open(self.registry_file, "w", encoding="utf-8") as f:
                 json.dump(self.registry, f, indent=2, ensure_ascii=False)
-            print(f"-> Registry saved to {self.registry_file}")
+            logger.debug(f"Registry saved to {self.registry_file}")
         except Exception as e:
-            print(f"-> Warning: Could not save registry: {e}")
+            logger.warning(f"Could not save registry: {e}")
 
     @staticmethod
     def _make_key(area: str, site: str) -> str:
@@ -94,7 +97,7 @@ class StoreRegistry:
         self._save_registry()
 
         file_count = metadata.get("file_count", 0) if metadata else 0
-        print(f"-> Registered {area} - {site} ({file_count} files)")
+        logger.info(f"Registered {area} - {site} ({file_count} files)")
 
     def get_store(self, area: str, site: str) -> Optional[str]:
         """
@@ -150,13 +153,12 @@ class StoreRegistry:
     def print_registry(self):
         """Print all registered locations in a formatted way"""
         if not self.registry:
-            print("-> Registry is empty")
+            logger.info("Registry is empty")
             return
 
-        print("\n=== Store Registry (Tourism/Museum Sites) ===")
+        logger.info("Store Registry (Tourism/Museum Sites)")
         if self._file_search_store_name:
-            print(f"Global File Search Store: {self._file_search_store_name}")
-            print("-" * 70)
+            logger.info(f"Global File Search Store: {self._file_search_store_name}")
 
         for key, entry in sorted(self.registry.items()):
             # Skip global entry
@@ -166,14 +168,13 @@ class StoreRegistry:
             area, site = key.split(":", 1)
             metadata = entry.get("metadata", {}) if isinstance(entry, dict) else {}
 
-            print(f"  {area.title()} - {site.title()}")
+            logger.info(f"{area.title()} - {site.title()}")
             if metadata.get("file_count"):
-                print(f"    Files: {metadata['file_count']}")
+                logger.debug(f"  Files: {metadata['file_count']}")
             if metadata.get("document_count"):
-                print(f"    Documents: {metadata['document_count']}")
+                logger.debug(f"  Documents: {metadata['document_count']}")
             if metadata.get("last_updated"):
-                print(f"    Last Updated: {metadata['last_updated']}")
-        print("=" * 70)
+                logger.debug(f"  Last Updated: {metadata['last_updated']}")
 
     def rebuild_from_api(
         self, client: genai.Client, merge_with_existing: bool = True
@@ -200,9 +201,7 @@ class StoreRegistry:
         Raises:
             Exception: If API call fails or File Search Store not configured
         """
-        print("\n" + "=" * 70)
-        print("REBUILDING REGISTRY FROM FILE SEARCH STORE")
-        print("=" * 70)
+        logger.info("REBUILDING REGISTRY FROM FILE SEARCH STORE")
 
         stats = {
             "files_found": 0,
@@ -216,35 +215,35 @@ class StoreRegistry:
         old_registry = dict(self.registry) if merge_with_existing else {}
         if merge_with_existing and old_registry:
             stats["existing_preserved"] = len(old_registry)
-            print(f"-> Preserving {len(old_registry)} existing registry entries")
+            logger.debug(f"Preserving {len(old_registry)} existing registry entries")
 
         # Get File Search Store name from registry
         file_search_store_name = self.get_file_search_store_name()
         if not file_search_store_name:
-            print("✗ Error: File Search Store not configured in registry")
-            print("   Run upload first to create a File Search Store")
+            logger.error("File Search Store not configured in registry")
+            logger.info("Run upload first to create a File Search Store")
             if merge_with_existing:
-                print("-> Keeping existing local registry")
+                logger.info("Keeping existing local registry")
                 return stats
             else:
                 raise ValueError("No File Search Store configured")
 
         # List all documents from File Search Store
         try:
-            print(f"-> Querying File Search Store: {file_search_store_name}...")
+            logger.info(f"Querying File Search Store: {file_search_store_name}")
             from gemini.file_search_store import FileSearchStoreManager
             file_search_manager = FileSearchStoreManager(client)
             documents = file_search_manager.list_documents_in_store(file_search_store_name)
             stats["files_found"] = len(documents)
-            print(f"-> Found {len(documents)} document(s) in File Search Store")
+            logger.info(f"Found {len(documents)} document(s) in File Search Store")
         except Exception as e:
-            print(f"✗ Error listing documents from File Search Store: {e}")
+            logger.error(f"Error listing documents from File Search Store: {e}")
             raise
 
         if not documents:
-            print("-> No documents found in File Search Store")
+            logger.info("No documents found in File Search Store")
             if merge_with_existing:
-                print("-> Keeping existing local registry")
+                logger.info("Keeping existing local registry")
                 return stats
             else:
                 self.registry = {}
@@ -281,13 +280,13 @@ class StoreRegistry:
 
         # Report skipped files
         if skipped_files:
-            print(
-                f"\n-> Skipped {len(skipped_files)} file(s) without area/site encoding:"
+            logger.warning(
+                f"Skipped {len(skipped_files)} file(s) without area/site encoding"
             )
             for name in skipped_files[:5]:  # Show first 5
-                print(f"     - {name}")
+                logger.debug(f"Skipped file: {name}")
             if len(skipped_files) > 5:
-                print(f"     ... and {len(skipped_files) - 5} more")
+                logger.debug(f"... and {len(skipped_files) - 5} more")
 
         # Build new registry from parsed files
         new_registry = {}
@@ -333,50 +332,47 @@ class StoreRegistry:
             merged_registry.update(new_registry)
             self.registry = merged_registry
 
-            print(
-                f"\n-> Merged {len(new_registry)} rebuilt entries with {len(old_registry)} existing"
+            logger.info(
+                f"Merged {len(new_registry)} rebuilt entries with {len(old_registry)} existing"
             )
-            print(f"-> Final registry has {len(self.registry)} entries")
+            logger.info(f"Final registry has {len(self.registry)} entries")
         else:
             # Replace entirely with new registry
             self.registry = new_registry
-            print(f"\n-> Replaced registry with {len(self.registry)} entries from API")
+            logger.info(f"Replaced registry with {len(self.registry)} entries from API")
 
         # Save to disk
         self._save_registry()
 
-        # Print summary
-        print("\n" + "-" * 70)
-        print("REBUILD SUMMARY:")
-        print("-" * 70)
-        print(f"  Documents in File Search Store: {stats['files_found']}")
-        print(f"  Documents with metadata:        {stats['files_parsed']}")
-        print(f"  Documents skipped (no metadata): {stats['files_skipped']}")
-        print(f"  Registry entries created:       {stats['registry_entries']}")
+        # Log summary
+        logger.info("REBUILD SUMMARY:")
+        logger.info(f"Documents in File Search Store: {stats['files_found']}")
+        logger.info(f"Documents with metadata: {stats['files_parsed']}")
+        logger.info(f"Documents skipped (no metadata): {stats['files_skipped']}")
+        logger.info(f"Registry entries created: {stats['registry_entries']}")
         if merge_with_existing:
-            print(f"  Existing entries preserved:     {stats['existing_preserved']}")
-        print("-" * 70)
+            logger.info(f"Existing entries preserved: {stats['existing_preserved']}")
 
         return stats
 
     def clear_all(self) -> bool:
         """Clear entire registry (use with caution!)"""
         if not self.registry:
-            print("-> Registry is already empty")
+            logger.info("Registry is already empty")
             return False
 
-        print(
-            f"\n⚠️  WARNING: About to clear {len(self.registry)} registry entry/entries!"
+        logger.warning(
+            f"WARNING: About to clear {len(self.registry)} registry entry/entries!"
         )
         confirmation = input("Type 'CLEAR' to confirm: ")
 
         if confirmation != "CLEAR":
-            print("-> Clear cancelled")
+            logger.info("Clear cancelled")
             return False
 
         self.registry = {}
         self._save_registry()
-        print("-> Registry cleared")
+        logger.info("Registry cleared")
         return True
 
     def set_file_search_store_name(self, store_name: str):
@@ -392,7 +388,7 @@ class StoreRegistry:
         self.registry["_global"]["file_search_store_name"] = store_name
         self._file_search_store_name = store_name
         self._save_registry()
-        print(f"-> Set global File Search Store: {store_name}")
+        logger.info(f"Set global File Search Store: {store_name}")
 
     def get_file_search_store_name(self) -> Optional[str]:
         """
