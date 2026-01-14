@@ -10,7 +10,8 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 - Citations: Automatic source attribution via grounding metadata.
 
 ## Setup
-- Python 3.11+; create `.venv` and install with `pip install -r requirements.txt`.
+- Python 3.11+; conda environment name: `tarasa`.
+- Activate environment: `conda activate tarasa`, then install dependencies: `pip install -r requirements.txt`.
 - Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`; set `GOOGLE_API_KEY` (and optional `TAVILY_API_KEY`).
 - Adjust `config.yaml` for paths, File Search Store name, chunking params, and model selection.
 
@@ -51,7 +52,14 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 - Upload process: whole files → File Search Store → metadata tags → server chunks.
 - Query process: metadata filter → File Search retrieval → Gemini response → citations.
 
-## Testing
-- Use pytest.
-- Do not skip tests. Retries are acceptable; skips are not.
-- Any failing test blocks progress—either fix or ask the user how to proceed.
+## Testing Policy (CRITICAL)
+- Use pytest to run the full test suite.
+- **100% of tests MUST pass when running the test suite.**
+- **NEVER skip tests.** If a test is not relevant anymore, remove it entirely.
+- **NEVER ignore failing tests** under the premise that they are unrelated to current changes.
+- Retries are acceptable if tests are flaky, but persistent failures must be addressed.
+- **When user asks for clean tests:**
+  - ALL failures MUST be reported immediately.
+  - Either fix the failure OR ask the user how to proceed.
+  - Do NOT proceed with "tests pass except for X" - that means tests do NOT pass.
+- Any failing test blocks all progress until resolved or user provides guidance.
