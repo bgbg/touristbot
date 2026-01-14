@@ -518,12 +518,12 @@ def get_response(
     response = client.models.generate_content(
         model=model_name,
         contents=conversation_history,
-        config={
-            "system_instruction": system_instruction,
-            "temperature": temperature,
-            "response_mime_type": "application/json",
-            "response_json_schema": ImageAwareResponse.model_json_schema(),
-            "tools": [
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=temperature,
+            response_mime_type="application/json",
+            response_schema=ImageAwareResponse,
+            tools=[
                 types.Tool(
                     file_search=types.FileSearch(
                         file_search_store_names=[file_search_store_name],
@@ -531,7 +531,7 @@ def get_response(
                     )
                 ),
             ],
-        },
+        ),
     )
 
     response_time = time.time() - start_time
