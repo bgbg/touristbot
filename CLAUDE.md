@@ -68,8 +68,20 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 - Multimodal context: Image URIs included in user messages for Gemini API (up to 5 images per query).
 - UI display: Images shown in expandable sections with captions and context (before/after text).
 - Upload process: DOCX text → File Search Store → extract images → upload to GCS & File API → register metadata.
-- Query process: query images by area/site → include URIs in API call → display in UI.
+- Query process: query images by area/site → include URIs in API call → LLM assesses relevance → display relevant images in UI.
 - Note: File Search API does NOT extract images from DOCX (text-only), hence separate image pipeline.
+
+### LLM-Based Image Relevance (Issue #18)
+- Gemini API returns structured output (JSON) with image relevance signals via Pydantic schema `ImageAwareResponse`.
+- Structured output fields:
+  - `response_text`: Main response to user query (Hebrew or query language).
+  - `should_include_images`: Boolean indicating if images should be shown (false for initial greetings, true for substantive queries).
+  - `image_relevance`: Dict mapping image URIs to relevance scores (0-100).
+- Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks).
+- Image filtering: Only images with relevance score >= 60 are displayed.
+- Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!").
+- Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call.
+- Fallback: If structured output parsing fails, defaults to showing all images (backward compatibility).
 
 ## Testing Policy (CRITICAL)
 - Use pytest to run the full test suite.
