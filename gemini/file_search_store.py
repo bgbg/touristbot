@@ -140,15 +140,34 @@ class FileSearchStoreManager:
             Operation result if successful, None otherwise
         """
         import os
+        import shutil
+        import tempfile
 
         filename = os.path.basename(file_path)
         display_name = f"{area}_{site}_{doc}"
 
         print(f"   Uploading: {filename} -> {display_name}")
 
+        # Handle Hebrew/non-ASCII filenames by copying to temp file
+        temp_file = None
+        upload_path = file_path
+
         try:
+            # Check if filename contains non-ASCII characters
+            try:
+                filename.encode('ascii')
+            except UnicodeEncodeError:
+                # Copy to temp file with ASCII name
+                file_ext = os.path.splitext(filename)[1]
+                temp_file = tempfile.NamedTemporaryFile(
+                    delete=False, suffix=file_ext, prefix='upload_'
+                )
+                temp_file.close()
+                shutil.copy2(file_path, temp_file.name)
+                upload_path = temp_file.name
+
             operation = self.client.file_search_stores.upload_to_file_search_store(
-                file=file_path,
+                file=upload_path,
                 file_search_store_name=file_search_store_name,
                 config={
                     "display_name": display_name,
@@ -177,6 +196,11 @@ class FileSearchStoreManager:
         except Exception as e:
             print(f"   ❌ Error uploading file: {e}")
             raise
+
+        finally:
+            # Clean up temp file
+            if temp_file and os.path.exists(temp_file.name):
+                os.remove(temp_file.name)
 
     def list_documents_in_store(self, file_search_store_name: str):
         """
