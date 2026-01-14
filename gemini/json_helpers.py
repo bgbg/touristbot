@@ -40,7 +40,23 @@ def parse_json(text: str) -> Optional[Any]:
 
     # Try direct JSON parsing first
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
+        # Check for double-encoded JSON in response_text field (Streamlit Cloud issue)
+        if isinstance(parsed, dict) and "response_text" in parsed:
+            response_text = parsed["response_text"]
+            # If response_text looks like JSON (starts with { and contains structured fields),
+            # it might be double-encoded
+            if isinstance(response_text, str) and response_text.strip().startswith("{"):
+                try:
+                    # Try to parse response_text as JSON
+                    inner_parsed = json.loads(response_text)
+                    # If successful and contains the expected structure, use the inner one
+                    if isinstance(inner_parsed, dict) and "response_text" in inner_parsed:
+                        return inner_parsed
+                except json.JSONDecodeError:
+                    # Not double-encoded, keep original
+                    pass
+        return parsed
     except json.JSONDecodeError:
         pass
 

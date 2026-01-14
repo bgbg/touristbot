@@ -281,5 +281,80 @@ class TestEdgeCases:
         assert len(result) == 3
 
 
+class TestDoubleEncodedJSON:
+    """Test handling of double-encoded JSON (Streamlit Cloud issue #23)."""
+
+    def test_double_encoded_response_text(self):
+        """Test extraction of double-encoded JSON in response_text field."""
+        # Simulate the Streamlit Cloud issue where LLM returns JSON as string inside response_text
+        double_encoded = """{
+  "response_text": "{\\"response_text\\": \\"היי! ברוך הבא לפארק הירקון!\\", \\"should_include_images\\": false, \\"image_relevance\\": []}",
+  "should_include_images": false,
+  "image_relevance": []
+}"""
+
+        result = parse_json(double_encoded)
+
+        assert result is not None
+        assert isinstance(result, dict)
+        # Should unwrap the double-encoded structure
+        assert result["response_text"] == "היי! ברוך הבא לפארק הירקון!"
+        assert result["should_include_images"] == False
+        assert result["image_relevance"] == []
+
+    def test_normal_response_text_not_unwrapped(self):
+        """Test that normal (non-double-encoded) response_text is kept as-is."""
+        normal_json = """{
+  "response_text": "היי! ברוך הבא לפארק הירקון!",
+  "should_include_images": false,
+  "image_relevance": []
+}"""
+
+        result = parse_json(normal_json)
+
+        assert result is not None
+        assert isinstance(result, dict)
+        assert result["response_text"] == "היי! ברוך הבא לפארק הירקון!"
+        assert result["should_include_images"] == False
+        assert result["image_relevance"] == []
+
+    def test_double_encoded_with_images(self):
+        """Test double-encoded JSON with image relevance data."""
+        double_encoded = """{
+  "response_text": "{\\"response_text\\": \\"הנה תמונות של שקנאים!\\", \\"should_include_images\\": true, \\"image_relevance\\": [{\\"image_uri\\": \\"https://example.com/image1\\", \\"relevance_score\\": 85}]}",
+  "should_include_images": true,
+  "image_relevance": []
+}"""
+
+        result = parse_json(double_encoded)
+
+        assert result is not None
+        assert isinstance(result, dict)
+        # Should unwrap to the inner structure with proper image_relevance
+        assert result["response_text"] == "הנה תמונות של שקנאים!"
+        assert result["should_include_images"] == True
+        assert isinstance(result["image_relevance"], list)
+        assert len(result["image_relevance"]) == 1
+        assert result["image_relevance"][0]["image_uri"] == "https://example.com/image1"
+        assert result["image_relevance"][0]["relevance_score"] == 85
+
+    def test_response_text_with_braces_not_json(self):
+        """Test that response_text containing braces but not JSON is kept as-is."""
+        # Some responses might mention braces in text but aren't JSON
+        normal_with_braces = """{
+  "response_text": "המבנה {כמו כן} נבנה בשנת 1920",
+  "should_include_images": false,
+  "image_relevance": []
+}"""
+
+        result = parse_json(normal_with_braces)
+
+        assert result is not None
+        assert isinstance(result, dict)
+        # Should keep the original text with braces
+        assert "המבנה {כמו כן} נבנה" in result["response_text"]
+        assert result["should_include_images"] == False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
