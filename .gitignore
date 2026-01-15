@@ -36,3 +36,10 @@ tmp_*
 *secret*
 chunks/*
 
+# Coverage reports
+.coverage
+coverage_report/
+htmlcov/
+*.coverage
+.coverage.*
+coverage.xml
