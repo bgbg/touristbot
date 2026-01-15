@@ -14,6 +14,7 @@ import sys
 import time
 from datetime import datetime
 
+import pandas as pd
 import streamlit as st
 
 # Configure logging to both file and console
@@ -1045,8 +1046,6 @@ def main():
             st.info("No content uploaded yet.")
         else:
             # Display content in sortable/searchable table
-            import pandas as pd
-
             # Add search/filter capability
             search_query = st.text_input(
                 "🔍 Search locations",
@@ -1066,7 +1065,12 @@ def main():
                 df = df[mask]
 
             if df.empty:
-                st.warning(f"No locations found matching '{search_query}'")
+                # Sanitize and truncate search query for display
+                display_query = search_query.replace("\n", " ").replace("\r", " ")
+                max_len = 80
+                if len(display_query) > max_len:
+                    display_query = display_query[:max_len - 3] + "..."
+                st.warning(f"No locations found matching '{display_query}'")
             else:
                 # Display sortable table
                 st.dataframe(
@@ -1091,14 +1095,16 @@ def main():
                 # Row selection and delete functionality
                 st.subheader("Delete Location")
 
-                # Create options for selectbox
-                location_options = [
-                    f"{row['area']} / {row['site']} ({row['file_count']} files, {row['topic_count']} topics, {row['image_count']} images)"
-                    for _, row in df.iterrows()
-                ]
+                # Create dictionary mapping display strings to (area, site) tuples
+                # This ensures robust selection even when DataFrame is filtered
+                location_map = {
+                    f"{row.area} / {row.site} ({row.file_count} files, {row.topic_count} topics, {row.image_count} images)":
+                    (row.area, row.site, row.file_count, row.topic_count, row.image_count, row.chunk_count)
+                    for row in df.itertuples(index=False)
+                }
 
-                # Add placeholder option
-                location_options.insert(0, "-- Select a location to delete --")
+                # Create options for selectbox
+                location_options = ["-- Select a location to delete --"] + list(location_map.keys())
 
                 selected_location = st.selectbox(
                     "Select location to delete",
@@ -1108,45 +1114,60 @@ def main():
 
                 # Only show delete button if a location is selected
                 if selected_location != "-- Select a location to delete --":
-                    # Extract area and site from selection
-                    selected_idx = location_options.index(selected_location) - 1
-                    selected_row = df.iloc[selected_idx]
-                    area = selected_row["area"]
-                    site = selected_row["site"]
+                    # Extract area and site from mapping (robust approach)
+                    area, site, file_count, topic_count, image_count, chunk_count = location_map[selected_location]
+
+                    # Store selection in session state for dialog
+                    if "pending_delete" not in st.session_state or st.session_state.pending_delete != (area, site):
+                        st.session_state.pending_delete = (area, site)
+                        st.session_state.pending_delete_counts = {
+                            "file_count": file_count,
+                            "topic_count": topic_count,
+                            "image_count": image_count,
+                            "chunk_count": chunk_count
+                        }
 
                     if st.button(f"Delete {area} / {site}", type="primary"):
-                        # Show confirmation dialog
-                        if "delete_confirmed" not in st.session_state:
-                            st.session_state.delete_confirmed = False
-                            st.session_state.delete_area = area
-                            st.session_state.delete_site = site
-
+                        # Define dialog function outside button handler for efficiency
                         @st.dialog("Confirm Deletion")
                         def confirm_delete():
-                            st.warning(f"Are you sure you want to delete **{area} / {site}**?")
+                            # Retrieve from session state to avoid closure issues
+                            delete_area, delete_site = st.session_state.pending_delete
+                            counts = st.session_state.pending_delete_counts
+
+                            st.warning(f"Are you sure you want to delete **{delete_area} / {delete_site}**?")
                             st.write(f"This will remove:")
-                            st.write(f"- {selected_row['file_count']} files")
-                            st.write(f"- {selected_row['topic_count']} topics")
-                            st.write(f"- {selected_row['image_count']} images")
-                            st.write(f"- {selected_row['chunk_count']} chunks")
+                            st.write(f"- {counts['file_count']} files")
+                            st.write(f"- {counts['topic_count']} topics")
+                            st.write(f"- {counts['image_count']} images")
+                            st.write(f"- {counts['chunk_count']} chunks")
 
                             col1, col2 = st.columns(2)
                             with col1:
                                 if st.button("Yes, delete", type="primary", use_container_width=True):
-                                    with st.spinner(f"Removing {area}/{site}..."):
+                                    with st.spinner(f"Removing {delete_area}/{delete_site}..."):
                                         success, message = (
                                             st.session_state.upload_manager.remove_location(
-                                                area, site
+                                                delete_area, delete_site
                                             )
                                         )
                                         if success:
                                             st.success(message)
-                                            st.session_state.delete_confirmed = True
+                                            # Clear session state after successful deletion
+                                            if "pending_delete" in st.session_state:
+                                                del st.session_state.pending_delete
+                                            if "pending_delete_counts" in st.session_state:
+                                                del st.session_state.pending_delete_counts
                                             st.rerun()
                                         else:
                                             st.error(message)
                             with col2:
                                 if st.button("Cancel", use_container_width=True):
+                                    # Clear session state on cancel
+                                    if "pending_delete" in st.session_state:
+                                        del st.session_state.pending_delete
+                                    if "pending_delete_counts" in st.session_state:
+                                        del st.session_state.pending_delete_counts
                                     st.rerun()
 
                         confirm_delete()
