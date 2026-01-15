@@ -9,6 +9,8 @@ tiktoken
 streamlit
 pandas
 pytest
+pytest-cov
+coverage[toml]
 pytest-xdist
 watchdog
 Pillow
