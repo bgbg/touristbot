@@ -337,7 +337,10 @@ def main():
 
         try:
             client = genai.Client(api_key=config.api_key)
-            registry = StoreRegistry(config.registry_path)
+            registry = StoreRegistry(
+                storage_backend=storage_backend,
+                gcs_path=config.store_registry_gcs_path
+            )
             print("✓ Connected to Gemini API")
 
             # Initialize File Search Store Manager
@@ -357,10 +360,14 @@ def main():
                     bucket_name=config.gcs_bucket_name,
                     credentials_json=config.gcs_credentials_json,
                 )
-                image_registry = ImageRegistry(config.image_registry_path)
+                # Image registry requires GCS storage backend
+                image_registry = ImageRegistry(
+                    storage_backend=storage_backend,
+                    gcs_path=config.image_registry_gcs_path
+                )
                 print("✓ Initialized image upload system")
             except Exception as e:
-                print(f"⚠️  Warning: Could not initialize image system: {e}")
+                print(f"❌ Error: Could not initialize image system: {e}")
                 print("   Image upload will be skipped")
                 file_api_manager = None
                 image_storage = None
@@ -371,7 +378,10 @@ def main():
             sys.exit(1)
     else:
         client = None
-        registry = StoreRegistry(config.registry_path)
+        registry = StoreRegistry(
+            storage_backend=storage_backend,
+            gcs_path=config.store_registry_gcs_path
+        )
         fs_manager = None
         store_name = registry.get_file_search_store_name() or "dry_run_store"
         file_api_manager = None

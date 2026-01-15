@@ -13,8 +13,10 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 ## Setup
 - Python 3.11+; conda environment name: `tarasa`.
 - Activate environment: `conda activate tarasa`, then install dependencies: `pip install -r requirements.txt`.
-- Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`; set `GOOGLE_API_KEY` (and optional `TAVILY_API_KEY`).
-- Adjust `config.yaml` for paths, File Search Store name, chunking params, and model selection.
+- Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`; set `GOOGLE_API_KEY` and GCS credentials.
+- **GCS is mandatory**: Image and store registries are stored in GCS bucket (no local fallback).
+- Adjust `config.yaml` for GCS paths, File Search Store name, chunking params, and model selection.
+- First run: Automatic migration moves any local registry files to GCS.
 
 ## Running
 - Web app: `streamlit run gemini/main_qa.py` (defaults to http://localhost:8501).
@@ -25,16 +27,17 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
   - file_search_store.py: File Search Store management (create, upload with metadata).
   - main_qa.py: Streamlit UI with citation and image display.
   - main_upload.py: CLI uploader (whole files with metadata, no chunking, automatic image extraction).
-  - store_registry.py: Maps locations to File Search Store name.
+  - store_registry.py: Maps locations to File Search Store name (GCS-backed).
   - image_extractor.py: Extracts images and metadata from DOCX files.
   - image_storage.py: Uploads images to GCS bucket.
   - file_api_manager.py: Uploads images to Gemini File API for multimodal context.
-  - image_registry.py: JSON-based registry mapping images to metadata (area/site/doc).
+  - image_registry.py: Registry mapping images to metadata (GCS-backed, area/site/doc).
+  - upload_tracker.py: Tracks uploaded files (temporary cache in .cache/).
 - data/locations/: source content organized by area/site hierarchy.
 - topics/: generated topic lists stored in GCS at `topics/<area>/<site>/topics.json`.
 - prompts/: prompt YAMLs for the QA system (tourism_qa.yaml, topic_extraction.yaml).
-- config.yaml: app settings including file_search_store_name, image_registry_path.
-- image_registry.json: image metadata registry (area/site/doc → image URIs and captions).
+- config.yaml: app settings including GCS paths for registries.
+- .cache/: temporary build artifacts (upload tracking, excluded from git).
 - .streamlit/secrets.toml: API keys (never commit).
 
 ## Topic Generation Feature
@@ -61,7 +64,7 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 ## Multimodal Image Support
 - Automatically extracts images from DOCX files during upload (Phase 2B hybrid approach).
 - Image extraction: python-docx library extracts inline images with captions and context.
-- Triple storage: Images stored in GCS bucket, uploaded to Gemini File API, tracked in image_registry.json.
+- Triple storage: Images stored in GCS bucket, uploaded to Gemini File API, tracked in GCS image registry.
 - Image registry: JSON-based system mapping area/site/doc → image metadata (URIs, captions, context).
 - Sequential naming: image_001.jpg, image_002.jpg, etc. within each document.
 - Hebrew support: Full UTF-8 support for captions and context text.
@@ -82,6 +85,17 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 - Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!").
 - Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call.
 - Fallback: If structured output parsing fails, defaults to showing all images (backward compatibility).
+
+## Data Storage Architecture
+- **GCS is mandatory**: All registries stored in Google Cloud Storage (no local fallback).
+- **Registry files** (GCS paths in `config.yaml`):
+  - `metadata/image_registry.json`: Image metadata registry (area/site/doc → image URIs, captions, context).
+  - `metadata/store_registry.json`: Store registry mapping locations to File Search Store IDs.
+- **Temporary files** (local, gitignored):
+  - `.cache/upload_tracking.json`: Upload tracking cache (file hashes, modification times).
+- **Automatic migration**: On first run after upgrade, local registry files are automatically uploaded to GCS and deleted locally.
+- **In-memory caching**: Registries cached in memory during session lifetime for performance.
+- **Fail-fast**: Application fails with clear error if GCS is unavailable (intentional design).
 
 ## Testing Policy (CRITICAL)
 - Use pytest to run the full test suite.

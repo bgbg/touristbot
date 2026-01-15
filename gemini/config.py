@@ -59,10 +59,10 @@ class GeminiConfig:
     max_upload_wait_seconds: int = 300
     max_files_per_query: int = 10
 
-    # Registry and tracking paths
-    registry_path: str = "gemini/store_registry.json"
-    upload_tracking_path: str = "gemini/upload_tracking.json"
-    image_registry_path: str = "image_registry.json"
+    # Registry paths (GCS)
+    store_registry_gcs_path: str = "metadata/store_registry.json"
+    image_registry_gcs_path: str = "metadata/image_registry.json"
+    upload_tracking_path: str = ".cache/upload_tracking.json"
 
     # Prompts directory
     prompts_dir: str = "prompts/"
@@ -164,14 +164,14 @@ class GeminiConfig:
             temperature=gemini_config.get("temperature", 0.7),
             max_upload_wait_seconds=gemini_config.get("max_upload_wait_seconds", 300),
             max_files_per_query=gemini_config.get("max_files_per_query", 10),
-            registry_path=gemini_config.get(
-                "registry_path", "gemini/store_registry.json"
+            store_registry_gcs_path=gemini_config.get(
+                "store_registry_gcs_path", "metadata/store_registry.json"
             ),
             upload_tracking_path=gemini_config.get(
-                "upload_tracking_path", "gemini/upload_tracking.json"
+                "upload_tracking_path", ".cache/upload_tracking.json"
             ),
-            image_registry_path=gemini_config.get(
-                "image_registry_path", "image_registry.json"
+            image_registry_gcs_path=gemini_config.get(
+                "image_registry_gcs_path", "metadata/image_registry.json"
             ),
             prompts_dir=gemini_config.get("prompts_dir", "prompts/"),
             force_reupload=gemini_config.get("force_reupload", False),

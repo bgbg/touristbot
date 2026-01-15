@@ -1,35 +1,36 @@
-"""Tests for image registry system"""
+"""Tests for image registry system with GCS backend"""
 
-import os
-import tempfile
 import pytest
 
 from gemini.image_registry import ImageRegistry, ImageRecord
+from tests.mock_storage import MockStorageBackend
 
 
 @pytest.fixture
-def temp_registry_file():
-    """Create a temporary registry file for testing"""
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
-        temp_path = f.name
-
-    yield temp_path
-
-    # Cleanup
-    if os.path.exists(temp_path):
-        os.remove(temp_path)
+def mock_storage():
+    """Create a mock storage backend for testing"""
+    storage = MockStorageBackend()
+    yield storage
+    storage.clear()
 
 
-def test_image_registry_initialization(temp_registry_file):
-    """Test registry initialization"""
-    registry = ImageRegistry(temp_registry_file)
-    assert registry.registry_path == temp_registry_file
+def test_image_registry_initialization(mock_storage):
+    """Test registry initialization with GCS backend"""
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
+    assert registry.storage_backend == mock_storage
+    assert registry.gcs_path == "test/registry.json"
     assert len(registry.registry) == 0
 
 
-def test_add_image(temp_registry_file):
+def test_image_registry_requires_storage_backend():
+    """Test that ImageRegistry requires storage_backend parameter"""
+    with pytest.raises(ValueError, match="ImageRegistry requires storage_backend"):
+        ImageRegistry(storage_backend=None)
+
+
+def test_add_image(mock_storage):
     """Test adding an image to registry"""
-    registry = ImageRegistry(temp_registry_file)
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
     image_key = registry.add_image(
         area="test_area",
@@ -57,9 +58,9 @@ def test_add_image(temp_registry_file):
     assert image.doc == "test_doc"
 
 
-def test_get_images_for_location(temp_registry_file):
+def test_get_images_for_location(mock_storage):
     """Test querying images by location"""
-    registry = ImageRegistry(temp_registry_file)
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
     # Add multiple images
     registry.add_image(
@@ -102,9 +103,9 @@ def test_get_images_for_location(temp_registry_file):
     assert len(images) == 2
 
 
-def test_search_by_caption(temp_registry_file):
+def test_search_by_caption(mock_storage):
     """Test searching images by caption"""
-    registry = ImageRegistry(temp_registry_file)
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
     registry.add_image(
         area="test_area", site="test_site", doc="test_doc", image_index=1,
@@ -135,9 +136,9 @@ def test_search_by_caption(temp_registry_file):
     assert results[0].caption == "Mountains at sunrise"
 
 
-def test_hebrew_text(temp_registry_file):
+def test_hebrew_text(mock_storage):
     """Test handling Hebrew text in captions"""
-    registry = ImageRegistry(temp_registry_file)
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
     hebrew_caption = "שקנאי – ציפור נודדת"
     image_key = registry.add_image(
@@ -161,9 +162,9 @@ def test_hebrew_text(temp_registry_file):
     assert results[0].caption == hebrew_caption
 
 
-def test_remove_image(temp_registry_file):
+def test_remove_image(mock_storage):
     """Test removing an image from registry"""
-    registry = ImageRegistry(temp_registry_file)
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
     image_key = registry.add_image(
         area="test_area", site="test_site", doc="test_doc", image_index=1,
@@ -185,9 +186,9 @@ def test_remove_image(temp_registry_file):
     assert result is False
 
 
-def test_clear_location(temp_registry_file):
+def test_clear_location(mock_storage):
     """Test clearing all images for a location"""
-    registry = ImageRegistry(temp_registry_file)
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
     # Add images to multiple locations
     registry.add_image(
@@ -224,9 +225,9 @@ def test_clear_location(temp_registry_file):
     assert len(images) == 1
 
 
-def test_get_stats(temp_registry_file):
+def test_get_stats(mock_storage):
     """Test getting registry statistics"""
-    registry = ImageRegistry(temp_registry_file)
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
     # Add images
     registry.add_image(
@@ -261,10 +262,10 @@ def test_get_stats(temp_registry_file):
     assert len(stats["locations"]) == 3
 
 
-def test_persistence(temp_registry_file):
-    """Test that registry persists across instances"""
+def test_persistence(mock_storage):
+    """Test that registry persists in GCS across instances"""
     # Create first registry and add image
-    registry1 = ImageRegistry(temp_registry_file)
+    registry1 = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
     image_key = registry1.add_image(
         area="test_area", site="test_site", doc="test_doc", image_index=1,
         caption="Test", context_before="", context_after="",
@@ -273,10 +274,34 @@ def test_persistence(temp_registry_file):
         file_api_name="files/test1", image_format="jpg"
     )
 
-    # Create second registry instance - should load from file
-    registry2 = ImageRegistry(temp_registry_file)
+    # Create second registry instance - should load from mock GCS
+    registry2 = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
     assert len(registry2.registry) == 1
 
     image = registry2.get_image(image_key)
     assert image is not None
     assert image.caption == "Test"
+
+
+def test_in_memory_caching(mock_storage):
+    """Test that registry uses in-memory caching"""
+    from unittest.mock import patch
+
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
+
+    # Add an image
+    registry.add_image(
+        area="test_area", site="test_site", doc="test_doc", image_index=1,
+        caption="Test", context_before="", context_after="",
+        gcs_path="images/test_area/test_site/test_doc/image_001.jpg",
+        file_api_uri="https://example.com/files/test1",
+        file_api_name="files/test1", image_format="jpg"
+    )
+
+    # Verify cache is loaded
+    assert registry._cache_loaded is True
+
+    # Multiple loads should use cache (not call read_file again)
+    with patch.object(mock_storage, 'read_file', wraps=mock_storage.read_file) as mock_read:
+        registry._load()  # Should use cache, not reload
+        mock_read.assert_not_called()  # Verify read_file was NOT called due to caching

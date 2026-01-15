@@ -209,11 +209,35 @@ def initialize_session_state():
             st.error(f"Failed to connect to Gemini API: {e}")
             st.stop()
 
+    if "storage_backend" not in st.session_state:
+        try:
+            # Initialize storage backend (GCS or cached GCS)
+            st.session_state.storage_backend = get_storage_backend(
+                bucket_name=st.session_state.config.gcs_bucket_name,
+                credentials_json=st.session_state.config.gcs_credentials_json,
+                enable_cache=st.session_state.config.enable_local_cache,
+            )
+            st.success("✓ Using GCS storage backend")
+        except Exception as e:
+            # Graceful fallback to local filesystem storage
+            st.session_state.storage_backend = None
+            st.info(
+                f"ℹ Using local filesystem storage (GCS unavailable: {e})"
+            )
+            st.info(
+                "To enable GCS storage, configure credentials in .streamlit/secrets.toml"
+            )
+
     if "registry" not in st.session_state:
         try:
-            # Create registry instance
+            # Create registry instance with GCS storage backend
+            storage_backend = st.session_state.get("storage_backend")
+            if not storage_backend:
+                raise ValueError("Storage backend is required for store registry")
+
             st.session_state.registry = StoreRegistry(
-                st.session_state.config.registry_path
+                storage_backend=storage_backend,
+                gcs_path=st.session_state.config.store_registry_gcs_path
             )
 
             # Rebuild registry from Gemini Files API on startup (if enabled in config)
@@ -248,9 +272,8 @@ def initialize_session_state():
             st.stop()
 
     if "logger" not in st.session_state:
-        log_path = os.path.join(
-            os.path.dirname(st.session_state.config.registry_path), "query_log.jsonl"
-        )
+        # Use .cache directory for query logs (consistent with upload_tracking)
+        log_path = os.path.join(".cache", "query_log.jsonl")
         st.session_state.logger = QueryLogger(
             log_path, area="", site=""
         )  # Will be updated per query
@@ -259,25 +282,6 @@ def initialize_session_state():
         st.session_state.tracker = UploadTracker(
             st.session_state.config.upload_tracking_path
         )
-
-    if "storage_backend" not in st.session_state:
-        try:
-            # Initialize storage backend (GCS or cached GCS)
-            st.session_state.storage_backend = get_storage_backend(
-                bucket_name=st.session_state.config.gcs_bucket_name,
-                credentials_json=st.session_state.config.gcs_credentials_json,
-                enable_cache=st.session_state.config.enable_local_cache,
-            )
-            st.success("✓ Using GCS storage backend")
-        except Exception as e:
-            # Graceful fallback to local filesystem storage
-            st.session_state.storage_backend = None
-            st.info(
-                f"ℹ Using local filesystem storage (GCS unavailable: {e})"
-            )
-            st.info(
-                "To enable GCS storage, configure credentials in .streamlit/secrets.toml"
-            )
 
     if "image_storage" not in st.session_state:
         try:
@@ -337,13 +341,21 @@ def initialize_session_state():
 
     if "image_registry" not in st.session_state:
         try:
-            st.session_state.image_registry = ImageRegistry(
-                st.session_state.config.image_registry_path
-            )
+            # Initialize image registry with GCS storage backend
+            storage_backend = st.session_state.get("storage_backend")
+            if storage_backend:
+                gcs_path = st.session_state.config.image_registry_gcs_path
+                st.session_state.image_registry = ImageRegistry(
+                    storage_backend=storage_backend,
+                    gcs_path=gcs_path
+                )
+            else:
+                st.session_state.image_registry = None
+                st.info("ℹ️ Image registry requires GCS storage backend")
         except Exception as e:
-            # Graceful fallback - images won't be displayed
+            # Fail fast for GCS issues
             st.session_state.image_registry = None
-            st.info(f"ℹ Image registry not available: {e}")
+            st.error(f"❌ Failed to initialize image registry: {e}")
 
 
 def extract_citations(response, top_k: int = 5) -> list[dict]:

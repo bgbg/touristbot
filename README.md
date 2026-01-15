@@ -365,8 +365,8 @@ Alternatively, use the web interface to upload files from any folder and assign 
 1. **Upload**: Whole files uploaded to File Search Store with metadata (area, site, doc)
 2. **Store**: Single File Search Store for all locations with metadata filtering for isolation
 3. **Server-Side Chunking**: Gemini automatically chunks files (400 tokens/chunk with 15% overlap)
-4. **Registry**: Mapping between locations and file counts maintained in `store_registry.json`
-5. **Tracking**: File hashes prevent duplicate uploads (`upload_tracking.json`)
+4. **Registry**: Mappings stored in GCS (`metadata/store_registry.json`, `metadata/image_registry.json`)
+5. **Tracking**: File hashes in local cache prevent duplicate uploads (`.cache/upload_tracking.json`)
 6. **Query**: Metadata filters (area AND site) retrieve relevant content automatically
 7. **Response**: Gemini generates answers with citations from grounding metadata
 
@@ -443,14 +443,18 @@ Key settings in `config.yaml`:
 - `prompts_dir`: Directory containing YAML prompt configurations (default: "prompts/")
 - `supported_formats`: File extensions to process (.txt, .md, .pdf, .docx)
 
-## Generated Files
+## Data Storage
 
-These files are auto-generated and git-ignored:
+**GCS-Stored (mandatory, single source of truth):**
+- `metadata/image_registry.json` (GCS): Image metadata registry
+- `metadata/store_registry.json` (GCS): Location to File Search Store mappings
+- `topics/<area>/<site>/topics.json` (GCS): Pre-generated topic lists
 
-- `gemini/store_registry.json`: Maps locations to File Search Store and tracks file counts
-- `gemini/upload_tracking.json`: Tracks uploaded files with hashes
+**Local temporary files (git-ignored):**
+- `.cache/upload_tracking.json`: Upload tracking cache (file hashes)
 - `gemini/query_log.jsonl`: Query and response logs (if enabled)
-- `topics/`: Pre-generated topics stored in GCS (JSON format)
+
+**Note**: GCS storage is mandatory. Application fails fast with clear error if GCS unavailable.
 
 ## Dependencies
 

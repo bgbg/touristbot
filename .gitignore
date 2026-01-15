@@ -5,6 +5,11 @@
 # Query logs and runtime tracking files
 gemini/query_log.jsonl
 gemini/upload_tracking.json
+.cache/
+
+# Registry files (now stored in GCS)
+image_registry.json
+gemini/store_registry.json
 
 # Python
 __pycache__/
