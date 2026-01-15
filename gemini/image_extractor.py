@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 from docx import Document
 from docx.oxml import CT_Blip
 from docx.oxml.xmlchemy import BaseOxmlElement
+from PIL import Image
 
 
 @dataclass
@@ -92,6 +93,90 @@ class ImageExtractor:
 
         return extracted_images
 
+    def _scale_image(self, image_data: bytes, image_format: str, target_size_mb: float = 10.0) -> bytes:
+        """
+        Scale down an image to meet the target size limit
+
+        Args:
+            image_data: Original image bytes
+            image_format: Image format (jpg, png, etc.)
+            target_size_mb: Target size in MB (default: 10MB)
+
+        Returns:
+            Scaled image bytes
+        """
+        try:
+            # Open image from bytes
+            img = Image.open(io.BytesIO(image_data))
+
+            # Convert RGBA to RGB for JPEG format (JPEG doesn't support transparency)
+            if image_format in ('jpg', 'jpeg') and img.mode in ('RGBA', 'LA', 'P'):
+                # Create white background
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                img = background
+
+            # Start with original dimensions
+            width, height = img.size
+            quality = 85  # Initial quality for JPEG
+
+            # Iteratively reduce size until it fits
+            max_iterations = 10
+            for iteration in range(max_iterations):
+                output = io.BytesIO()
+
+                # Save with current dimensions and quality
+                if image_format in ('jpg', 'jpeg'):
+                    img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
+                    img_resized.save(output, format='JPEG', quality=quality, optimize=True)
+                elif image_format == 'png':
+                    img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
+                    img_resized.save(output, format='PNG', optimize=True)
+                else:
+                    # For other formats, try JPEG conversion
+                    img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
+                    if img_resized.mode in ('RGBA', 'LA', 'P'):
+                        background = Image.new('RGB', img_resized.size, (255, 255, 255))
+                        if img_resized.mode == 'P':
+                            img_resized = img_resized.convert('RGBA')
+                        background.paste(img_resized, mask=img_resized.split()[-1] if img_resized.mode in ('RGBA', 'LA') else None)
+                        img_resized = background
+                    img_resized.save(output, format='JPEG', quality=quality, optimize=True)
+
+                output.seek(0)
+                scaled_data = output.read()
+                scaled_size_mb = len(scaled_data) / (1024 * 1024)
+
+                # Check if size is acceptable
+                if scaled_size_mb <= target_size_mb:
+                    print(f"Image scaled successfully: {len(image_data)/(1024*1024):.1f}MB -> {scaled_size_mb:.1f}MB "
+                          f"(dimensions: {img.size[0]}x{img.size[1]} -> {width}x{height}, quality: {quality})")
+                    return scaled_data
+
+                # Reduce dimensions or quality for next iteration
+                if quality > 60:
+                    quality -= 10
+                else:
+                    width = int(width * 0.85)
+                    height = int(height * 0.85)
+                    quality = 85  # Reset quality when reducing dimensions
+
+                # Safety check - don't go too small
+                if width < 200 or height < 200:
+                    print(f"Warning: Image scaled to minimum dimensions, size is {scaled_size_mb:.1f}MB")
+                    return scaled_data
+
+            # If we couldn't get it small enough after max iterations, return the last attempt
+            print(f"Warning: Could not scale image below {target_size_mb}MB after {max_iterations} iterations, "
+                  f"returning image at {scaled_size_mb:.1f}MB")
+            return scaled_data
+
+        except Exception as e:
+            print(f"Warning: Could not scale image: {e}, returning original")
+            return image_data
+
     def _extract_image_data(self, pic_element: BaseOxmlElement) -> Tuple[Optional[bytes], str]:
         """
         Extract image binary data and format from picture element
@@ -133,11 +218,14 @@ class ImageExtractor:
                 print(f"Warning: Invalid image format '{image_format}', skipping")
                 return None, ""
 
-            # Validate size
+            # Check size and scale if necessary
             size_mb = len(image_data) / (1024 * 1024)
             if size_mb > self.MAX_IMAGE_SIZE_MB:
-                print(f"Warning: Skipping image (size {size_mb:.1f}MB exceeds {self.MAX_IMAGE_SIZE_MB}MB limit)")
-                return None, ""
+                print(f"Image size {size_mb:.1f}MB exceeds {self.MAX_IMAGE_SIZE_MB}MB limit, scaling down...")
+                image_data = self._scale_image(image_data, image_format, target_size_mb=self.MAX_IMAGE_SIZE_MB)
+                # After scaling, format is normalized to jpg for most cases
+                if image_format not in ('jpg', 'png'):
+                    image_format = 'jpg'
 
             return image_data, image_format
 

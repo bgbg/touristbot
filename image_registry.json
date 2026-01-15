@@ -51,8 +51,8 @@
     "context_before": "",
     "context_after": "",
     "gcs_path": "images/tel_aviv_district/yarkon_park/park_guide_he/image_001.jpg",
-    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/t3k01qpzzdu7",
-    "file_api_name": "files/t3k01qpzzdu7",
+    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/wajkalj3pp8s",
+    "file_api_name": "files/wajkalj3pp8s",
     "image_format": "jpg"
   },
   "tel_aviv_district/yarkon_park/park_guide_he/image_002": {
@@ -65,8 +65,8 @@
     "context_before": "",
     "context_after": "",
     "gcs_path": "images/tel_aviv_district/yarkon_park/park_guide_he/image_002.jpg",
-    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/15fsxrr2azpe",
-    "file_api_name": "files/15fsxrr2azpe",
+    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/g2utqme3di0o",
+    "file_api_name": "files/g2utqme3di0o",
     "image_format": "jpg"
   },
   "hefer_valley/alexander_stream/hiking_trails_he/image_001": {
@@ -79,8 +79,8 @@
     "context_before": "מסלולי הליכה סביב נחל אלכסנדר וגשר הצבים",
     "context_after": "",
     "gcs_path": "images/hefer_valley/alexander_stream/hiking_trails_he/image_001.jpg",
-    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/foudqkci5p44",
-    "file_api_name": "files/foudqkci5p44",
+    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/gbu5cw8t1go4",
+    "file_api_name": "files/gbu5cw8t1go4",
     "image_format": "jpg"
   },
   "hefer_valley/alexander_stream/hiking_trails_he/image_002": {
@@ -93,8 +93,8 @@
     "context_before": "גשר הצבים בקיץ",
     "context_after": "",
     "gcs_path": "images/hefer_valley/alexander_stream/hiking_trails_he/image_002.jpg",
-    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/nw00jsg20vks",
-    "file_api_name": "files/nw00jsg20vks",
+    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/o3n1i4wbb126",
+    "file_api_name": "files/o3n1i4wbb126",
     "image_format": "jpg"
   },
   "hefer_valley/alexander_stream/hiking_trails_he/image_003": {
@@ -107,8 +107,22 @@
     "context_before": "",
     "context_after": "",
     "gcs_path": "images/hefer_valley/alexander_stream/hiking_trails_he/image_003.png",
-    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/7d89j4m5leoq",
-    "file_api_name": "files/7d89j4m5leoq",
+    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/f3f9sf63e0id",
+    "file_api_name": "files/f3f9sf63e0id",
+    "image_format": "png"
+  },
+  "tel_aviv_district/yarkon_park/park_guide_he/image_003": {
+    "image_key": "tel_aviv_district/yarkon_park/park_guide_he/image_003",
+    "area": "tel_aviv_district",
+    "site": "yarkon_park",
+    "doc": "park_guide_he",
+    "image_index": 3,
+    "caption": "הפארק מלא סלבס. למשל, בוריס גורליק, מנחה הפודקאסט השבוע במזרח התיכון, נוהג לרוץ כאן",
+    "context_before": "",
+    "context_after": "",
+    "gcs_path": "images/tel_aviv_district/yarkon_park/park_guide_he/image_003.png",
+    "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/9wt41dgnn0iz",
+    "file_api_name": "files/9wt41dgnn0iz",
     "image_format": "png"
   }
 }

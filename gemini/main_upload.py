@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import json
 import locale
 import os
 import sys
@@ -56,7 +57,45 @@ from gemini.image_extractor import extract_images_from_docx
 from gemini.image_registry import ImageRegistry
 from gemini.image_storage import ImageStorage
 from gemini.store_registry import StoreRegistry
+from gemini.storage import get_storage_backend
+from gemini.topic_extractor import extract_topics_from_chunks
 from gemini.upload_tracker import UploadTracker
+
+
+def extract_text_from_file(file_path: str) -> str:
+    """
+    Extract text content from a file for topic generation
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        Text content as string
+    """
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+
+        if ext == '.txt':
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        elif ext == '.docx':
+            from docx import Document
+            doc = Document(file_path)
+            return '\n\n'.join([para.text for para in doc.paragraphs if para.text.strip()])
+        elif ext == '.pdf':
+            import PyPDF2
+            text_parts = []
+            with open(file_path, 'rb') as f:
+                pdf_reader = PyPDF2.PdfReader(f)
+                for page in pdf_reader.pages:
+                    text_parts.append(page.extract_text())
+            return '\n\n'.join(text_parts)
+        else:
+            # Unsupported format, return empty
+            return ""
+    except Exception as e:
+        print(f"      Warning: Could not extract text from {os.path.basename(file_path)}: {e}")
+        return ""
 
 
 def process_docx_images(
@@ -415,6 +454,56 @@ def main():
                             image_registry=image_registry,
                         )
                         total_images_uploaded += num_images
+
+                # Generate topics from uploaded files
+                print(f"   -> Generating topics...")
+                try:
+                    # Extract text from all files
+                    combined_text_parts = []
+                    for file_path in files_to_upload:
+                        text_content = extract_text_from_file(file_path)
+                        if text_content:
+                            combined_text_parts.append(text_content)
+
+                    if combined_text_parts:
+                        combined_text = "\n\n".join(combined_text_parts)
+
+                        # Extract topics using Gemini
+                        topics = extract_topics_from_chunks(
+                            chunks=combined_text,
+                            area=area,
+                            site=site,
+                            model=config.model_name,
+                            client=client,
+                        )
+
+                        # Save topics to storage
+                        topics_path = f"topics/{area}/{site}/topics.json"
+                        topics_json = json.dumps(topics, ensure_ascii=False, indent=2)
+
+                        # Get storage backend
+                        storage_backend = get_storage_backend(
+                            bucket_name=config.gcs_bucket_name,
+                            credentials_json=config.gcs_credentials_json,
+                            enable_cache=config.enable_local_cache,
+                        )
+
+                        if storage_backend:
+                            storage_backend.write_file(topics_path, topics_json)
+                        else:
+                            # Save to local filesystem
+                            topics_dir = os.path.join("topics", area, site)
+                            os.makedirs(topics_dir, exist_ok=True)
+                            topics_file = os.path.join(topics_dir, "topics.json")
+                            with open(topics_file, "w", encoding="utf-8") as f:
+                                f.write(topics_json)
+
+                        print(f"   ✓ Generated {len(topics)} topics")
+                    else:
+                        print(f"   ⚠️  Warning: No text content extracted for topic generation")
+                except Exception as e:
+                    print(f"   ⚠️  Warning: Topic generation failed: {e}")
+                    # Continue with upload even if topic generation fails
 
                 # Register the location
                 registry.register_store(

@@ -11,3 +11,4 @@ pandas
 pytest
 pytest-xdist
 watchdog
+Pillow
