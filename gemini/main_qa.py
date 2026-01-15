@@ -1044,52 +1044,112 @@ def main():
         if not summary:
             st.info("No content uploaded yet.")
         else:
-            # Display content with delete buttons
+            # Display content in sortable/searchable table
             import pandas as pd
 
-            for idx, item in enumerate(summary):
-                col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
+            # Add search/filter capability
+            search_query = st.text_input(
+                "🔍 Search locations",
+                placeholder="Filter by area or site name...",
+                help="Search across area and site columns (case-insensitive)"
+            )
 
-                with col1:
-                    st.write(f"**{item['area']}**")
+            # Convert to DataFrame
+            df = pd.DataFrame(summary)
 
-                with col2:
-                    st.write(item["site"])
+            # Apply search filter
+            if search_query:
+                mask = (
+                    df["area"].str.contains(search_query, case=False, na=False) |
+                    df["site"].str.contains(search_query, case=False, na=False)
+                )
+                df = df[mask]
 
-                with col3:
-                    # Show file count from metadata
-                    file_count = item.get("file_count", 0)
-                    st.metric("Files", file_count)
+            if df.empty:
+                st.warning(f"No locations found matching '{search_query}'")
+            else:
+                # Display sortable table
+                st.dataframe(
+                    df,
+                    column_config={
+                        "area": st.column_config.TextColumn("Area"),
+                        "site": st.column_config.TextColumn("Site"),
+                        "file_count": st.column_config.NumberColumn("Files", format="%d"),
+                        "topic_count": st.column_config.NumberColumn("Topics", format="%d"),
+                        "image_count": st.column_config.NumberColumn("Images", format="%d"),
+                        "chunk_count": st.column_config.NumberColumn("Chunks", format="%d"),
+                        "store_id": st.column_config.TextColumn("Store ID"),
+                        "created_at": st.column_config.TextColumn("Created"),
+                        "last_updated": st.column_config.TextColumn("Last Updated"),
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-                with col4:
-                    # Show topic count
-                    topic_count = item.get("topic_count", 0)
-                    st.metric("Topics", topic_count)
+                st.markdown("---")
 
-                with col5:
-                    # Show image count
-                    image_count = item.get("image_count", 0)
-                    st.metric("Images", image_count)
+                # Row selection and delete functionality
+                st.subheader("Delete Location")
 
-                with col6:
-                    if st.button(
-                        "🗑️",
-                        key=f"delete_{idx}",
-                        help=f"Delete {item['area']}/{item['site']}",
-                    ):
-                        with st.spinner(f"Removing {item['area']}/{item['site']}..."):
-                            success, message = (
-                                st.session_state.upload_manager.remove_location(
-                                    item["area"], item["site"]
-                                )
-                            )
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
+                # Create options for selectbox
+                location_options = [
+                    f"{row['area']} / {row['site']} ({row['file_count']} files, {row['topic_count']} topics, {row['image_count']} images)"
+                    for _, row in df.iterrows()
+                ]
 
-                st.divider()
+                # Add placeholder option
+                location_options.insert(0, "-- Select a location to delete --")
+
+                selected_location = st.selectbox(
+                    "Select location to delete",
+                    options=location_options,
+                    help="Choose a location to remove all its content"
+                )
+
+                # Only show delete button if a location is selected
+                if selected_location != "-- Select a location to delete --":
+                    # Extract area and site from selection
+                    selected_idx = location_options.index(selected_location) - 1
+                    selected_row = df.iloc[selected_idx]
+                    area = selected_row["area"]
+                    site = selected_row["site"]
+
+                    if st.button(f"Delete {area} / {site}", type="primary"):
+                        # Show confirmation dialog
+                        if "delete_confirmed" not in st.session_state:
+                            st.session_state.delete_confirmed = False
+                            st.session_state.delete_area = area
+                            st.session_state.delete_site = site
+
+                        @st.dialog("Confirm Deletion")
+                        def confirm_delete():
+                            st.warning(f"Are you sure you want to delete **{area} / {site}**?")
+                            st.write(f"This will remove:")
+                            st.write(f"- {selected_row['file_count']} files")
+                            st.write(f"- {selected_row['topic_count']} topics")
+                            st.write(f"- {selected_row['image_count']} images")
+                            st.write(f"- {selected_row['chunk_count']} chunks")
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button("Yes, delete", type="primary", use_container_width=True):
+                                    with st.spinner(f"Removing {area}/{site}..."):
+                                        success, message = (
+                                            st.session_state.upload_manager.remove_location(
+                                                area, site
+                                            )
+                                        )
+                                        if success:
+                                            st.success(message)
+                                            st.session_state.delete_confirmed = True
+                                            st.rerun()
+                                        else:
+                                            st.error(message)
+                            with col2:
+                                if st.button("Cancel", use_container_width=True):
+                                    st.rerun()
+
+                        confirm_delete()
 
         st.markdown("---")
 
