@@ -18,8 +18,8 @@ This audit analyzed the test suite for the Tourism RAG system, focusing on cover
 
 **Impact Estimate:**
 - Coverage improvement potential: 28% → 55-65% (targeting critical paths)
-- Test count reduction potential: 134 → 120-125 tests (-7-10%)
-- Print statement reduction: 143 → 10-15 statements (-90%)
+- Test count change: 134 → 370-400 tests (+236-266 new tests added to improve coverage, ~10 consolidated)
+- Print statement reduction: 143 → 0 print statements (-100%), with ~10-15 structured log calls replacing critical prints
 - Maintenance burden: Reduced by ~15-20% through consolidation
 
 ---
@@ -802,7 +802,7 @@ def test_real_api_integration(caplog):
 
 ### 8.1 Coverage Report Location
 - **HTML Report:** `coverage_report/index.html`
-- **Terminal Report:** See `coverage_run.log`
+- **Terminal Report:** Shown directly in your terminal during the coverage run (optionally capture it locally with `pytest --cov=gemini --cov-report=html --cov-report=term-missing | tee coverage_run.log`; this log is not stored in the repository by default)
 - **Module Summary:** See `coverage_modules.txt`
 
 ### 8.2 Print Audit Data
@@ -828,7 +828,7 @@ pytest -m gcs
 ```
 
 ### 8.4 Related Documents
-- **Plan:** `todo__21.md`
+- **Plan:** `todo__21.md` (excluded from this PR, stored in main working directory)
 - **Coverage Modules:** `coverage_modules.txt`
 - **Print Audit:** `print_audit.txt`
 - **Project Context:** `CLAUDE.md`

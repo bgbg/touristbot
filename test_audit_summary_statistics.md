@@ -425,4 +425,4 @@ The test audit reveals a test suite with **solid foundations** (100% pass rate, 
 - `test_optimization_recommendations.md` (detailed analysis)
 - `coverage_report/index.html` (interactive coverage report)
 - `print_audit.txt` (full print statement locations)
-- `todo__21.md` (implementation plan)
+- `todo__21.md` (implementation plan – excluded from this PR, stored in main working directory)
