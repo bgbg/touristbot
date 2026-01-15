@@ -27,42 +27,34 @@ def test_gcs_path_to_url_conversion():
 def test_image_registry_gcs_path_format():
     """Test that image registry stores GCS paths correctly"""
     from gemini.image_registry import ImageRegistry
-    import tempfile
-    import os
+    from tests.mock_storage import MockStorageBackend
 
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
-        temp_path = f.name
+    mock_storage = MockStorageBackend()
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
-    try:
-        registry = ImageRegistry(temp_path)
+    # Add an image with a GCS path
+    image_key = registry.add_image(
+        area="hefer_valley",
+        site="agamon_hefer",
+        doc="test_doc",
+        image_index=1,
+        caption="Test caption",
+        context_before="Before",
+        context_after="After",
+        gcs_path="images/hefer_valley/agamon_hefer/test_doc/image_001.jpg",  # Relative path
+        file_api_uri="https://example.com/files/test",
+        file_api_name="files/test",
+        image_format="jpg"
+    )
 
-        # Add an image with a GCS path
-        image_key = registry.add_image(
-            area="hefer_valley",
-            site="agamon_hefer",
-            doc="test_doc",
-            image_index=1,
-            caption="Test caption",
-            context_before="Before",
-            context_after="After",
-            gcs_path="images/hefer_valley/agamon_hefer/test_doc/image_001.jpg",  # Relative path
-            file_api_uri="https://example.com/files/test",
-            file_api_name="files/test",
-            image_format="jpg"
-        )
+    # Retrieve the image
+    image = registry.get_image(image_key)
 
-        # Retrieve the image
-        image = registry.get_image(image_key)
+    # The gcs_path should be stored as-is (relative path format)
+    assert image.gcs_path == "images/hefer_valley/agamon_hefer/test_doc/image_001.jpg"
 
-        # The gcs_path should be stored as-is (relative path format)
-        assert image.gcs_path == "images/hefer_valley/agamon_hefer/test_doc/image_001.jpg"
-
-        # It should NOT have gs:// prefix at this point
-        assert not image.gcs_path.startswith("gs://")
-
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+    # It should NOT have gs:// prefix at this point
+    assert not image.gcs_path.startswith("gs://")
 
 
 def test_image_relevance_detection():

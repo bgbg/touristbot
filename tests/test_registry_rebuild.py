@@ -43,13 +43,14 @@ def test_rebuild():
         print(f"✗ Failed to create client: {e}")
         return
 
-    # Create a test registry (will use temporary file)
-    test_registry_file = "test_store_registry_rebuild.json"
+    # Create a test registry using mock storage
+    from tests.mock_storage import MockStorageBackend
 
     try:
-        # Create registry instance
-        registry = StoreRegistry(registry_file=test_registry_file)
-        print(f"✓ Created test registry: {test_registry_file}\n")
+        # Create registry instance with mock storage
+        mock_storage = MockStorageBackend()
+        registry = StoreRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
+        print(f"✓ Created test registry with mock storage\n")
 
         # Show existing registry before rebuild
         print("-" * 70)
@@ -130,10 +131,9 @@ def test_rebuild():
         print()
 
     finally:
-        # Clean up test file
-        if os.path.exists(test_registry_file):
-            os.remove(test_registry_file)
-            print(f"✓ Cleaned up test file: {test_registry_file}")
+        # Clean up mock storage
+        mock_storage.clear()
+        print(f"✓ Cleaned up mock storage")
 
 
 if __name__ == "__main__":

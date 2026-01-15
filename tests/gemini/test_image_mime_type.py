@@ -75,39 +75,31 @@ def test_main_qa_uses_correct_mime_type():
 def test_image_registry_stores_jpg_format():
     """Test that image registry stores 'jpg' as the format"""
     from gemini.image_registry import ImageRegistry
-    import tempfile
-    import os
+    from tests.mock_storage import MockStorageBackend
 
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
-        temp_path = f.name
+    mock_storage = MockStorageBackend()
+    registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
-    try:
-        registry = ImageRegistry(temp_path)
+    # Add an image with jpg format
+    image_key = registry.add_image(
+        area="test_area",
+        site="test_site",
+        doc="test_doc",
+        image_index=1,
+        caption="Test",
+        context_before="",
+        context_after="",
+        gcs_path="test.jpg",
+        file_api_uri="https://example.com/files/test",
+        file_api_name="files/test",
+        image_format="jpg"  # We store "jpg"
+    )
 
-        # Add an image with jpg format
-        image_key = registry.add_image(
-            area="test_area",
-            site="test_site",
-            doc="test_doc",
-            image_index=1,
-            caption="Test",
-            context_before="",
-            context_after="",
-            gcs_path="test.jpg",
-            file_api_uri="https://example.com/files/test",
-            file_api_name="files/test",
-            image_format="jpg"  # We store "jpg"
-        )
+    # Retrieve the image
+    image = registry.get_image(image_key)
 
-        # Retrieve the image
-        image = registry.get_image(image_key)
+    # Verify it's stored as "jpg"
+    assert image.image_format == "jpg"
 
-        # Verify it's stored as "jpg"
-        assert image.image_format == "jpg"
-
-        # But when we use it in API calls, we need to convert to "image/jpeg"
-        # NOT "image/jpg"
-
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+    # But when we use it in API calls, we need to convert to "image/jpeg"
+    # NOT "image/jpg"
