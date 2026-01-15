@@ -1,6 +1,8 @@
 """
 Upload Tracker - Tracks which files have been uploaded to avoid duplicates
 Maintains file hashes and modification times for incremental uploads
+
+Tracking file is stored in .cache directory as temporary build artifact.
 """
 
 import hashlib
@@ -14,12 +16,13 @@ from typing import Dict, Optional, Set
 class UploadTracker:
     """Tracks uploaded files to enable incremental uploads"""
 
-    def __init__(self, tracking_file: str = "upload_tracking.json"):
+    def __init__(self, tracking_file: str = ".cache/upload_tracking.json"):
         """
         Initialize upload tracker
 
         Args:
             tracking_file: Path to JSON file storing upload history
+                         (default: .cache/upload_tracking.json for temporary storage)
         """
         self.tracking_file = tracking_file
         self.tracking_data: Dict[str, Dict] = self._load_tracking()

@@ -1,6 +1,8 @@
 """
 Store Registry - Maps (area, site) pairs to Gemini File Search Store names
 For tourism/museum app hierarchy
+
+Registry is stored in GCS (Google Cloud Storage) as single source of truth.
 """
 
 import json
@@ -13,49 +15,141 @@ from typing import Dict, List, Optional, Tuple
 import google.genai as genai
 
 from gemini.display_name_utils import parse_display_name
+from gemini.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
 
 
 class StoreRegistry:
-    """Manages mapping between (area, site) and Gemini store names"""
+    """Manages mapping between (area, site) and Gemini store names stored in GCS"""
 
-    def __init__(self, registry_file: str = "store_registry.json"):
+    def __init__(
+        self,
+        storage_backend: StorageBackend,
+        gcs_path: str = "metadata/store_registry.json",
+        local_path: str = "gemini/store_registry.json"
+    ):
         """
-        Initialize store registry
+        Initialize store registry with GCS storage backend
 
         Args:
-            registry_file: Path to JSON file storing the registry
+            storage_backend: Storage backend for GCS operations (required)
+            gcs_path: Path in GCS bucket for registry file
+            local_path: Local file path for migration (legacy)
+
+        Raises:
+            ValueError: If storage_backend is not provided
         """
-        self.registry_file = registry_file
-        self.registry: Dict[str, Dict] = self._load_registry()
+        if not storage_backend:
+            raise ValueError(
+                "StoreRegistry requires storage_backend parameter. "
+                "GCS storage is mandatory for store registry."
+            )
+
+        self.storage_backend = storage_backend
+        self.gcs_path = gcs_path
+        self.local_path = local_path  # For migration only
+        self.registry: Dict[str, Dict] = {}
+        self._cache_loaded = False  # Track if cache is populated
+
+        # Perform automatic migration if needed, then load
+        self._migrate_if_needed()
+        self.registry = self._load_registry()
+
         # Global File Search Store name (shared across all locations)
         self._file_search_store_name: Optional[str] = self.registry.get(
             "_global", {}
         ).get("file_search_store_name")
 
-    def _load_registry(self) -> Dict[str, Dict]:
-        """Load registry from disk"""
-        if os.path.exists(self.registry_file):
-            try:
-                with open(self.registry_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
+    def _migrate_if_needed(self):
+        """
+        Automatically migrate local registry file to GCS if needed
+
+        This runs once on initialization. If local file exists but GCS doesn't,
+        upload local to GCS and delete local file.
+        """
+        try:
+            # Check if GCS file already exists
+            gcs_exists = self.storage_backend.file_exists(self.gcs_path)
+            local_exists = os.path.exists(self.local_path)
+
+            if not gcs_exists and local_exists:
+                logger.info(f"Migrating store registry from {self.local_path} to GCS {self.gcs_path}")
+
+                # Read local file
+                with open(self.local_path, "r", encoding="utf-8") as f:
+                    local_data = f.read()
+
+                # Upload to GCS
+                success = self.storage_backend.write_file(self.gcs_path, local_data)
+
+                if success:
+                    logger.info("Migration successful, removing local file")
+                    # Delete local file after successful upload
+                    os.remove(self.local_path)
+                    logger.info(f"Deleted local file: {self.local_path}")
+                else:
+                    logger.error("Migration failed: could not write to GCS")
+            elif gcs_exists and local_exists:
+                # Both exist - GCS takes precedence, warn about local file
                 logger.warning(
-                    f"Could not parse {self.registry_file}. Starting with empty registry."
+                    f"Both GCS and local registry files exist. "
+                    f"Using GCS as source of truth. "
+                    f"Consider deleting local file: {self.local_path}"
                 )
-                return {}
-        return {}
+        except Exception as e:
+            logger.error(f"Error during migration check: {e}")
+            # Continue anyway - _load_registry() will handle missing files
+
+    def _load_registry(self) -> Dict[str, Dict]:
+        """
+        Load registry from GCS with in-memory caching
+
+        Registry is cached in memory for the session lifetime.
+        """
+        if self._cache_loaded:
+            # Already loaded, use cached version
+            return self.registry
+
+        try:
+            # Read from GCS
+            data_str = self.storage_backend.read_file(self.gcs_path)
+            registry = json.loads(data_str)
+
+            self._cache_loaded = True
+            logger.debug(f"Loaded {len(registry)} entries from GCS")
+            return registry
+
+        except FileNotFoundError:
+            # New installation or no registry yet
+            logger.info(f"No registry found in GCS at {self.gcs_path}, starting with empty registry")
+            self._cache_loaded = True
+            return {}
+        except Exception as e:
+            logger.error(f"Error loading store registry from GCS: {e}")
+            raise IOError(f"Failed to load store registry from GCS: {e}")
 
     def _save_registry(self):
-        """Save registry to disk"""
+        """
+        Save registry to GCS
+
+        GCS provides atomic write guarantees. Updates in-memory cache after successful write.
+        """
         try:
-            os.makedirs(os.path.dirname(self.registry_file) or ".", exist_ok=True)
-            with open(self.registry_file, "w", encoding="utf-8") as f:
-                json.dump(self.registry, f, indent=2, ensure_ascii=False)
-            logger.debug(f"Registry saved to {self.registry_file}")
+            # Serialize to JSON
+            data_str = json.dumps(self.registry, ensure_ascii=False, indent=2)
+
+            # Write to GCS
+            success = self.storage_backend.write_file(self.gcs_path, data_str)
+
+            if not success:
+                raise IOError("Storage backend write_file returned False")
+
+            logger.debug(f"Saved {len(self.registry)} entries to GCS")
+
         except Exception as e:
-            logger.warning(f"Could not save registry: {e}")
+            logger.error(f"Failed to save store registry to GCS: {e}")
+            raise Exception(f"Failed to save store registry to GCS: {e}")
 
     @staticmethod
     def _make_key(area: str, site: str) -> str:

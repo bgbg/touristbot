@@ -337,7 +337,10 @@ def main():
 
         try:
             client = genai.Client(api_key=config.api_key)
-            registry = StoreRegistry(config.registry_path)
+            registry = StoreRegistry(
+                storage_backend=storage_backend,
+                gcs_path=config.store_registry_gcs_path
+            )
             print("✓ Connected to Gemini API")
 
             # Initialize File Search Store Manager
@@ -375,7 +378,10 @@ def main():
             sys.exit(1)
     else:
         client = None
-        registry = StoreRegistry(config.registry_path)
+        registry = StoreRegistry(
+            storage_backend=storage_backend,
+            gcs_path=config.store_registry_gcs_path
+        )
         fs_manager = None
         store_name = registry.get_file_search_store_name() or "dry_run_store"
         file_api_manager = None

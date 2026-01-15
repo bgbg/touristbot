@@ -210,9 +210,14 @@ def initialize_session_state():
 
     if "registry" not in st.session_state:
         try:
-            # Create registry instance
+            # Create registry instance with GCS storage backend
+            storage_backend = st.session_state.get("storage_backend")
+            if not storage_backend:
+                raise ValueError("Storage backend is required for store registry")
+
             st.session_state.registry = StoreRegistry(
-                st.session_state.config.registry_path
+                storage_backend=storage_backend,
+                gcs_path=st.session_state.config.store_registry_gcs_path
             )
 
             # Rebuild registry from Gemini Files API on startup (if enabled in config)
