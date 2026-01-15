@@ -131,9 +131,9 @@ class StoreRegistry:
 
     def _save_registry(self):
         """
-        Save registry to GCS
+        Save the current in-memory registry to GCS
 
-        GCS provides atomic write guarantees. Updates in-memory cache after successful write.
+        GCS provides atomic write guarantees when writing the registry file.
         """
         try:
             # Serialize to JSON

@@ -285,6 +285,8 @@ def test_persistence(mock_storage):
 
 def test_in_memory_caching(mock_storage):
     """Test that registry uses in-memory caching"""
+    from unittest.mock import patch
+
     registry = ImageRegistry(storage_backend=mock_storage, gcs_path="test/registry.json")
 
     # Add an image
@@ -299,7 +301,7 @@ def test_in_memory_caching(mock_storage):
     # Verify cache is loaded
     assert registry._cache_loaded is True
 
-    # Multiple loads should use cache (not reload from storage)
-    initial_load_count = len(mock_storage.files)
-    registry._load()  # Should use cache, not reload
-    assert len(mock_storage.files) == initial_load_count
+    # Multiple loads should use cache (not call read_file again)
+    with patch.object(mock_storage, 'read_file', wraps=mock_storage.read_file) as mock_read:
+        registry._load()  # Should use cache, not reload
+        mock_read.assert_not_called()  # Verify read_file was NOT called due to caching

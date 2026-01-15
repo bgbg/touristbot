@@ -208,6 +208,25 @@ def initialize_session_state():
             st.error(f"Failed to connect to Gemini API: {e}")
             st.stop()
 
+    if "storage_backend" not in st.session_state:
+        try:
+            # Initialize storage backend (GCS or cached GCS)
+            st.session_state.storage_backend = get_storage_backend(
+                bucket_name=st.session_state.config.gcs_bucket_name,
+                credentials_json=st.session_state.config.gcs_credentials_json,
+                enable_cache=st.session_state.config.enable_local_cache,
+            )
+            st.success("✓ Using GCS storage backend")
+        except Exception as e:
+            # Graceful fallback to local filesystem storage
+            st.session_state.storage_backend = None
+            st.info(
+                f"ℹ Using local filesystem storage (GCS unavailable: {e})"
+            )
+            st.info(
+                "To enable GCS storage, configure credentials in .streamlit/secrets.toml"
+            )
+
     if "registry" not in st.session_state:
         try:
             # Create registry instance with GCS storage backend
@@ -252,9 +271,8 @@ def initialize_session_state():
             st.stop()
 
     if "logger" not in st.session_state:
-        log_path = os.path.join(
-            os.path.dirname(st.session_state.config.registry_path), "query_log.jsonl"
-        )
+        # Use .cache directory for query logs (consistent with upload_tracking)
+        log_path = os.path.join(".cache", "query_log.jsonl")
         st.session_state.logger = QueryLogger(
             log_path, area="", site=""
         )  # Will be updated per query
@@ -263,25 +281,6 @@ def initialize_session_state():
         st.session_state.tracker = UploadTracker(
             st.session_state.config.upload_tracking_path
         )
-
-    if "storage_backend" not in st.session_state:
-        try:
-            # Initialize storage backend (GCS or cached GCS)
-            st.session_state.storage_backend = get_storage_backend(
-                bucket_name=st.session_state.config.gcs_bucket_name,
-                credentials_json=st.session_state.config.gcs_credentials_json,
-                enable_cache=st.session_state.config.enable_local_cache,
-            )
-            st.success("✓ Using GCS storage backend")
-        except Exception as e:
-            # Graceful fallback to local filesystem storage
-            st.session_state.storage_backend = None
-            st.info(
-                f"ℹ Using local filesystem storage (GCS unavailable: {e})"
-            )
-            st.info(
-                "To enable GCS storage, configure credentials in .streamlit/secrets.toml"
-            )
 
     if "image_storage" not in st.session_state:
         try:

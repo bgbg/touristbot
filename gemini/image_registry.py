@@ -174,9 +174,9 @@ class ImageRegistry:
 
     def _save(self):
         """
-        Save registry to GCS
+        Save the current in-memory registry to GCS
 
-        GCS provides atomic write guarantees. Updates in-memory cache after successful write.
+        GCS provides atomic write guarantees when writing the registry file.
         """
         try:
             # Convert ImageRecord objects to dicts
