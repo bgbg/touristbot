@@ -336,13 +336,21 @@ def initialize_session_state():
 
     if "image_registry" not in st.session_state:
         try:
-            st.session_state.image_registry = ImageRegistry(
-                st.session_state.config.image_registry_path
-            )
+            # Initialize image registry with GCS storage backend
+            storage_backend = st.session_state.get("storage_backend")
+            if storage_backend:
+                gcs_path = st.session_state.config.image_registry_gcs_path
+                st.session_state.image_registry = ImageRegistry(
+                    storage_backend=storage_backend,
+                    gcs_path=gcs_path
+                )
+            else:
+                st.session_state.image_registry = None
+                st.info("ℹ️ Image registry requires GCS storage backend")
         except Exception as e:
-            # Graceful fallback - images won't be displayed
+            # Fail fast for GCS issues
             st.session_state.image_registry = None
-            st.info(f"ℹ Image registry not available: {e}")
+            st.error(f"❌ Failed to initialize image registry: {e}")
 
 
 def extract_citations(response, top_k: int = 5) -> list[dict]:

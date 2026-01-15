@@ -30,10 +30,10 @@ gemini_rag:
   max_upload_wait_seconds: 300
   max_files_per_query: 10
 
-  # Store registry and tracking
-  registry_path: "gemini/store_registry.json"
-  upload_tracking_path: "gemini/upload_tracking.json"
-  image_registry_path: "image_registry.json"
+  # Store registry and tracking (GCS paths)
+  store_registry_gcs_path: "metadata/store_registry.json"  # GCS path for store registry
+  image_registry_gcs_path: "metadata/image_registry.json"  # GCS path for image registry
+  upload_tracking_path: ".cache/upload_tracking.json"  # Local temp cache for upload tracking
   auto_rebuild_registry: false  # Disable slow registry rebuild on startup
 
   # Prompts directory for YAML-based LLM configurations

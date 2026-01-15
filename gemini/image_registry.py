@@ -3,12 +3,19 @@ Image Registry Module
 
 Manages a JSON registry mapping images to their metadata, locations, and URIs.
 Provides query methods to retrieve images by location (area/site/doc).
+
+Registry is stored in GCS (Google Cloud Storage) as single source of truth.
 """
 
 import json
+import logging
 import os
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
+
+from gemini.storage import StorageBackend
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,7 +46,7 @@ class ImageRecord:
 
 
 class ImageRegistry:
-    """Manages image registry (image_registry.json)"""
+    """Manages image registry stored in GCS"""
 
     @staticmethod
     def _sanitize_path_component(value: str) -> str:
@@ -60,77 +67,135 @@ class ImageRegistry:
         sanitized = sanitized.lstrip('.')
         return sanitized
 
-    def __init__(self, registry_path: str = "image_registry.json"):
+    def __init__(
+        self,
+        storage_backend: StorageBackend,
+        gcs_path: str = "metadata/image_registry.json",
+        local_path: str = "image_registry.json"
+    ):
         """
-        Initialize image registry
+        Initialize image registry with GCS storage backend
 
         Args:
-            registry_path: Path to registry JSON file
+            storage_backend: Storage backend for GCS operations (required)
+            gcs_path: Path in GCS bucket for registry file
+            local_path: Local file path for migration (legacy)
+
+        Raises:
+            ValueError: If storage_backend is not provided
         """
-        self.registry_path = registry_path
+        if not storage_backend:
+            raise ValueError(
+                "ImageRegistry requires storage_backend parameter. "
+                "GCS storage is mandatory for image registry."
+            )
+
+        self.storage_backend = storage_backend
+        self.gcs_path = gcs_path
+        self.local_path = local_path  # For migration only
         self.registry: Dict[str, ImageRecord] = {}
+        self._cache_loaded = False  # Track if cache is populated
+
+        # Perform automatic migration if needed, then load
+        self._migrate_if_needed()
         self._load()
 
+    def _migrate_if_needed(self):
+        """
+        Automatically migrate local registry file to GCS if needed
+
+        This runs once on initialization. If local file exists but GCS doesn't,
+        upload local to GCS and delete local file.
+        """
+        try:
+            # Check if GCS file already exists
+            gcs_exists = self.storage_backend.file_exists(self.gcs_path)
+            local_exists = os.path.exists(self.local_path)
+
+            if not gcs_exists and local_exists:
+                logger.info(f"Migrating image registry from {self.local_path} to GCS {self.gcs_path}")
+
+                # Read local file
+                with open(self.local_path, "r", encoding="utf-8") as f:
+                    local_data = f.read()
+
+                # Upload to GCS
+                success = self.storage_backend.write_file(self.gcs_path, local_data)
+
+                if success:
+                    logger.info("Migration successful, removing local file")
+                    # Delete local file after successful upload
+                    os.remove(self.local_path)
+                    logger.info(f"Deleted local file: {self.local_path}")
+                else:
+                    logger.error("Migration failed: could not write to GCS")
+            elif gcs_exists and local_exists:
+                # Both exist - GCS takes precedence, warn about local file
+                logger.warning(
+                    f"Both GCS and local registry files exist. "
+                    f"Using GCS as source of truth. "
+                    f"Consider deleting local file: {self.local_path}"
+                )
+        except Exception as e:
+            logger.error(f"Error during migration check: {e}")
+            # Continue anyway - _load() will handle missing files
+
     def _load(self):
-        """Load registry from JSON file"""
-        if os.path.exists(self.registry_path):
-            try:
-                with open(self.registry_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+        """
+        Load registry from GCS with in-memory caching
 
-                # Convert dict to ImageRecord objects
-                self.registry = {
-                    key: ImageRecord.from_dict(value) for key, value in data.items()
-                }
+        Registry is cached in memory for the session lifetime.
+        """
+        if self._cache_loaded:
+            # Already loaded, use cached version
+            return
 
-            except Exception as e:
-                print(f"Warning: Could not load image registry: {e}")
-                self.registry = {}
-        else:
+        try:
+            # Read from GCS
+            data_str = self.storage_backend.read_file(self.gcs_path)
+            data = json.loads(data_str)
+
+            # Convert dict to ImageRecord objects
+            self.registry = {
+                key: ImageRecord.from_dict(value) for key, value in data.items()
+            }
+
+            self._cache_loaded = True
+            logger.debug(f"Loaded {len(self.registry)} images from GCS")
+
+        except FileNotFoundError:
+            # New installation or no images yet
+            logger.info(f"No registry found in GCS at {self.gcs_path}, starting with empty registry")
             self.registry = {}
+            self._cache_loaded = True
+        except Exception as e:
+            logger.error(f"Error loading image registry from GCS: {e}")
+            raise IOError(f"Failed to load image registry from GCS: {e}")
 
     def _save(self):
-        """Save registry to JSON file with atomic write and locking"""
-        import fcntl
-        import tempfile
+        """
+        Save registry to GCS
 
-        temp_path = None
+        GCS provides atomic write guarantees. Updates in-memory cache after successful write.
+        """
         try:
             # Convert ImageRecord objects to dicts
             data = {key: record.to_dict() for key, record in self.registry.items()}
 
-            # Create temp file in same directory for atomic write
-            registry_dir = os.path.dirname(self.registry_path) or "."
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=registry_dir,
-                delete=False,
-                suffix=".json.tmp"
-            ) as f:
-                temp_path = f.name
+            # Serialize to JSON
+            data_str = json.dumps(data, ensure_ascii=False, indent=2)
 
-                # Acquire exclusive lock
-                try:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                except (AttributeError, ImportError):
-                    # fcntl not available on Windows, just write without locking
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+            # Write to GCS
+            success = self.storage_backend.write_file(self.gcs_path, data_str)
 
-            # Atomic rename (overwrites safely)
-            os.replace(temp_path, self.registry_path)
-            temp_path = None
+            if not success:
+                raise IOError("Storage backend write_file returned False")
+
+            logger.debug(f"Saved {len(self.registry)} images to GCS")
 
         except Exception as e:
-            # Clean up temp file on error
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
-            raise Exception(f"Failed to save image registry: {e}")
+            logger.error(f"Failed to save image registry to GCS: {e}")
+            raise Exception(f"Failed to save image registry to GCS: {e}")
 
     def add_image(
         self,
@@ -358,14 +423,21 @@ class ImageRegistry:
         }
 
 
-def get_image_registry(registry_path: str = "image_registry.json") -> ImageRegistry:
+def get_image_registry(
+    storage_backend: StorageBackend,
+    gcs_path: str = "metadata/image_registry.json"
+) -> ImageRegistry:
     """
     Convenience function to get ImageRegistry instance
 
     Args:
-        registry_path: Path to registry JSON file
+        storage_backend: Storage backend for GCS operations (required)
+        gcs_path: Path in GCS bucket for registry file
 
     Returns:
         ImageRegistry instance
+
+    Raises:
+        ValueError: If storage_backend is not provided
     """
-    return ImageRegistry(registry_path)
+    return ImageRegistry(storage_backend, gcs_path)

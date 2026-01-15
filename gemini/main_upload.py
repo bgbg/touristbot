@@ -357,10 +357,14 @@ def main():
                     bucket_name=config.gcs_bucket_name,
                     credentials_json=config.gcs_credentials_json,
                 )
-                image_registry = ImageRegistry(config.image_registry_path)
+                # Image registry requires GCS storage backend
+                image_registry = ImageRegistry(
+                    storage_backend=storage_backend,
+                    gcs_path=config.image_registry_gcs_path
+                )
                 print("✓ Initialized image upload system")
             except Exception as e:
-                print(f"⚠️  Warning: Could not initialize image system: {e}")
+                print(f"❌ Error: Could not initialize image system: {e}")
                 print("   Image upload will be skipped")
                 file_api_manager = None
                 image_storage = None

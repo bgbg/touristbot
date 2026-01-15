@@ -110,9 +110,13 @@ class UploadManager:
             image_count = 0
             try:
                 from gemini.image_registry import ImageRegistry
-                image_registry = ImageRegistry(self.config.image_registry_path)
-                images = image_registry.get_images_for_location(area=area, site=site, doc=None)
-                image_count = len(images)
+                if self.storage_backend:
+                    image_registry = ImageRegistry(
+                        storage_backend=self.storage_backend,
+                        gcs_path=self.config.image_registry_gcs_path
+                    )
+                    images = image_registry.get_images_for_location(area=area, site=site, doc=None)
+                    image_count = len(images)
             except Exception:
                 # Image registry not available or no images
                 pass
@@ -216,7 +220,14 @@ class UploadManager:
                 from gemini.image_registry import ImageRegistry
                 from gemini.image_storage import ImageStorage
 
-                image_registry = ImageRegistry(self.config.image_registry_path)
+                if not self.storage_backend:
+                    print("⚠️  Storage backend not available, skipping image cleanup")
+                    return
+
+                image_registry = ImageRegistry(
+                    storage_backend=self.storage_backend,
+                    gcs_path=self.config.image_registry_gcs_path
+                )
 
                 # Get all images for this location
                 images = image_registry.get_images_for_location(area, site)
