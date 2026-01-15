@@ -1,0 +1,437 @@
+tests/gemini/test_get_response.py-164-        config = call_kwargs.get("config")
+tests/gemini/test_get_response.py-165-        if config:
+tests/gemini/test_get_response.py:166:            print("\n=== API Call Config ===")
+tests/gemini/test_get_response.py:167:            print(f"Config type: {type(config)}")
+tests/gemini/test_get_response.py-168-            if hasattr(config, "tools"):
+tests/gemini/test_get_response.py:169:                print(f"Tools: {config.tools}")
+tests/gemini/test_get_response.py-170-                if config.tools:
+tests/gemini/test_get_response.py-171-                    tool = config.tools[0]
+tests/gemini/test_get_response.py:172:                    print(f"Tool type: {type(tool)}")
+tests/gemini/test_get_response.py:173:                    print(f"Tool attributes: {dir(tool)}")
+tests/gemini/test_get_response.py-174-                    # Check what attributes the tool has
+tests/gemini/test_get_response.py-175-                    if hasattr(tool, "file_search"):
+tests/gemini/test_get_response.py:176:                        print(f"Tool.file_search: {tool.file_search}")
+tests/gemini/test_get_response.py-177-                    if hasattr(tool, "fileSearch"):
+tests/gemini/test_get_response.py:178:                        print(f"Tool.fileSearch: {tool.fileSearch}")
+tests/gemini/test_get_response.py-179-                    # Try to see the actual proto/dict representation
+tests/gemini/test_get_response.py-180-                    if hasattr(tool, "model_dump"):
+tests/gemini/test_get_response.py:181:                        print(f"Tool dump: {tool.model_dump()}")
+tests/gemini/test_get_response.py-182-
+tests/gemini/test_get_response.py-183-    @patch("gemini.main_qa.st")
+--
+tests/gemini/test_get_response.py-232-        if config and hasattr(config, "tools") and config.tools:
+tests/gemini/test_get_response.py-233-            tool = config.tools[0]
+tests/gemini/test_get_response.py:234:            print("\n=== API Call With History - Tool Structure ===")
+tests/gemini/test_get_response.py-235-            if hasattr(tool, "model_dump"):
+tests/gemini/test_get_response.py-236-                import json
+tests/gemini/test_get_response.py-237-
+tests/gemini/test_get_response.py:238:                print(json.dumps(tool.model_dump(), indent=2))
+--
+tests/gemini/test_display_name_utils.py-3-Test script for display name encoding/decoding utilities
+tests/gemini/test_display_name_utils.py-4-
+tests/gemini/test_display_name_utils.py:5:Note: This uses print-based output for manual verification rather than
+tests/gemini/test_display_name_utils.py-6-pytest assertions. Consider converting to proper assertions for better
+tests/gemini/test_display_name_utils.py-7-test failure reporting.
+--
+tests/gemini/test_display_name_utils.py-20-def test_sanitize_name():
+tests/gemini/test_display_name_utils.py-21-    """Test name sanitization"""
+tests/gemini/test_display_name_utils.py:22:    print("Testing _sanitize_name()...")
+tests/gemini/test_display_name_utils.py-23-
+tests/gemini/test_display_name_utils.py-24-    tests = [
+--
+tests/gemini/test_display_name_utils.py-34-        result = _sanitize_name(input_name)
+tests/gemini/test_display_name_utils.py-35-        status = "✓" if result == expected else "✗"
+tests/gemini/test_display_name_utils.py:36:        print(f"  {status} '{input_name}' → '{result}' (expected: '{expected}')")
+tests/gemini/test_display_name_utils.py-37-
+tests/gemini/test_display_name_utils.py:38:    print()
+tests/gemini/test_display_name_utils.py-39-
+tests/gemini/test_display_name_utils.py-40-
+--
+tests/gemini/test_display_name_utils.py-42-def test_encode_decode():
+tests/gemini/test_display_name_utils.py-43-    """Test encoding and decoding"""
+tests/gemini/test_display_name_utils.py:44:    print("Testing encode_display_name() and parse_display_name()...")
+tests/gemini/test_display_name_utils.py-45-
+tests/gemini/test_display_name_utils.py-46-    tests = [
+--
+tests/gemini/test_display_name_utils.py-54-        # Encode
+tests/gemini/test_display_name_utils.py-55-        encoded = encode_display_name(area, site, filename)
+tests/gemini/test_display_name_utils.py:56:        print(f"\n  Encoded: area='{area}', site='{site}', file='{filename}'")
+tests/gemini/test_display_name_utils.py:57:        print(f"    → '{encoded}'")
+tests/gemini/test_display_name_utils.py-58-
+tests/gemini/test_display_name_utils.py-59-        # Decode
+--
+tests/gemini/test_display_name_utils.py-67-            )
+tests/gemini/test_display_name_utils.py-68-            status = "✓" if match else "✗"
+tests/gemini/test_display_name_utils.py:69:            print(f"    {status} Decoded: area='{parsed_area}', site='{parsed_site}', file='{parsed_filename}'")
+tests/gemini/test_display_name_utils.py-70-        else:
+tests/gemini/test_display_name_utils.py:71:            print(f"    ✗ Failed to decode!")
+tests/gemini/test_display_name_utils.py-72-
+tests/gemini/test_display_name_utils.py:73:    print()
+tests/gemini/test_display_name_utils.py-74-
+tests/gemini/test_display_name_utils.py-75-
+--
+tests/gemini/test_display_name_utils.py-77-def test_parse_legacy_names():
+tests/gemini/test_display_name_utils.py-78-    """Test parsing legacy display names (without encoding)"""
+tests/gemini/test_display_name_utils.py:79:    print("Testing parse_display_name() with legacy names...")
+tests/gemini/test_display_name_utils.py-80-
+tests/gemini/test_display_name_utils.py-81-    legacy_names = [
+--
+tests/gemini/test_display_name_utils.py-89-        is_encoded = is_encoded_display_name(name)
+tests/gemini/test_display_name_utils.py-90-        status = "✓" if parsed is None and not is_encoded else "✗"
+tests/gemini/test_display_name_utils.py:91:        print(f"  {status} '{name}' → {parsed} (encoded: {is_encoded})")
+tests/gemini/test_display_name_utils.py-92-
+tests/gemini/test_display_name_utils.py:93:    print()
+tests/gemini/test_display_name_utils.py-94-
+tests/gemini/test_display_name_utils.py-95-
+--
+tests/gemini/test_display_name_utils.py-97-def test_edge_cases():
+tests/gemini/test_display_name_utils.py-98-    """Test edge cases"""
+tests/gemini/test_display_name_utils.py:99:    print("Testing edge cases...")
+tests/gemini/test_display_name_utils.py-100-
+tests/gemini/test_display_name_utils.py-101-    # Filename with delimiter in it
+--
+tests/gemini/test_display_name_utils.py-105-        area, site, filename = parsed
+tests/gemini/test_display_name_utils.py-106-        status = "✓" if filename == "file__with__delimiters.txt" else "✗"
+tests/gemini/test_display_name_utils.py:107:        print(f"  {status} Filename with delimiters: '{filename}'")
+tests/gemini/test_display_name_utils.py-108-    else:
+tests/gemini/test_display_name_utils.py:109:        print(f"  ✗ Failed to parse filename with delimiters")
+tests/gemini/test_display_name_utils.py-110-
+tests/gemini/test_display_name_utils.py-111-    # Very long names (should not exceed 512 chars)
+--
+tests/gemini/test_display_name_utils.py-115-        long_filename = "c" * 200
+tests/gemini/test_display_name_utils.py-116-        encoded = encode_display_name(long_area, long_site, long_filename)
+tests/gemini/test_display_name_utils.py:117:        print(f"  ✗ Should have raised ValueError for long name (got {len(encoded)} chars)")
+tests/gemini/test_display_name_utils.py-118-    except ValueError as e:
+tests/gemini/test_display_name_utils.py:119:        print(f"  ✓ Correctly raised ValueError for long name")
+tests/gemini/test_display_name_utils.py-120-
+tests/gemini/test_display_name_utils.py-121-    # Empty components
+--
+tests/gemini/test_display_name_utils.py-124-        parsed = parse_display_name(encoded)
+tests/gemini/test_display_name_utils.py-125-        status = "✓" if parsed is None else "✗"
+tests/gemini/test_display_name_utils.py:126:        print(f"  {status} Empty area handled correctly")
+tests/gemini/test_display_name_utils.py-127-    except Exception as e:
+tests/gemini/test_display_name_utils.py:128:        print(f"  ✓ Empty area raised exception: {e}")
+tests/gemini/test_display_name_utils.py-129-
+tests/gemini/test_display_name_utils.py:130:    print()
+tests/gemini/test_display_name_utils.py-131-
+tests/gemini/test_display_name_utils.py-132-
+--
+tests/gemini/test_display_name_utils.py-134-def test_real_world_examples():
+tests/gemini/test_display_name_utils.py-135-    """Test with actual chunk filenames from the API"""
+tests/gemini/test_display_name_utils.py:136:    print("Testing with real-world chunk filenames...")
+tests/gemini/test_display_name_utils.py-137-
+tests/gemini/test_display_name_utils.py-138-    real_filenames = [
+--
+tests/gemini/test_display_name_utils.py-148-        is_encoded = is_encoded_display_name(filename)
+tests/gemini/test_display_name_utils.py-149-        status = "✓" if not is_encoded else "✗"
+tests/gemini/test_display_name_utils.py:150:        print(f"  {status} '{filename}' → legacy (not encoded)")
+tests/gemini/test_display_name_utils.py-151-
+tests/gemini/test_display_name_utils.py:152:    print("\nNow testing same filenames WITH encoding...")
+tests/gemini/test_display_name_utils.py-153-    for filename in real_filenames:
+tests/gemini/test_display_name_utils.py-154-        encoded = encode_display_name("jerusalem", "old_city", filename)
+--
+tests/gemini/test_display_name_utils.py-158-            area, site, parsed_filename = parsed
+tests/gemini/test_display_name_utils.py-159-            status = "✓" if (area == "jerusalem" and site == "old_city" and parsed_filename == filename) else "✗"
+tests/gemini/test_display_name_utils.py:160:            print(f"  {status} '{encoded}' → area='{area}', site='{site}', file='{parsed_filename}'")
+tests/gemini/test_display_name_utils.py-161-        else:
+tests/gemini/test_display_name_utils.py:162:            print(f"  ✗ Failed to parse: '{encoded}'")
+tests/gemini/test_display_name_utils.py-163-
+tests/gemini/test_display_name_utils.py:164:    print()
+tests/gemini/test_display_name_utils.py-165-
+tests/gemini/test_display_name_utils.py-166-
+tests/gemini/test_display_name_utils.py-167-if __name__ == "__main__":
+tests/gemini/test_display_name_utils.py:168:    print("=" * 70)
+tests/gemini/test_display_name_utils.py:169:    print("DISPLAY NAME ENCODING/DECODING TESTS")
+tests/gemini/test_display_name_utils.py:170:    print("=" * 70)
+tests/gemini/test_display_name_utils.py:171:    print()
+tests/gemini/test_display_name_utils.py-172-
+tests/gemini/test_display_name_utils.py-173-    test_sanitize_name()
+--
+tests/gemini/test_display_name_utils.py-177-    test_real_world_examples()
+tests/gemini/test_display_name_utils.py-178-
+tests/gemini/test_display_name_utils.py:179:    print("=" * 70)
+tests/gemini/test_display_name_utils.py:180:    print("ALL TESTS COMPLETED")
+tests/gemini/test_display_name_utils.py:181:    print("=" * 70)
+--
+tests/gemini/test_file_search_tool_config.py-49-
+tests/gemini/test_file_search_tool_config.py-50-        # Print for debugging
+tests/gemini/test_file_search_tool_config.py:51:        print("\n=== Tool model_dump() ===")
+tests/gemini/test_file_search_tool_config.py:52:        print(json.dumps(tool_dict, indent=2))
+tests/gemini/test_file_search_tool_config.py-53-
+tests/gemini/test_file_search_tool_config.py-54-        # Verify file_search is in the dump
+--
+tests/gemini/test_file_search_tool_config.py-73-        tool_dict = tool.model_dump(exclude_none=True)
+tests/gemini/test_file_search_tool_config.py-74-
+tests/gemini/test_file_search_tool_config.py:75:        print("\n=== Tool model_dump(exclude_none=True) ===")
+tests/gemini/test_file_search_tool_config.py:76:        print(json.dumps(tool_dict, indent=2))
+tests/gemini/test_file_search_tool_config.py-77-
+tests/gemini/test_file_search_tool_config.py-78-        # Check that only file_search is present (other tool types should be excluded)
+--
+tests/gemini/test_file_search_tool_config.py-95-        ]
+tests/gemini/test_file_search_tool_config.py-96-
+tests/gemini/test_file_search_tool_config.py:97:        print(f"\n=== Tool types present: {tool_types_present} ===")
+tests/gemini/test_file_search_tool_config.py-98-        assert len(tool_types_present) == 1, (
+tests/gemini/test_file_search_tool_config.py-99-            f"Expected exactly 1 tool type, got {len(tool_types_present)}: {tool_types_present}"
+--
+tests/gemini/test_file_search_tool_config.py-126-        # Dump the config
+tests/gemini/test_file_search_tool_config.py-127-        config_dict = config.model_dump(exclude_none=True)
+tests/gemini/test_file_search_tool_config.py:128:        print("\n=== GenerateContentConfig model_dump ===")
+tests/gemini/test_file_search_tool_config.py:129:        print(json.dumps(config_dict, indent=2))
+tests/gemini/test_file_search_tool_config.py-130-
+tests/gemini/test_file_search_tool_config.py-131-        # Verify tools[0] has file_search
+--
+tests/gemini/test_file_search_tool_config.py-147-        # Try to serialize to JSON (what would be sent to API)
+tests/gemini/test_file_search_tool_config.py-148-        tool_json = tool.model_dump_json(exclude_none=True)
+tests/gemini/test_file_search_tool_config.py:149:        print("\n=== Tool JSON (exclude_none=True) ===")
+tests/gemini/test_file_search_tool_config.py:150:        print(tool_json)
+tests/gemini/test_file_search_tool_config.py-151-
+tests/gemini/test_file_search_tool_config.py-152-        # Parse back and verify
+--
+tests/gemini/test_file_search_tool_config.py-155-
+tests/gemini/test_file_search_tool_config.py-156-        # Check the actual field names used in JSON
+tests/gemini/test_file_search_tool_config.py:157:        print(f"\n=== file_search fields: {tool_data['file_search'].keys()} ===")
+tests/gemini/test_file_search_tool_config.py-158-
+tests/gemini/test_file_search_tool_config.py-159-        # Python SDK uses snake_case in JSON
+--
+tests/gemini/test_file_search_tool_config.py-174-        # Try serialization with by_alias (which might produce camelCase)
+tests/gemini/test_file_search_tool_config.py-175-        tool_dict_alias = tool.model_dump(by_alias=True, exclude_none=True)
+tests/gemini/test_file_search_tool_config.py:176:        print("\n=== Tool model_dump(by_alias=True, exclude_none=True) ===")
+tests/gemini/test_file_search_tool_config.py:177:        print(json.dumps(tool_dict_alias, indent=2))
+tests/gemini/test_file_search_tool_config.py-178-
+tests/gemini/test_file_search_tool_config.py-179-        # Verify file_search is present
+--
+tests/gemini/test_storage.py-75-                gcs_storage.delete_file(file_path)
+tests/gemini/test_storage.py-76-            if test_files:
+tests/gemini/test_storage.py:77:                print(f"\n  Cleaned up {len(test_files)} test files for {test_prefix}")
+tests/gemini/test_storage.py-78-        except Exception as e:
+tests/gemini/test_storage.py:79:            print(f"\n  Warning: Failed to clean up test files for {test_prefix}: {e}")
+tests/gemini/test_storage.py-80-
+tests/gemini/test_storage.py-81-
+--
+tests/gemini/test_get_response_real_api.py-78-    assert response is not None
+tests/gemini/test_get_response_real_api.py-79-    assert hasattr(response, "text") or hasattr(response, "candidates")
+tests/gemini/test_get_response_real_api.py:80:    print(f"\n=== SUCCESS: Got response from API ===")
+tests/gemini/test_get_response_real_api.py-81-    if hasattr(response, "text"):
+tests/gemini/test_get_response_real_api.py:82:        print(f"Response text preview: {response.text[:100]}...")
+tests/gemini/test_get_response_real_api.py-83-
+tests/gemini/test_get_response_real_api.py-84-
+--
+tests/gemini/test_get_response_real_api.py-130-    assert response is not None
+tests/gemini/test_get_response_real_api.py-131-    assert hasattr(response, "text") or hasattr(response, "candidates")
+tests/gemini/test_get_response_real_api.py:132:    print(f"\n=== SUCCESS: Got response with chat history ===")
+tests/gemini/test_get_response_real_api.py-133-    if hasattr(response, "text"):
+tests/gemini/test_get_response_real_api.py:134:        print(f"Response text preview: {response.text[:100]}...")
+--
+tests/test_files_api.py-4-Research what metadata fields are available when listing files
+tests/test_files_api.py-5-
+tests/test_files_api.py:6:Note: This is an exploration script with print-based output rather than
+tests/test_files_api.py-7-pytest assertions. It requires a valid API key and uploaded files to run.
+tests/test_files_api.py-8-"""
+--
+tests/test_files_api.py-26-    try:
+tests/test_files_api.py-27-        config = GeminiConfig.from_yaml()
+tests/test_files_api.py:28:        print(f"✓ Loaded config successfully")
+tests/test_files_api.py-29-    except Exception as e:
+tests/test_files_api.py:30:        print(f"✗ Failed to load config: {e}")
+tests/test_files_api.py-31-        return
+tests/test_files_api.py-32-
+--
+tests/test_files_api.py-34-    try:
+tests/test_files_api.py-35-        client = genai.Client(api_key=config.api_key)
+tests/test_files_api.py:36:        print(f"✓ Created Gemini client")
+tests/test_files_api.py-37-    except Exception as e:
+tests/test_files_api.py:38:        print(f"✗ Failed to create client: {e}")
+tests/test_files_api.py-39-        return
+tests/test_files_api.py-40-
+tests/test_files_api.py-41-    # List files
+tests/test_files_api.py:42:    print("\n" + "="*70)
+tests/test_files_api.py:43:    print("LISTING FILES FROM GEMINI API")
+tests/test_files_api.py:44:    print("="*70)
+tests/test_files_api.py-45-
+tests/test_files_api.py-46-    try:
+tests/test_files_api.py-47-        files = list(client.files.list())
+tests/test_files_api.py:48:        print(f"\n✓ Found {len(files)} file(s) in Gemini API")
+tests/test_files_api.py-49-
+tests/test_files_api.py-50-        if not files:
+tests/test_files_api.py:51:            print("\nℹ No files uploaded yet. Upload some content first to test metadata parsing.")
+tests/test_files_api.py-52-            return
+tests/test_files_api.py-53-
+tests/test_files_api.py-54-        # Inspect first file in detail
+tests/test_files_api.py:55:        print("\n" + "-"*70)
+tests/test_files_api.py:56:        print("DETAILED METADATA FOR FIRST FILE:")
+tests/test_files_api.py:57:        print("-"*70)
+tests/test_files_api.py-58-
+tests/test_files_api.py-59-        first_file = files[0]
+tests/test_files_api.py:60:        print(f"\nFile object type: {type(first_file)}")
+tests/test_files_api.py:61:        print(f"File object attributes: {dir(first_file)}")
+tests/test_files_api.py-62-
+tests/test_files_api.py-63-        # Print all attributes and their values
+tests/test_files_api.py:64:        print("\nFile metadata fields:")
+tests/test_files_api.py-65-        for attr in dir(first_file):
+tests/test_files_api.py-66-            if not attr.startswith('_'):
+--
+tests/test_files_api.py-68-                    value = getattr(first_file, attr)
+tests/test_files_api.py-69-                    if not callable(value):
+tests/test_files_api.py:70:                        print(f"  {attr}: {value}")
+tests/test_files_api.py-71-                except Exception as e:
+tests/test_files_api.py:72:                    print(f"  {attr}: <error reading: {e}>")
+tests/test_files_api.py-73-
+tests/test_files_api.py-74-        # Print summary for all files
+tests/test_files_api.py:75:        print("\n" + "-"*70)
+tests/test_files_api.py:76:        print(f"SUMMARY OF ALL {len(files)} FILES:")
+tests/test_files_api.py:77:        print("-"*70)
+tests/test_files_api.py-78-
+tests/test_files_api.py-79-        for i, file in enumerate(files, 1):
+tests/test_files_api.py:80:            print(f"\n[{i}] File:")
+tests/test_files_api.py-81-            try:
+tests/test_files_api.py:82:                print(f"  name: {file.name}")
+tests/test_files_api.py-83-            except AttributeError:
+tests/test_files_api.py:84:                print(f"  name: <not available>")
+tests/test_files_api.py-85-
+tests/test_files_api.py-86-            try:
+tests/test_files_api.py:87:                print(f"  display_name: {file.display_name}")
+tests/test_files_api.py-88-            except AttributeError:
+tests/test_files_api.py:89:                print(f"  display_name: <not available>")
+tests/test_files_api.py-90-
+tests/test_files_api.py-91-            try:
+tests/test_files_api.py:92:                print(f"  create_time: {file.create_time}")
+tests/test_files_api.py-93-            except AttributeError:
+tests/test_files_api.py:94:                print(f"  create_time: <not available>")
+tests/test_files_api.py-95-
+tests/test_files_api.py-96-            try:
+tests/test_files_api.py:97:                print(f"  expiration_time: {file.expiration_time}")
+tests/test_files_api.py-98-            except AttributeError:
+tests/test_files_api.py:99:                print(f"  expiration_time: <not available>")
+tests/test_files_api.py-100-
+tests/test_files_api.py-101-            try:
+tests/test_files_api.py:102:                print(f"  size_bytes: {file.size_bytes}")
+tests/test_files_api.py-103-            except AttributeError:
+tests/test_files_api.py:104:                print(f"  size_bytes: <not available>")
+tests/test_files_api.py-105-
+tests/test_files_api.py-106-            try:
+tests/test_files_api.py:107:                print(f"  mime_type: {file.mime_type}")
+tests/test_files_api.py-108-            except AttributeError:
+tests/test_files_api.py:109:                print(f"  mime_type: <not available>")
+tests/test_files_api.py-110-
+tests/test_files_api.py-111-    except Exception as e:
+tests/test_files_api.py:112:        print(f"✗ Error listing files: {e}")
+tests/test_files_api.py-113-        import traceback
+tests/test_files_api.py:114:        traceback.print_exc()
+tests/test_files_api.py-115-
+tests/test_files_api.py-116-
+--
+tests/test_registry_rebuild.py-3-Integration test / exploration script for registry rebuild_from_api() functionality
+tests/test_registry_rebuild.py-4-
+tests/test_registry_rebuild.py:5:Note: This is an exploration script with print-based output rather than
+tests/test_registry_rebuild.py-6-pytest assertions. It requires a valid API key and may create test files.
+tests/test_registry_rebuild.py-7-"""
+--
+tests/test_registry_rebuild.py-24-    """Test rebuilding registry from Gemini Files API"""
+tests/test_registry_rebuild.py-25-
+tests/test_registry_rebuild.py:26:    print("=" * 70)
+tests/test_registry_rebuild.py:27:    print("TESTING REGISTRY REBUILD FROM GEMINI FILES API")
+tests/test_registry_rebuild.py:28:    print("=" * 70)
+tests/test_registry_rebuild.py-29-
+tests/test_registry_rebuild.py-30-    # Load config
+tests/test_registry_rebuild.py-31-    try:
+tests/test_registry_rebuild.py-32-        config = GeminiConfig.from_yaml()
+tests/test_registry_rebuild.py:33:        print("✓ Loaded config successfully\n")
+tests/test_registry_rebuild.py-34-    except Exception as e:
+tests/test_registry_rebuild.py:35:        print(f"✗ Failed to load config: {e}")
+tests/test_registry_rebuild.py-36-        return
+tests/test_registry_rebuild.py-37-
+--
+tests/test_registry_rebuild.py-39-    try:
+tests/test_registry_rebuild.py-40-        client = genai.Client(api_key=config.api_key)
+tests/test_registry_rebuild.py:41:        print("✓ Created Gemini client\n")
+tests/test_registry_rebuild.py-42-    except Exception as e:
+tests/test_registry_rebuild.py:43:        print(f"✗ Failed to create client: {e}")
+tests/test_registry_rebuild.py-44-        return
+tests/test_registry_rebuild.py-45-
+--
+tests/test_registry_rebuild.py-50-        # Create registry instance
+tests/test_registry_rebuild.py-51-        registry = StoreRegistry(registry_file=test_registry_file)
+tests/test_registry_rebuild.py:52:        print(f"✓ Created test registry: {test_registry_file}\n")
+tests/test_registry_rebuild.py-53-
+tests/test_registry_rebuild.py-54-        # Show existing registry before rebuild
+tests/test_registry_rebuild.py:55:        print("-" * 70)
+tests/test_registry_rebuild.py:56:        print("BEFORE REBUILD:")
+tests/test_registry_rebuild.py:57:        print("-" * 70)
+tests/test_registry_rebuild.py-58-        if registry.registry:
+tests/test_registry_rebuild.py:59:            print(f"Existing registry has {len(registry.registry)} entries:")
+tests/test_registry_rebuild.py-60-            for key, entry in registry.registry.items():
+tests/test_registry_rebuild.py:61:                print(f"  {key}: {entry.get('store_id')}")
+tests/test_registry_rebuild.py-62-        else:
+tests/test_registry_rebuild.py:63:            print("Registry is empty")
+tests/test_registry_rebuild.py:64:        print()
+tests/test_registry_rebuild.py-65-
+tests/test_registry_rebuild.py-66-        # Perform rebuild
+tests/test_registry_rebuild.py:67:        print("-" * 70)
+tests/test_registry_rebuild.py:68:        print("PERFORMING REBUILD (merging with existing)...")
+tests/test_registry_rebuild.py:69:        print("-" * 70)
+tests/test_registry_rebuild.py-70-
+tests/test_registry_rebuild.py-71-        try:
+tests/test_registry_rebuild.py-72-            stats = registry.rebuild_from_api(client, merge_with_existing=True)
+tests/test_registry_rebuild.py:73:            print("\n✓ Rebuild completed successfully!")
+tests/test_registry_rebuild.py-74-        except Exception as e:
+tests/test_registry_rebuild.py:75:            print(f"\n✗ Rebuild failed: {e}")
+tests/test_registry_rebuild.py-76-            import traceback
+tests/test_registry_rebuild.py-77-
+tests/test_registry_rebuild.py:78:            traceback.print_exc()
+tests/test_registry_rebuild.py-79-            return
+tests/test_registry_rebuild.py-80-
+tests/test_registry_rebuild.py-81-        # Show registry after rebuild
+tests/test_registry_rebuild.py:82:        print("\n" + "-" * 70)
+tests/test_registry_rebuild.py:83:        print("AFTER REBUILD:")
+tests/test_registry_rebuild.py:84:        print("-" * 70)
+tests/test_registry_rebuild.py-85-        if registry.registry:
+tests/test_registry_rebuild.py:86:            print(f"Registry now has {len(registry.registry)} entries:\n")
+tests/test_registry_rebuild.py-87-            for key, entry in sorted(registry.registry.items()):
+tests/test_registry_rebuild.py-88-                metadata = entry.get("metadata", {})
+--
+tests/test_registry_rebuild.py-93-                rebuilt_marker = " [REBUILT]" if rebuilt else ""
+tests/test_registry_rebuild.py-94-
+tests/test_registry_rebuild.py:95:                print(f"  {area} / {site}:")
+tests/test_registry_rebuild.py:96:                print(f"    Store ID: {entry.get('store_id')}")
+tests/test_registry_rebuild.py:97:                print(f"    Files: {file_count}{rebuilt_marker}")
+tests/test_registry_rebuild.py-98-                if metadata.get("last_updated"):
+tests/test_registry_rebuild.py:99:                    print(f"    Updated: {metadata['last_updated']}")
+tests/test_registry_rebuild.py:100:                print()
+tests/test_registry_rebuild.py-101-        else:
+tests/test_registry_rebuild.py:102:            print("Registry is still empty")
+tests/test_registry_rebuild.py-103-
+tests/test_registry_rebuild.py-104-        # Validation
+tests/test_registry_rebuild.py:105:        print("-" * 70)
+tests/test_registry_rebuild.py:106:        print("VALIDATION:")
+tests/test_registry_rebuild.py:107:        print("-" * 70)
+tests/test_registry_rebuild.py-108-
+tests/test_registry_rebuild.py-109-        if stats["files_found"] == 0:
+tests/test_registry_rebuild.py:110:            print("⚠ No files found in Gemini API - cannot validate rebuild")
+tests/test_registry_rebuild.py:111:            print(
+tests/test_registry_rebuild.py-112-                "  Upload some content first using the Streamlit app to test rebuild"
+tests/test_registry_rebuild.py-113-            )
+tests/test_registry_rebuild.py-114-        elif stats["files_parsed"] == 0:
+tests/test_registry_rebuild.py:115:            print("⚠ No files with area/site encoding found")
+tests/test_registry_rebuild.py:116:            print(
+tests/test_registry_rebuild.py-117-                "  This is expected - existing files don't have encoding yet"
+tests/test_registry_rebuild.py-118-            )
+tests/test_registry_rebuild.py:119:            print(
+tests/test_registry_rebuild.py-120-                "  After uploading new content with encoding, rebuild will work"
+tests/test_registry_rebuild.py-121-            )
+tests/test_registry_rebuild.py-122-        else:
+tests/test_registry_rebuild.py:123:            print(f"✓ Successfully parsed {stats['files_parsed']} encoded files")
+tests/test_registry_rebuild.py:124:            print(f"✓ Created {stats['registry_entries']} registry entries")
+tests/test_registry_rebuild.py-125-
+tests/test_registry_rebuild.py-126-            # Verify registry entries match parsed files
+tests/test_registry_rebuild.py-127-            if stats["registry_entries"] > 0:
+tests/test_registry_rebuild.py:128:                print(f"✓ Registry rebuilt successfully from API!")
+tests/test_registry_rebuild.py-129-
+tests/test_registry_rebuild.py:130:        print()
+tests/test_registry_rebuild.py-131-
+tests/test_registry_rebuild.py-132-    finally:
+--
+tests/test_registry_rebuild.py-134-        if os.path.exists(test_registry_file):
+tests/test_registry_rebuild.py-135-            os.remove(test_registry_file)
+tests/test_registry_rebuild.py:136:            print(f"✓ Cleaned up test file: {test_registry_file}")
+tests/test_registry_rebuild.py-137-
+tests/test_registry_rebuild.py-138-
