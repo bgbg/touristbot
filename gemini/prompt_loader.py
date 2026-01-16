@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 
 import yaml
 
-from gemini.config import merge_configs
+from gemini.config import merge_configs, find_project_root
 
 
 @dataclass
@@ -130,9 +130,8 @@ class PromptLoader:
             # Extract prompt file name (e.g., "tourism_qa.yaml")
             prompt_filename = yaml_path_obj.name
 
-            # Find project root (go up from prompts/ directory)
-            # Assumes prompts are in {project_root}/prompts/
-            project_root = yaml_path_obj.parent.parent
+            # Find project root using unified detection (robust to directory structure)
+            project_root = find_project_root(yaml_path_obj)
 
             # Try area-level prompt override: config/locations/{area}/prompts/{prompt_name}.yaml
             area_prompt_path = project_root / "config" / "locations" / area / "prompts" / prompt_filename

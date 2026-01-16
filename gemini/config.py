@@ -2,6 +2,7 @@
 Configuration management for Gemini Tourism/Museum RAG system
 """
 
+import copy
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,8 +35,8 @@ def merge_configs(base: dict, override: dict) -> dict:
         >>> merge_configs(base, override)
         {"a": 1, "b": {"c": 999, "d": 3}, "e": [3, 4, 5]}
     """
-    # Create a copy of base to avoid modifying it
-    result = base.copy()
+    # Create a deep copy of base to avoid modifying it or its nested structures
+    result = copy.deepcopy(base)
 
     for key, override_value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(override_value, dict):
@@ -46,6 +47,42 @@ def merge_configs(base: dict, override: dict) -> dict:
             result[key] = override_value
 
     return result
+
+
+def find_project_root(start_path: Path) -> Path:
+    """
+    Find the project root directory by searching upward for config/locations marker.
+
+    Searches from the given path upward through parent directories until it finds
+    a directory containing config/locations/. This provides a robust way to locate
+    the project root regardless of the starting file's location.
+
+    Args:
+        start_path: Path to start searching from (file or directory)
+
+    Returns:
+        Path to project root directory
+
+    Raises:
+        FileNotFoundError: If no project root marker found
+    """
+    # Start from directory if given a file
+    search_dir = start_path if start_path.is_dir() else start_path.parent
+
+    # Search upward for config/locations marker
+    for candidate in [search_dir] + list(search_dir.parents):
+        if (candidate / "config" / "locations").exists():
+            return candidate
+
+    # Fallback: search for config.yaml as secondary marker
+    for candidate in [search_dir] + list(search_dir.parents):
+        if (candidate / "config.yaml").exists():
+            return candidate
+
+    raise FileNotFoundError(
+        f"Could not find project root from {start_path}. "
+        "Expected to find config/locations/ or config.yaml in parent directories."
+    )
 
 
 def find_config_file() -> str:
@@ -162,11 +199,11 @@ class GeminiConfig:
 
         # Apply location-specific overrides if provided
         if area:
-            # Find project root (where config.yaml is located)
-            config_root = Path(config_path).parent
+            # Find project root using unified detection
+            project_root = find_project_root(Path(config_path))
 
             # Try area-level override: config/locations/{area}.yaml
-            area_override_path = config_root / "config" / "locations" / f"{area}.yaml"
+            area_override_path = project_root / "config" / "locations" / f"{area}.yaml"
             if area_override_path.exists():
                 with open(area_override_path, "r", encoding="utf-8") as f:
                     area_config = yaml.safe_load(f)
@@ -175,7 +212,7 @@ class GeminiConfig:
 
             # Try site-level override if site provided: config/locations/{area}/{site}.yaml
             if site:
-                site_override_path = config_root / "config" / "locations" / area / f"{site}.yaml"
+                site_override_path = project_root / "config" / "locations" / area / f"{site}.yaml"
                 if site_override_path.exists():
                     with open(site_override_path, "r", encoding="utf-8") as f:
                         site_config = yaml.safe_load(f)

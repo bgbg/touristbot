@@ -9,7 +9,7 @@ import pytest
 import tempfile
 from pathlib import Path
 import yaml
-from gemini.prompt_loader import PromptLoader, PromptConfig
+from gemini.prompt_loader import PromptLoader
 
 
 class TestPromptLoaderOverrides:
