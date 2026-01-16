@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth import ApiKeyDep
-from backend.endpoints import locations, topics
+from backend.endpoints import locations, qa, topics
 
 # Configure logging
 logging.basicConfig(
@@ -71,6 +71,7 @@ app.add_middleware(
 )
 
 # Register endpoint routers
+app.include_router(qa.router)
 app.include_router(topics.router)
 app.include_router(locations.router)
 
