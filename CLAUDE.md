@@ -243,3 +243,151 @@ prompt = PromptLoader.load("prompts/tourism_qa.yaml", area="hefer_valley", site=
   - Either fix the failure OR ask the user how to proceed.
   - Do NOT proceed with "tests pass except for X" - that means tests do NOT pass.
 - Any failing test blocks all progress until resolved or user provides guidance.
+
+## Backend API (Serverless Architecture)
+
+**Status**: Backend API implemented and tested (40 unit tests passing). Ready for Cloud Run deployment.
+
+### Architecture
+- **FastAPI** backend deployed on Google Cloud Run
+- **REST API** for all operations (chat, topics, locations, uploads)
+- **Stateless design**: All state in GCS (conversations, logs, registries)
+- **Simple authentication**: API keys via `Authorization: Bearer <key>` header
+- **Single storage backend**: GCS for everything (no Firestore/BigQuery/Redis)
+
+### API Endpoints
+
+**Chat & Query:**
+- `POST /qa`: Chat queries with File Search RAG pipeline
+  - Request: `{conversation_id?, area, site, query}`
+  - Response: `{conversation_id, response_text, citations[], images[], latency_ms}`
+  - Features: Conversation history, structured output, image relevance, Hebrew support
+
+**Content Management:**
+- `GET /topics/{area}/{site}`: Retrieve topics for location
+- `GET /locations`: List all areas and sites
+- `GET /locations/{area}/{site}/content`: Location metadata (store name, topics count)
+
+**Uploads** (MVP uses CLI):
+- `POST /upload/{area}/{site}`: Placeholder (returns 501 - use CLI uploader instead)
+
+**Health:**
+- `GET /health`: Health check for Cloud Run
+
+### Backend Components
+
+**Directory structure:**
+```
+backend/
+├── main.py                    # FastAPI app with router registration
+├── dependencies.py            # Singleton dependency injection
+├── auth.py                    # API key authentication middleware
+├── models.py                  # Pydantic request/response schemas
+├── config.py                  # GeminiConfig with location overrides
+├── prompt_loader.py           # Prompt loading with overrides
+├── endpoints/                 # API endpoint modules
+│   ├── qa.py                  # Chat endpoint with RAG
+│   ├── topics.py              # Topics retrieval
+│   ├── locations.py           # Location management
+│   └── upload.py              # Upload placeholder
+├── conversation_storage/      # GCS conversation management
+│   └── conversations.py       # ConversationStore class
+├── logging/                   # Query logging
+│   └── query_logger.py        # QueryLogger (JSONL to GCS)
+├── gcs_storage.py             # GCS storage backend
+├── store_registry.py          # File Search Store registry
+├── image_registry.py          # Image metadata registry
+└── tests/                     # Unit tests (40 tests, all passing)
+```
+
+**Storage in GCS:**
+- `conversations/{conversation_id}.json`: Conversation history
+- `query_logs/{YYYY-MM-DD}.jsonl`: Query analytics logs
+- `metadata/store_registry.json`: Location → Store name mapping
+- `metadata/image_registry.json`: Image metadata
+- `topics/{area}/{site}/topics.json`: Pre-generated topics
+
+### Deployment
+
+**Prerequisites:**
+- GCP project with Cloud Run and GCS enabled
+- GCS bucket created
+- Google API key for Gemini API
+
+**Environment Variables (Cloud Run):**
+```bash
+BACKEND_API_KEYS=key1,key2,key3   # Comma-separated API keys
+GCS_BUCKET=your-bucket-name        # GCS bucket for storage
+GOOGLE_API_KEY=your-google-key     # Gemini API key
+```
+
+**Deploy to Cloud Run:**
+```bash
+cd backend
+./deploy.sh <project-id> [region]
+```
+
+Or manually:
+```bash
+# Build image
+gcloud builds submit --tag gcr.io/<project>/tourism-backend
+
+# Deploy to Cloud Run
+gcloud run deploy tourism-backend \
+  --image gcr.io/<project>/tourism-backend \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --memory 2Gi \
+  --cpu 2 \
+  --timeout 3600 \
+  --set-env-vars GCS_BUCKET=<bucket>,GOOGLE_API_KEY=<key>,BACKEND_API_KEYS=<keys>
+```
+
+**Local Testing:**
+```bash
+# Set environment variables
+export BACKEND_API_KEYS="test-key-123"
+export GCS_BUCKET="your-bucket"
+export GOOGLE_API_KEY="your-key"
+
+# Run with uvicorn
+python -m uvicorn backend.main:app --reload --port 8080
+
+# Test endpoint
+curl -H "Authorization: Bearer test-key-123" \
+  http://localhost:8080/locations
+```
+
+### Configuration Overrides
+
+Backend fully supports location-specific config/prompt overrides:
+- Config loaded with: `GeminiConfig.from_yaml(area=area, site=site)`
+- Prompts loaded with: `PromptLoader.load(..., area=area, site=site)`
+- Verified working: agamon_hefer temperature (0.5) and custom דני persona
+
+### Testing
+
+Run backend tests:
+```bash
+pytest backend/tests/ -v
+# 11 tests: auth
+# 17 tests: conversation storage
+# 12 tests: query logger
+# Total: 40 tests, all passing
+```
+
+### Limitations & Future Work
+
+**Current MVP approach:**
+- Uploads via CLI tool (`gemini/main_upload.py`) - no API upload endpoint implemented
+- No rate limiting (rely on API key control + Gemini API limits)
+- No caching layer (direct GCS reads)
+- Synchronous processing (60min Cloud Run timeout sufficient)
+
+**Future enhancements** (if needed):
+- Implement full `/upload` endpoint with DOCX processing
+- Add Streamlit frontend API client
+- Add rate limiting (per API key)
+- Add caching (Redis) if performance becomes an issue
+- Async job processing (Cloud Tasks) for long uploads
+- Monitoring dashboards (Cloud Monitoring)
