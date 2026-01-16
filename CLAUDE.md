@@ -35,11 +35,13 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
   - upload_tracker.py: Tracks uploaded files (temporary cache in .cache/).
 - data/locations/: source content organized by area/site hierarchy.
 - topics/: generated topic lists stored in GCS at `topics/<area>/<site>/topics.json`.
-- prompts/: prompt YAMLs for the QA system (tourism_qa.yaml, topic_extraction.yaml).
-- config.yaml: app settings including GCS paths for registries.
+- config/: unified configuration directory.
+  - prompts/: prompt YAMLs for the QA system (tourism_qa.yaml, topic_extraction.yaml).
+  - locations/: location-specific configuration overrides (optional).
+- config.yaml: app settings including GCS paths for registries (at project root).
+- tests/: all test files organized by module (tests/, tests/gemini/).
 - .cache/: temporary build artifacts (upload tracking, excluded from git).
 - .streamlit/secrets.toml: API keys (never commit).
-- config/locations/: location-specific configuration overrides (optional).
 
 ## Location-Specific Configuration Overrides
 - Hierarchical configuration system: global → area → site.
@@ -79,7 +81,7 @@ system_prompt: |
   אתה דני, מדריך צפרות מומחה באגמון חפר...
   (custom bird-watching guide persona)
 
-# model_name and user_prompt inherited from global prompts/tourism_qa.yaml
+# model_name and user_prompt inherited from global config/prompts/tourism_qa.yaml
 ```
 
 ### Merge Behavior
@@ -115,7 +117,7 @@ config = GeminiConfig.from_yaml(area="hefer_valley")
 config = GeminiConfig.from_yaml(area="hefer_valley", site="agamon_hefer")
 
 # Same pattern for prompts
-prompt = PromptLoader.load("prompts/tourism_qa.yaml", area="hefer_valley", site="agamon_hefer")
+prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley", site="agamon_hefer")
 ```
 
 ### Common Use Cases

@@ -44,7 +44,7 @@ See [tourism_qa.yaml](tourism_qa.yaml) for a working example of a tourism guide 
 from gemini.prompt_loader import PromptLoader
 
 # Load prompt configuration
-prompt_config = PromptLoader.load('prompts/tourism_qa.yaml')
+prompt_config = PromptLoader.load('config/prompts/tourism_qa.yaml')
 
 # Interpolate variables
 system_prompt, user_prompt = prompt_config.format(

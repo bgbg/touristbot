@@ -325,13 +325,18 @@ roy_chat/
 │   ├── upload_tracker.py       # Track uploaded files with hashes
 │   ├── upload_manager.py       # Upload operations and content management
 │   └── topic_extractor.py      # Topic extraction logic
-├── prompts/
-│   ├── tourism_qa.yaml         # Tourism Q&A prompt configuration
-│   └── topic_extraction.yaml   # Topic extraction prompt
+├── config/                     # Unified configuration directory
+│   ├── prompts/                # Prompt YAMLs
+│   │   ├── tourism_qa.yaml     # Tourism Q&A prompt configuration
+│   │   └── topic_extraction.yaml # Topic extraction prompt
+│   └── locations/              # Location-specific config overrides
 ├── data/
 │   └── locations/              # Source content (area/site hierarchy)
 ├── topics/                     # Pre-generated topics (GCS storage)
-├── config.yaml                 # Main configuration file
+├── tests/                      # All test files
+│   ├── test_*.py               # Integration tests
+│   └── gemini/                 # Unit tests for gemini module
+├── config.yaml                 # Main configuration file (at root)
 ├── requirements.txt            # Python dependencies
 └── README.md                   # This file
 ```
@@ -376,7 +381,7 @@ The system uses YAML files to configure LLM prompts, separating prompt engineeri
 
 ### Prompt File Structure
 
-Prompt configurations are stored in the `prompts/` directory. Each YAML file contains:
+Prompt configurations are stored in the `config/prompts/` directory. Each YAML file contains:
 
 ```yaml
 model_name: gemini-2.0-flash
@@ -408,7 +413,7 @@ Use Python format string placeholders in prompts:
 
 ### Creating Custom Prompts
 
-1. Create a new YAML file in `prompts/` directory (e.g., `prompts/museum_qa.yaml`)
+1. Create a new YAML file in `config/prompts/` directory (e.g., `config/prompts/museum_qa.yaml`)
 2. Define `model_name`, `temperature`, `system_prompt`, and `user_prompt`
 3. Use `{variable_name}` placeholders where dynamic content should be inserted
 4. Update your code to load the new prompt configuration:
@@ -417,7 +422,7 @@ Use Python format string placeholders in prompts:
 from gemini.prompt_loader import PromptLoader
 
 # Load prompt configuration
-prompt_config = PromptLoader.load('prompts/museum_qa.yaml')
+prompt_config = PromptLoader.load('config/prompts/museum_qa.yaml')
 
 # Format prompts with variables
 system_prompt, user_prompt = prompt_config.format(
@@ -428,7 +433,7 @@ system_prompt, user_prompt = prompt_config.format(
 )
 ```
 
-See [prompts/README.md](prompts/README.md) for detailed documentation.
+See [config/prompts/README.md](config/prompts/README.md) for detailed documentation.
 
 ## Configuration Options
 
@@ -440,7 +445,7 @@ Key settings in `config.yaml`:
 - `chunk_overlap_percent`: Overlap between chunks (default: 0.15 = 15%)
 - `model_name`: Gemini model to use (e.g., "gemini-2.0-flash")
 - `temperature`: Model temperature for responses (0.0-2.0)
-- `prompts_dir`: Directory containing YAML prompt configurations (default: "prompts/")
+- `prompts_dir`: Directory containing YAML prompt configurations (default: "config/prompts/")
 - `supported_formats`: File extensions to process (.txt, .md, .pdf, .docx)
 
 ## Data Storage
