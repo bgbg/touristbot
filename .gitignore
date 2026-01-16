@@ -48,3 +48,8 @@ htmlcov/
 *.coverage
 .coverage.*
 coverage.xml
+
+# Scrapy artifacts
+.scrapy/
+data/sapir/
+*.log

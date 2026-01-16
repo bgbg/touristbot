@@ -97,6 +97,21 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 - **In-memory caching**: Registries cached in memory during session lifetime for performance.
 - **Fail-fast**: Application fails with clear error if GCS is unavailable (intentional design).
 
+## Web Scraping (Scrapy)
+- Scrapy-based web scraper in `scraper/` directory for downloading academic website content.
+- **sapir.ac.il scraper**: Downloads HTML pages, PDFs, and images from Sapir Academic College website.
+- Features:
+  - Domain-restricted crawling (sapir.ac.il only)
+  - Exponential backoff retry with randomization (0-3s max delay)
+  - HTTP caching to avoid re-downloads
+  - Hebrew UTF-8 text support
+  - Polite crawling: obeys robots.txt, conservative concurrency (4 requests), delays
+- Output: `data/sapir/html/`, `data/sapir/pdf/`, `data/sapir/images/`
+- Usage: `python scraper/run_sapir_scraper.py [--clear-cache | --resume | --debug]`
+- Tests: `pytest scraper/tests/`
+- Documentation: See `scraper/README.md` for detailed usage and configuration
+- Note: Scraped content is stored separately from tourism RAG data (data/locations/).
+
 ## Testing Policy (CRITICAL)
 - Use pytest to run the full test suite.
 - **100% of tests MUST pass when running the test suite.**
