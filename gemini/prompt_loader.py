@@ -5,9 +5,11 @@ Prompt loader for YAML-based LLM prompt configurations
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import yaml
+
+from gemini.config import merge_configs
 
 
 @dataclass
@@ -46,20 +48,40 @@ class PromptLoader:
     """Loader for YAML-based prompt configurations"""
 
     @staticmethod
-    def load(yaml_path: str) -> PromptConfig:
+    def load(
+        yaml_path: str,
+        area: Optional[str] = None,
+        site: Optional[str] = None,
+    ) -> PromptConfig:
         """
-        Load prompt configuration from YAML file
+        Load prompt configuration from YAML file with optional location-specific overrides
+
+        Supports hierarchical prompt loading: global → area → site
+        Each level inherits all fields from parent and overrides specified fields only.
 
         Args:
             yaml_path: Path to YAML configuration file (relative or absolute)
+            area: Optional area name for location-specific overrides
+            site: Optional site name for location-specific overrides (requires area)
 
         Returns:
-            PromptConfig instance with loaded configuration
+            PromptConfig instance with merged configuration
 
         Raises:
-            FileNotFoundError: If YAML file doesn't exist
+            FileNotFoundError: If base YAML file doesn't exist
             ValueError: If YAML file has invalid schema or missing required fields
             yaml.YAMLError: If YAML file has syntax errors
+
+        Example:
+            # Load global prompt only
+            config = PromptLoader.load("prompts/tourism_qa.yaml")
+
+            # Load with area override
+            config = PromptLoader.load("prompts/tourism_qa.yaml", area="hefer_valley")
+
+            # Load with site override
+            config = PromptLoader.load("prompts/tourism_qa.yaml",
+                                      area="hefer_valley", site="agamon_hefer")
         """
         # Normalize path to absolute before caching for better cache efficiency
         yaml_path_obj = Path(yaml_path)
@@ -70,27 +92,31 @@ class PromptLoader:
         yaml_path_obj = yaml_path_obj.resolve()
         normalized_path = str(yaml_path_obj)
 
+        # Include location in cache key for proper caching
+        cache_key = (normalized_path, area or "", site or "")
+
         # Use cached internal loader
-        return PromptLoader._load_cached(normalized_path)
+        return PromptLoader._load_cached(cache_key)
 
     @staticmethod
     @lru_cache(maxsize=10)
-    def _load_cached(yaml_path: str) -> PromptConfig:
+    def _load_cached(cache_key: tuple) -> PromptConfig:
         """
         Internal cached loader (called after path normalization)
 
         Args:
-            yaml_path: Normalized absolute path to YAML file
+            cache_key: Tuple of (yaml_path, area, site) for cache differentiation
 
         Returns:
-            PromptConfig instance
+            PromptConfig instance with merged configuration
         """
+        yaml_path, area, site = cache_key
         yaml_path_obj = Path(yaml_path)
 
         if not yaml_path_obj.exists():
             raise FileNotFoundError(f"Prompt configuration file not found: {yaml_path}")
 
-        # Load YAML file
+        # Load base YAML file
         try:
             with open(yaml_path, "r", encoding="utf-8") as f:
                 config_data = yaml.safe_load(f)
@@ -98,6 +124,42 @@ class PromptLoader:
             raise yaml.YAMLError(
                 f"Failed to parse YAML file {yaml_path}: {e}"
             ) from e
+
+        # Apply location-specific overrides if provided
+        if area:
+            # Extract prompt file name (e.g., "tourism_qa.yaml")
+            prompt_filename = yaml_path_obj.name
+
+            # Find project root (go up from prompts/ directory)
+            # Assumes prompts are in {project_root}/prompts/
+            project_root = yaml_path_obj.parent.parent
+
+            # Try area-level prompt override: config/locations/{area}/prompts/{prompt_name}.yaml
+            area_prompt_path = project_root / "config" / "locations" / area / "prompts" / prompt_filename
+            if area_prompt_path.exists():
+                try:
+                    with open(area_prompt_path, "r", encoding="utf-8") as f:
+                        area_config = yaml.safe_load(f)
+                        if area_config:
+                            config_data = merge_configs(config_data, area_config)
+                except yaml.YAMLError as e:
+                    raise yaml.YAMLError(
+                        f"Failed to parse area override {area_prompt_path}: {e}"
+                    ) from e
+
+            # Try site-level prompt override if site provided: config/locations/{area}/{site}/prompts/{prompt_name}.yaml
+            if site:
+                site_prompt_path = project_root / "config" / "locations" / area / site / "prompts" / prompt_filename
+                if site_prompt_path.exists():
+                    try:
+                        with open(site_prompt_path, "r", encoding="utf-8") as f:
+                            site_config = yaml.safe_load(f)
+                            if site_config:
+                                config_data = merge_configs(config_data, site_config)
+                    except yaml.YAMLError as e:
+                        raise yaml.YAMLError(
+                            f"Failed to parse site override {site_prompt_path}: {e}"
+                        ) from e
 
         # Validate that YAML contains a dictionary
         if config_data is None or not isinstance(config_data, dict):

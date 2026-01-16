@@ -1,0 +1,18 @@
+# Location-Specific Configuration Override for Agamon Hefer
+#
+# This file demonstrates partial configuration overrides.
+# Only fields specified here will override the global config.yaml.
+# All other fields are inherited from the global configuration.
+#
+# Merge hierarchy: global config.yaml → area config → site config
+# This is a site-level override (hefer_valley/agamon_hefer)
+#
+# Override example: Only override temperature for this site
+# All other settings (model, chunk_tokens, prompts_dir, etc.)
+# will be inherited from global config.yaml
+
+gemini_rag:
+  temperature: 0.5  # Override: Slightly cooler temperature for Agamon Hefer
+  # model: inherited from global
+  # chunk_tokens: inherited from global
+  # All other gemini_rag fields: inherited from global

@@ -12,6 +12,42 @@ import yaml
 from gemini.utils import load_env_file, get_secret
 
 
+def merge_configs(base: dict, override: dict) -> dict:
+    """
+    Deep merge two configuration dictionaries
+
+    Merges override dict into base dict, with override values taking precedence.
+    - For nested dicts: recursively merges
+    - For lists: replaces entire list (no smart merging)
+    - For other types: override value replaces base value
+
+    Args:
+        base: Base configuration dictionary
+        override: Override configuration dictionary (values take precedence)
+
+    Returns:
+        New dictionary with merged configuration (does not modify inputs)
+
+    Example:
+        >>> base = {"a": 1, "b": {"c": 2, "d": 3}, "e": [1, 2]}
+        >>> override = {"b": {"c": 999}, "e": [3, 4, 5]}
+        >>> merge_configs(base, override)
+        {"a": 1, "b": {"c": 999, "d": 3}, "e": [3, 4, 5]}
+    """
+    # Create a copy of base to avoid modifying it
+    result = base.copy()
+
+    for key, override_value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(override_value, dict):
+            # Recursively merge nested dictionaries
+            result[key] = merge_configs(result[key], override_value)
+        else:
+            # For lists, primitives, or new keys: replace entirely
+            result[key] = override_value
+
+    return result
+
+
 def find_config_file() -> str:
     """Find the project root config.yaml file"""
     current_dir = Path(__file__).resolve().parent
@@ -86,23 +122,65 @@ class GeminiConfig:
             self.supported_formats = [".txt", ".md", ".pdf", ".docx"]
 
     @classmethod
-    def from_yaml(cls, config_path: Optional[str] = None) -> "GeminiConfig":
+    def from_yaml(
+        cls,
+        config_path: Optional[str] = None,
+        area: Optional[str] = None,
+        site: Optional[str] = None,
+    ) -> "GeminiConfig":
         """
-        Create configuration from YAML file
+        Create configuration from YAML file with optional location-specific overrides
+
+        Supports hierarchical configuration loading: global → area → site
+        Each level inherits all fields from parent and overrides specified fields only.
 
         Args:
             config_path: Optional path to config.yaml (auto-detected if not provided)
+            area: Optional area name for location-specific overrides
+            site: Optional site name for location-specific overrides (requires area)
 
         Returns:
-            GeminiConfig instance
+            GeminiConfig instance with merged configuration
+
+        Example:
+            # Load global config only
+            config = GeminiConfig.from_yaml()
+
+            # Load with area override
+            config = GeminiConfig.from_yaml(area="hefer_valley")
+
+            # Load with site override (inherits from area if exists, then global)
+            config = GeminiConfig.from_yaml(area="hefer_valley", site="agamon_hefer")
         """
         # Find config file
         if config_path is None:
             config_path = find_config_file()
 
-        # Load YAML config
+        # Load base YAML config
         with open(config_path, "r", encoding="utf-8") as f:
             yaml_config = yaml.safe_load(f)
+
+        # Apply location-specific overrides if provided
+        if area:
+            # Find project root (where config.yaml is located)
+            config_root = Path(config_path).parent
+
+            # Try area-level override: config/locations/{area}.yaml
+            area_override_path = config_root / "config" / "locations" / f"{area}.yaml"
+            if area_override_path.exists():
+                with open(area_override_path, "r", encoding="utf-8") as f:
+                    area_config = yaml.safe_load(f)
+                    if area_config:
+                        yaml_config = merge_configs(yaml_config, area_config)
+
+            # Try site-level override if site provided: config/locations/{area}/{site}.yaml
+            if site:
+                site_override_path = config_root / "config" / "locations" / area / f"{site}.yaml"
+                if site_override_path.exists():
+                    with open(site_override_path, "r", encoding="utf-8") as f:
+                        site_config = yaml.safe_load(f)
+                        if site_config:
+                            yaml_config = merge_configs(yaml_config, site_config)
 
         # Load environment variables from .env file (optional fallback)
         load_env_file()
