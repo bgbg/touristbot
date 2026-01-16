@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth import ApiKeyDep
-from backend.endpoints import locations, qa, topics
+from backend.endpoints import locations, qa, topics, upload
 
 # Configure logging
 logging.basicConfig(
@@ -74,6 +74,7 @@ app.add_middleware(
 app.include_router(qa.router)
 app.include_router(topics.router)
 app.include_router(locations.router)
+app.include_router(upload.router)
 
 
 @app.get("/health")
