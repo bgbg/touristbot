@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth import ApiKeyDep
+from backend.endpoints import locations, topics
 
 # Configure logging
 logging.basicConfig(
@@ -68,6 +69,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register endpoint routers
+app.include_router(topics.router)
+app.include_router(locations.router)
 
 
 @app.get("/health")
