@@ -138,7 +138,7 @@ class GeminiConfig:
     upload_tracking_path: str = ".cache/upload_tracking.json"
 
     # Prompts directory
-    prompts_dir: str = "prompts/"
+    prompts_dir: str = "config/prompts/"
 
     # Force reupload flag
     force_reupload: bool = False
@@ -288,7 +288,7 @@ class GeminiConfig:
             image_registry_gcs_path=gemini_config.get(
                 "image_registry_gcs_path", "metadata/image_registry.json"
             ),
-            prompts_dir=gemini_config.get("prompts_dir", "prompts/"),
+            prompts_dir=gemini_config.get("prompts_dir", "config/prompts/"),
             force_reupload=gemini_config.get("force_reupload", False),
             auto_rebuild_registry=gemini_config.get("auto_rebuild_registry", True),
             gcs_bucket_name=storage_config.get(

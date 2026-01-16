@@ -101,7 +101,7 @@ class TestConfigOverrides:
                     "model": "gemini-2.0-flash",
                     "temperature": 0.7,
                     "chunk_tokens": 400,
-                    "prompts_dir": "prompts/",
+                    "prompts_dir": "config/prompts/",
                 },
                 "storage": {"gcs_bucket_name": "test_bucket"},
                 "supported_formats": [".txt", ".md"],
