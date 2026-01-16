@@ -17,6 +17,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.auth import ApiKeyDep
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -92,4 +94,13 @@ async def root():
             "upload": "/upload/{area}/{site}",
         },
         "documentation": "/docs",
+    }
+
+
+@app.get("/protected-test")
+async def protected_test(api_key: ApiKeyDep):
+    """Test endpoint demonstrating API key authentication."""
+    return {
+        "message": "Authentication successful",
+        "api_key_prefix": api_key[:8] + "..." if len(api_key) > 8 else api_key,
     }
