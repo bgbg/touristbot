@@ -513,9 +513,9 @@ def get_response(
         "\n".join([f"- {topic}" for topic in topics]) if topics else "אין נושאים זמינים"
     )
 
-    # Load prompt configuration from YAML (cached)
+    # Load prompt configuration from YAML with location-specific overrides (cached)
     prompt_path = f"{config.prompts_dir}tourism_qa.yaml"
-    prompt_config = PromptLoader.load(prompt_path)
+    prompt_config = PromptLoader.load(prompt_path, area=area, site=site)
 
     # Build metadata filter for this location (AIP-160 syntax)
     metadata_filter = f"area={area} AND site={site}"

@@ -39,6 +39,126 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 - config.yaml: app settings including GCS paths for registries.
 - .cache/: temporary build artifacts (upload tracking, excluded from git).
 - .streamlit/secrets.toml: API keys (never commit).
+- config/locations/: location-specific configuration overrides (optional).
+
+## Location-Specific Configuration Overrides
+- Hierarchical configuration system: global → area → site.
+- Each location can override specific fields; all other fields inherited from parent level.
+- **Partial overrides supported**: Override files only need to specify fields to change.
+- Two types of overrides:
+  1. **Config overrides**: `config/locations/<area>.yaml` or `config/locations/<area>/<site>.yaml`
+  2. **Prompt overrides**: `config/locations/<area>/prompts/<prompt_name>.yaml` or `config/locations/<area>/<site>/prompts/<prompt_name>.yaml`
+
+### File Structure
+```
+config/locations/
+├── hefer_valley.yaml                    # Area-level config override (optional)
+├── hefer_valley/
+│   ├── agamon_hefer.yaml               # Site-level config override (optional)
+│   └── agamon_hefer/
+│       └── prompts/
+│           └── tourism_qa.yaml         # Site-level prompt override (optional)
+```
+
+### Example: Config Override (temperature only)
+```yaml
+# config/locations/hefer_valley/agamon_hefer.yaml
+# Only override temperature - all other fields inherited from global config.yaml
+gemini_rag:
+  temperature: 0.5  # Override: cooler temperature for this site
+  # model, chunk_tokens, etc. inherited from global config
+```
+
+### Example: Prompt Override (custom guide persona)
+```yaml
+# config/locations/hefer_valley/agamon_hefer/prompts/tourism_qa.yaml
+# Override temperature and system_prompt - model_name and user_prompt inherited
+temperature: 0.4
+
+system_prompt: |
+  אתה דני, מדריך צפרות מומחה באגמון חפר...
+  (custom bird-watching guide persona)
+
+# model_name and user_prompt inherited from global prompts/tourism_qa.yaml
+```
+
+### Merge Behavior
+- **Nested dicts**: Deep merge (child overrides parent, other fields preserved)
+- **Lists**: Complete replacement (no smart merging)
+- **Primitives**: Override value replaces base value
+- **Missing override files**: Graceful fallback to parent level (no errors)
+
+### Example Merge Flow
+```
+Global config.yaml:                     Site override (agamon_hefer.yaml):
+  gemini_rag:                             gemini_rag:
+    temperature: 0.7                        temperature: 0.5
+    model: gemini-2.0-flash         →
+    chunk_tokens: 400
+
+Result for agamon_hefer:
+  gemini_rag:
+    temperature: 0.5    ← overridden from site
+    model: gemini-2.0-flash    ← inherited from global
+    chunk_tokens: 400    ← inherited from global
+```
+
+### API Usage
+```python
+# Load global config only
+config = GeminiConfig.from_yaml()
+
+# Load with area override
+config = GeminiConfig.from_yaml(area="hefer_valley")
+
+# Load with site override (inherits from area if exists, then global)
+config = GeminiConfig.from_yaml(area="hefer_valley", site="agamon_hefer")
+
+# Same pattern for prompts
+prompt = PromptLoader.load("prompts/tourism_qa.yaml", area="hefer_valley", site="agamon_hefer")
+```
+
+### Common Use Cases
+1. **Custom guide personas per site** (primary use case):
+   - Different character/personality for each location
+   - Site-specific tone, language, or focus areas
+   - Example: bird-watching expert for wetlands, archaeology expert for historical sites
+
+2. **Model selection per location**:
+   - More powerful model for complex content
+   - Faster model for simple locations
+   - Example: `model: "gemini-2.5-flash"` for detailed sites
+
+3. **Temperature tuning**:
+   - Cooler for factual/technical content
+   - Warmer for creative/engaging content
+   - Example: 0.4 for nature reserves, 0.8 for cultural sites
+
+### Validation and Error Handling
+- Override files must use identical schema to base configuration
+- Invalid field names will cause explicit errors (no silent failures)
+- Malformed YAML will fail with clear error messages
+- Missing override files are graceful (no errors, use parent config)
+
+### Cache Behavior
+- Configurations cached by `lru_cache` with location parameters in cache key
+- Different locations get different cached configs
+- Config changes require application restart (existing limitation)
+
+### Troubleshooting
+**Issue**: Override not being applied
+- Check file paths: `config/locations/<area>.yaml` or `config/locations/<area>/<site>.yaml`
+- Verify YAML syntax (use YAML validator)
+- Check that override field names match base config schema exactly
+- Restart application to clear cache
+
+**Issue**: "Field not found" error
+- Override field name typo - must match base config exactly
+- Nested fields use same structure as base config (e.g., `gemini_rag.temperature`)
+
+**Issue**: List not merging as expected
+- Lists are replaced entirely, not merged (by design)
+- To add items, must specify complete list with all desired items
 
 ## Topic Generation Feature
 - Automatically extracts 5-10 key topics from location content during upload.

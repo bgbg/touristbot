@@ -2,6 +2,7 @@
 Configuration management for Gemini Tourism/Museum RAG system
 """
 
+import copy
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,78 @@ from typing import List, Optional
 import yaml
 
 from gemini.utils import load_env_file, get_secret
+
+
+def merge_configs(base: dict, override: dict) -> dict:
+    """
+    Deep merge two configuration dictionaries
+
+    Merges override dict into base dict, with override values taking precedence.
+    - For nested dicts: recursively merges
+    - For lists: replaces entire list (no smart merging)
+    - For other types: override value replaces base value
+
+    Args:
+        base: Base configuration dictionary
+        override: Override configuration dictionary (values take precedence)
+
+    Returns:
+        New dictionary with merged configuration (does not modify inputs)
+
+    Example:
+        >>> base = {"a": 1, "b": {"c": 2, "d": 3}, "e": [1, 2]}
+        >>> override = {"b": {"c": 999}, "e": [3, 4, 5]}
+        >>> merge_configs(base, override)
+        {"a": 1, "b": {"c": 999, "d": 3}, "e": [3, 4, 5]}
+    """
+    # Create a deep copy of base to avoid modifying it or its nested structures
+    result = copy.deepcopy(base)
+
+    for key, override_value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(override_value, dict):
+            # Recursively merge nested dictionaries
+            result[key] = merge_configs(result[key], override_value)
+        else:
+            # For lists, primitives, or new keys: replace entirely
+            result[key] = override_value
+
+    return result
+
+
+def find_project_root(start_path: Path) -> Path:
+    """
+    Find the project root directory by searching upward for config/locations marker.
+
+    Searches from the given path upward through parent directories until it finds
+    a directory containing config/locations/. This provides a robust way to locate
+    the project root regardless of the starting file's location.
+
+    Args:
+        start_path: Path to start searching from (file or directory)
+
+    Returns:
+        Path to project root directory
+
+    Raises:
+        FileNotFoundError: If no project root marker found
+    """
+    # Start from directory if given a file
+    search_dir = start_path if start_path.is_dir() else start_path.parent
+
+    # Search upward for config/locations marker
+    for candidate in [search_dir] + list(search_dir.parents):
+        if (candidate / "config" / "locations").exists():
+            return candidate
+
+    # Fallback: search for config.yaml as secondary marker
+    for candidate in [search_dir] + list(search_dir.parents):
+        if (candidate / "config.yaml").exists():
+            return candidate
+
+    raise FileNotFoundError(
+        f"Could not find project root from {start_path}. "
+        "Expected to find config/locations/ or config.yaml in parent directories."
+    )
 
 
 def find_config_file() -> str:
@@ -86,23 +159,65 @@ class GeminiConfig:
             self.supported_formats = [".txt", ".md", ".pdf", ".docx"]
 
     @classmethod
-    def from_yaml(cls, config_path: Optional[str] = None) -> "GeminiConfig":
+    def from_yaml(
+        cls,
+        config_path: Optional[str] = None,
+        area: Optional[str] = None,
+        site: Optional[str] = None,
+    ) -> "GeminiConfig":
         """
-        Create configuration from YAML file
+        Create configuration from YAML file with optional location-specific overrides
+
+        Supports hierarchical configuration loading: global → area → site
+        Each level inherits all fields from parent and overrides specified fields only.
 
         Args:
             config_path: Optional path to config.yaml (auto-detected if not provided)
+            area: Optional area name for location-specific overrides
+            site: Optional site name for location-specific overrides (requires area)
 
         Returns:
-            GeminiConfig instance
+            GeminiConfig instance with merged configuration
+
+        Example:
+            # Load global config only
+            config = GeminiConfig.from_yaml()
+
+            # Load with area override
+            config = GeminiConfig.from_yaml(area="hefer_valley")
+
+            # Load with site override (inherits from area if exists, then global)
+            config = GeminiConfig.from_yaml(area="hefer_valley", site="agamon_hefer")
         """
         # Find config file
         if config_path is None:
             config_path = find_config_file()
 
-        # Load YAML config
+        # Load base YAML config
         with open(config_path, "r", encoding="utf-8") as f:
             yaml_config = yaml.safe_load(f)
+
+        # Apply location-specific overrides if provided
+        if area:
+            # Find project root using unified detection
+            project_root = find_project_root(Path(config_path))
+
+            # Try area-level override: config/locations/{area}.yaml
+            area_override_path = project_root / "config" / "locations" / f"{area}.yaml"
+            if area_override_path.exists():
+                with open(area_override_path, "r", encoding="utf-8") as f:
+                    area_config = yaml.safe_load(f)
+                    if area_config:
+                        yaml_config = merge_configs(yaml_config, area_config)
+
+            # Try site-level override if site provided: config/locations/{area}/{site}.yaml
+            if site:
+                site_override_path = project_root / "config" / "locations" / area / f"{site}.yaml"
+                if site_override_path.exists():
+                    with open(site_override_path, "r", encoding="utf-8") as f:
+                        site_config = yaml.safe_load(f)
+                        if site_config:
+                            yaml_config = merge_configs(yaml_config, site_config)
 
         # Load environment variables from .env file (optional fallback)
         load_env_file()
