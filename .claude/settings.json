@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if [ -f .env ])",
+      "Bash(then cp .env .trees/31-develop-unify-configuration-structure-and-consolidate-tests/.env)",
+      "Bash(fi)",
+      "Bash(if ls .env.*)",
+      "Bash(then cp .env.* .trees/31-develop-unify-configuration-structure-and-consolidate-tests/)",
+      "Bash(if [ -f .env.local ])",
+      "Bash(then cp .env.local .trees/31-develop-unify-configuration-structure-and-consolidate-tests/.env.local)"
+    ]
+  }
+}
