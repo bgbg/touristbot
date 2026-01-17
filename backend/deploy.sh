@@ -89,19 +89,44 @@ rm -f .env.yaml
 echo ""
 echo "Deployment complete!"
 echo ""
-echo "Service URL:"
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --region ${REGION} --project ${PROJECT_ID} --format="value(status.url)")
-echo "${SERVICE_URL}"
+
+echo "=========================================="
+echo "DEPLOYMENT SUMMARY"
+echo "=========================================="
 echo ""
-echo "Environment variables configured:"
-echo "  - GCS_BUCKET: ${GCS_BUCKET}"
-echo "  - GOOGLE_API_KEY: ${GOOGLE_API_KEY:0:20}..."
-echo "  - BACKEND_API_KEYS: (keys shown above)"
+echo "Service URL:"
+echo "  ${SERVICE_URL}"
+echo ""
+echo "Project Configuration:"
+echo "  PROJECT_ID: ${PROJECT_ID}"
+echo "  REGION: ${REGION}"
+echo "  SERVICE_NAME: ${SERVICE_NAME}"
+echo "  GCS_BUCKET: ${GCS_BUCKET}"
+echo ""
+echo "Environment Variables (Cloud Run):"
+echo "  GCS_BUCKET: ${GCS_BUCKET}"
+echo "  GOOGLE_API_KEY: ${GOOGLE_API_KEY}"
+echo "  BACKEND_API_KEYS: ${BACKEND_API_KEYS}"
+echo ""
+echo "Backend API Keys (for authentication):"
+# Split the keys if they exist
+if [ -n "$BACKEND_API_KEYS" ]; then
+    IFS=',' read -ra KEYS <<< "$BACKEND_API_KEYS"
+    for i in "${!KEYS[@]}"; do
+        echo "  Key $((i+1)): ${KEYS[$i]}"
+    done
+fi
+echo ""
+echo "=========================================="
 echo ""
 echo "Next steps:"
 echo "1. Add to .streamlit/secrets.toml:"
 echo "   backend_api_url = \"${SERVICE_URL}\""
-echo "   backend_api_key = \"${API_KEY_1:-your-api-key}\""
+if [ -n "$BACKEND_API_KEYS" ]; then
+    IFS=',' read -ra KEYS <<< "$BACKEND_API_KEYS"
+    echo "   backend_api_key = \"${KEYS[0]}\""
+fi
 echo ""
 echo "2. Test the deployment:"
 echo "   curl ${SERVICE_URL}/health"
