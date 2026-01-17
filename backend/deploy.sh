@@ -13,9 +13,15 @@ REGION=${2:-"me-west1"}
 SERVICE_NAME="tourism-rag-backend"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
-# Environment variables (loaded from .streamlit/secrets.toml)
+# Environment variables
 GCS_BUCKET="tarasa_tourist_bot_content"
-GOOGLE_API_KEY="AIzaSyDUAKaokMm_NstNtgZTAPr7II3XBwpjmQE"
+
+# Check for required environment variables
+if [ -z "$GOOGLE_API_KEY" ]; then
+    echo "Error: GOOGLE_API_KEY environment variable is required"
+    echo "Set it before running: export GOOGLE_API_KEY=your-key"
+    exit 1
+fi
 
 # Generate secure API keys if not provided
 # You can override these by setting BACKEND_API_KEYS environment variable before running
