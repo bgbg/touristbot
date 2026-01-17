@@ -43,7 +43,7 @@ class TestQueryLogger:
     def test_log_query_new_file(self, logger, mock_storage):
         """Test logging to a new file."""
         # Mock: file doesn't exist yet
-        mock_storage.read.side_effect = FileNotFoundError()
+        mock_storage.read_file.side_effect = FileNotFoundError()
 
         logger.log_query(
             conversation_id="conv-123",
@@ -59,8 +59,8 @@ class TestQueryLogger:
         )
 
         # Check that write was called
-        mock_storage.write.assert_called_once()
-        call_args = mock_storage.write.call_args
+        mock_storage.write_file.assert_called_once()
+        call_args = mock_storage.write_file.call_args
 
         # Check path
         log_path = call_args[0][0]
@@ -85,7 +85,7 @@ class TestQueryLogger:
         """Test appending to existing log file."""
         # Mock: file exists with one entry
         existing_log = json.dumps({"timestamp": "2024-01-01T00:00:00Z", "query": "old"})
-        mock_storage.read.return_value = existing_log + "\n"
+        mock_storage.read_file.return_value = existing_log + "\n"
 
         logger.log_query(
             conversation_id="conv-456",
@@ -97,7 +97,7 @@ class TestQueryLogger:
         )
 
         # Check that write was called
-        call_args = mock_storage.write.call_args
+        call_args = mock_storage.write_file.call_args
         content = call_args[0][1]
         lines = content.strip().split("\n")
         assert len(lines) == 2  # Old entry + new entry
@@ -110,7 +110,7 @@ class TestQueryLogger:
 
     def test_log_query_with_error(self, logger, mock_storage):
         """Test logging a failed query."""
-        mock_storage.read.side_effect = FileNotFoundError()
+        mock_storage.read_file.side_effect = FileNotFoundError()
 
         logger.log_query(
             conversation_id="conv-789",
@@ -122,7 +122,7 @@ class TestQueryLogger:
             error="API error: timeout",
         )
 
-        call_args = mock_storage.write.call_args
+        call_args = mock_storage.write_file.call_args
         content = call_args[0][1]
         log_entry = json.loads(content.strip())
 
@@ -131,8 +131,8 @@ class TestQueryLogger:
 
     def test_log_query_write_failure_graceful(self, logger, mock_storage):
         """Test that write failures don't raise exceptions."""
-        mock_storage.read.side_effect = FileNotFoundError()
-        mock_storage.write.side_effect = Exception("GCS write failed")
+        mock_storage.read_file.side_effect = FileNotFoundError()
+        mock_storage.write_file.side_effect = Exception("GCS write failed")
 
         # Should not raise exception
         logger.log_query(
@@ -145,7 +145,7 @@ class TestQueryLogger:
         )
 
         # Write was attempted
-        mock_storage.write.assert_called_once()
+        mock_storage.write_file.assert_called_once()
 
     def test_get_logs_success(self, logger, mock_storage):
         """Test retrieving logs for a date."""
@@ -155,7 +155,7 @@ class TestQueryLogger:
             json.dumps({"timestamp": "2024-01-15T11:00:00Z", "query": "query2"}),
             json.dumps({"timestamp": "2024-01-15T12:00:00Z", "query": "query3"}),
         ]
-        mock_storage.read.return_value = "\n".join(log_lines) + "\n"
+        mock_storage.read_file.return_value = "\n".join(log_lines) + "\n"
 
         logs = logger.get_logs("2024-01-15")
 
@@ -164,11 +164,11 @@ class TestQueryLogger:
         assert logs[1]["query"] == "query2"
         assert logs[2]["query"] == "query3"
 
-        mock_storage.read.assert_called_once_with("test-logs/2024-01-15.jsonl")
+        mock_storage.read_file.assert_called_once_with("test-logs/2024-01-15.jsonl")
 
     def test_get_logs_not_found(self, logger, mock_storage):
         """Test retrieving logs for date with no logs."""
-        mock_storage.read.side_effect = FileNotFoundError()
+        mock_storage.read_file.side_effect = FileNotFoundError()
 
         logs = logger.get_logs("2024-01-01")
 
@@ -181,7 +181,7 @@ class TestQueryLogger:
             "invalid json line {",
             json.dumps({"query": "valid2"}),
         ]
-        mock_storage.read.return_value = "\n".join(log_lines)
+        mock_storage.read_file.return_value = "\n".join(log_lines)
 
         logs = logger.get_logs("2024-01-15")
 
@@ -204,7 +204,7 @@ class TestQueryLogger:
             else:
                 raise FileNotFoundError()
 
-        mock_storage.read.side_effect = mock_read
+        mock_storage.read_file.side_effect = mock_read
 
         logs = logger.get_logs_range("2024-01-15", "2024-01-17")
 
@@ -215,7 +215,7 @@ class TestQueryLogger:
 
     def test_log_query_hebrew_content(self, logger, mock_storage):
         """Test logging with Hebrew UTF-8 content."""
-        mock_storage.read.side_effect = FileNotFoundError()
+        mock_storage.read_file.side_effect = FileNotFoundError()
 
         logger.log_query(
             conversation_id="conv-hebrew",
@@ -227,7 +227,7 @@ class TestQueryLogger:
             citations_count=1,
         )
 
-        call_args = mock_storage.write.call_args
+        call_args = mock_storage.write_file.call_args
         content = call_args[0][1]
         log_entry = json.loads(content.strip())
 

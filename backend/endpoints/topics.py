@@ -36,7 +36,7 @@ def get_topics_for_location(
     topics_path = f"topics/{area}/{site}/topics.json"
 
     try:
-        content = storage.read(topics_path)
+        content = storage.read_file(topics_path)
         if not content:
             logger.info(f"No topics file found for {area}/{site}")
             return []

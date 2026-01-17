@@ -140,27 +140,27 @@ class TestConversationStore:
             "updated_at": "2024-01-01T00:00:00Z",
             "messages": [],
         }
-        mock_storage.read.return_value = json.dumps(conversation_data)
+        mock_storage.read_file.return_value = json.dumps(conversation_data)
 
         conv = store.get_conversation("test-123")
         assert conv is not None
         assert conv.conversation_id == "test-123"
         assert conv.area == "area1"
 
-        mock_storage.read.assert_called_once_with(
+        mock_storage.read_file.assert_called_once_with(
             "test-conversations/test-123.json"
         )
 
     def test_get_conversation_not_found(self, store, mock_storage):
         """Test loading non-existent conversation."""
-        mock_storage.read.side_effect = FileNotFoundError()
+        mock_storage.read_file.side_effect = FileNotFoundError()
 
         conv = store.get_conversation("missing-id")
         assert conv is None
 
     def test_get_conversation_invalid_json(self, store, mock_storage):
         """Test loading conversation with invalid JSON."""
-        mock_storage.read.return_value = "invalid json {"
+        mock_storage.read_file.return_value = "invalid json {"
 
         conv = store.get_conversation("test-123")
         assert conv is None
@@ -180,14 +180,14 @@ class TestConversationStore:
         assert result is True
 
         # Check that write was called
-        mock_storage.write.assert_called_once()
-        call_args = mock_storage.write.call_args
+        mock_storage.write_file.assert_called_once()
+        call_args = mock_storage.write_file.call_args
         assert call_args[0][0] == "test-conversations/test-123.json"
         assert "test-123" in call_args[0][1]  # JSON content
 
     def test_save_conversation_error(self, store, mock_storage):
         """Test save failure handling."""
-        mock_storage.write.side_effect = Exception("Write failed")
+        mock_storage.write_file.side_effect = Exception("Write failed")
 
         conv = Conversation(
             conversation_id="test-123",
@@ -211,7 +211,7 @@ class TestConversationStore:
         assert conv.messages[0].content == "Hello"
 
         # Check that save was called
-        mock_storage.write.assert_called_once()
+        mock_storage.write_file.assert_called_once()
 
     def test_add_message_with_citations(self, store, mock_storage):
         """Test adding message with citations and images."""
@@ -233,13 +233,13 @@ class TestConversationStore:
         result = store.delete_conversation("test-123")
         assert result is True
 
-        mock_storage.delete.assert_called_once_with(
+        mock_storage.delete_file.assert_called_once_with(
             "test-conversations/test-123.json"
         )
 
     def test_delete_conversation_error(self, store, mock_storage):
         """Test delete failure handling."""
-        mock_storage.delete.side_effect = Exception("Delete failed")
+        mock_storage.delete_file.side_effect = Exception("Delete failed")
 
         result = store.delete_conversation("test-123")
         assert result is False

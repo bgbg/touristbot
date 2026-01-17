@@ -315,7 +315,7 @@ class GeminiConfig:
             GeminiConfig instance
         """
         try:
-            api_key = source_key("GEMINI_API_KEY")
+            api_key = get_secret("GEMINI_API_KEY")
         except KeyError:
             raise ValueError(
                 "GEMINI_API_KEY environment variable not set. "

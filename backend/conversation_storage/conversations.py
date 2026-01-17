@@ -132,7 +132,7 @@ class ConversationStore:
 
         try:
             # Load from GCS
-            content = self.storage.read(gcs_path)
+            content = self.storage.read_file(gcs_path)
             if not content:
                 logger.info(f"Conversation not found: {conversation_id}")
                 return None
@@ -177,7 +177,7 @@ class ConversationStore:
             content = json.dumps(conversation.to_dict(), ensure_ascii=False, indent=2)
 
             # Write to GCS
-            self.storage.write(gcs_path, content)
+            self.storage.write_file(gcs_path, content)
 
             logger.info(
                 f"Saved conversation: {conversation.conversation_id} "
@@ -239,7 +239,7 @@ class ConversationStore:
         gcs_path = self._get_gcs_path(conversation_id)
 
         try:
-            self.storage.delete(gcs_path)
+            self.storage.delete_file(gcs_path)
             logger.info(f"Deleted conversation: {conversation_id}")
             return True
         except Exception as e:

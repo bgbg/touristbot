@@ -105,7 +105,7 @@ class QueryLogger:
         try:
             # Read existing content
             try:
-                existing_content = self.storage.read(log_path)
+                existing_content = self.storage.read_file(log_path)
             except FileNotFoundError:
                 existing_content = ""
 
@@ -114,7 +114,7 @@ class QueryLogger:
             new_content = existing_content + json_line + "\n"
 
             # Write back to GCS
-            self.storage.write(log_path, new_content)
+            self.storage.write_file(log_path, new_content)
 
             logger.debug(
                 f"Logged query to {log_path}: "
@@ -144,7 +144,7 @@ class QueryLogger:
         log_path = self._get_log_path(date_str)
 
         try:
-            content = self.storage.read(log_path)
+            content = self.storage.read_file(log_path)
             if not content:
                 return []
 

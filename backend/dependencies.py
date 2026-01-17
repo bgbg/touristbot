@@ -8,7 +8,7 @@ import os
 from functools import lru_cache
 
 from backend.conversation_storage.conversations import ConversationStore
-from backend.gcs_storage import StorageBackend
+from backend.gcs_storage import GCSStorage, StorageBackend
 from backend.image_registry import ImageRegistry
 from backend.logging.query_logger import QueryLogger
 from backend.store_registry import StoreRegistry
@@ -21,7 +21,7 @@ def get_storage_backend() -> StorageBackend:
     if not gcs_bucket:
         raise ValueError("GCS_BUCKET environment variable not set")
 
-    return StorageBackend(gcs_bucket)
+    return GCSStorage(gcs_bucket)
 
 
 @lru_cache()

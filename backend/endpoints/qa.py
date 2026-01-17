@@ -122,7 +122,7 @@ def filter_images_by_relevance(
     relevant_images = []
 
     for img in images:
-        file_api_uri = img.get("file_api_uri", "")
+        file_api_uri = img.file_api_uri
         if not file_api_uri:
             continue
 
@@ -130,12 +130,21 @@ def filter_images_by_relevance(
         score = image_relevance.get(file_api_uri, 0)
 
         if score >= min_score:
+            # Build context from before/after text
+            context = ""
+            if img.context_before:
+                context += img.context_before
+            if img.context_after:
+                if context:
+                    context += " "
+                context += img.context_after
+
             relevant_images.append(
                 ImageMetadata(
-                    uri=img.get("gcs_uri", ""),
+                    uri=img.gcs_uri,
                     file_api_uri=file_api_uri,
-                    caption=img.get("caption", ""),
-                    context=img.get("context", ""),
+                    caption=img.caption or "",
+                    context=context,
                     relevance_score=score,
                 )
             )
@@ -203,7 +212,7 @@ async def chat_query(
         )
 
         # Get File Search Store name
-        store_name = store_registry.get_store_name(request.area, request.site)
+        store_name = store_registry.get_store(request.area, request.site)
         if not store_name:
             raise HTTPException(
                 status_code=404,
@@ -233,7 +242,7 @@ async def chat_query(
         # Add image URIs to user message (up to 5 images for context)
         if location_images:
             for img in location_images[:5]:
-                file_api_uri = img.get("file_api_uri")
+                file_api_uri = img.file_api_uri
                 if file_api_uri:
                     user_parts.append({"file_data": {"file_uri": file_api_uri}})
 

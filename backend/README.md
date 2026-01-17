@@ -1,6 +1,6 @@
-```
+# Backend Development Guide
 
-### Adding New Endpoints
+## Adding New Endpoints
 
 1. Create endpoint file in `backend/endpoints/`
 2. Define router with `APIRouter(prefix="/path", tags=["tag"])`

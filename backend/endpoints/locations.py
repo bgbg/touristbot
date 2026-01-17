@@ -42,7 +42,7 @@ async def list_locations(
 
     try:
         # Get all locations from store registry
-        locations_map = store_registry.get_all_locations()
+        locations_map = store_registry.list_all()
 
         # Convert to list format
         locations = []
@@ -104,7 +104,7 @@ async def get_location_content(
 
     try:
         # Check if location exists in store registry
-        store_name = store_registry.get_store_name(area, site)
+        store_name = store_registry.get_store(area, site)
         if not store_name:
             raise HTTPException(
                 status_code=404,
