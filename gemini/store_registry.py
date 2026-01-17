@@ -14,7 +14,6 @@ from typing import Dict, List, Optional, Tuple
 
 import google.genai as genai
 
-from gemini.display_name_utils import parse_display_name
 from gemini.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
