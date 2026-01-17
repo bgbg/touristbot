@@ -13,13 +13,24 @@ REGION=${2:-"me-west1"}
 SERVICE_NAME="tourism-rag-backend"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
+# Load environment variables from .env file if it exists
+if [ -f ../.env ]; then
+    echo "Loading environment variables from .env file..."
+    export $(grep -v '^#' ../.env | xargs)
+elif [ -f .env ]; then
+    echo "Loading environment variables from backend/.env file..."
+    export $(grep -v '^#' .env | xargs)
+fi
+
 # Environment variables
 GCS_BUCKET="tarasa_tourist_bot_content"
 
 # Check for required environment variables
 if [ -z "$GOOGLE_API_KEY" ]; then
     echo "Error: GOOGLE_API_KEY environment variable is required"
-    echo "Set it before running: export GOOGLE_API_KEY=your-key"
+    echo "Either:"
+    echo "  1. Create a .env file in project root with: GOOGLE_API_KEY=your-key"
+    echo "  2. Or export it: export GOOGLE_API_KEY=your-key"
     exit 1
 fi
 
@@ -44,9 +55,19 @@ echo "Region: ${REGION}"
 echo "Service: ${SERVICE_NAME}"
 echo ""
 
-# Build and push Docker image
+# Build and push Docker image (from project root, not backend/)
 echo "Building Docker image..."
-gcloud builds submit --tag ${IMAGE_NAME} --project ${PROJECT_ID}
+cd ..
+gcloud builds submit --config=backend/cloudbuild.yaml --project ${PROJECT_ID} .
+cd backend
+
+# Create temporary env vars file for Cloud Run
+echo "Creating environment variables file..."
+cat > .env.yaml <<EOF
+GCS_BUCKET: "${GCS_BUCKET}"
+GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
+BACKEND_API_KEYS: "${BACKEND_API_KEYS}"
+EOF
 
 # Deploy to Cloud Run with environment variables
 echo "Deploying to Cloud Run with environment variables..."
@@ -60,7 +81,10 @@ gcloud run deploy ${SERVICE_NAME} \
     --timeout 3600 \
     --max-instances 10 \
     --project ${PROJECT_ID} \
-    --set-env-vars "GCS_BUCKET=${GCS_BUCKET},GOOGLE_API_KEY=${GOOGLE_API_KEY},BACKEND_API_KEYS=${BACKEND_API_KEYS}"
+    --env-vars-file .env.yaml
+
+# Clean up
+rm -f .env.yaml
 
 echo ""
 echo "Deployment complete!"
