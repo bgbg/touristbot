@@ -311,39 +311,62 @@ backend/
 
 ### Deployment
 
+**Project Configuration:**
+- **GCP Project**: `gen-lang-client-0860749390`
+- **Region**: `me-west1` (Tel Aviv, Israel - closest to customers)
+- **GCS Bucket**: `tarasa_tourist_bot_content`
+- **Service Name**: `tourism-rag-backend`
+
 **Prerequisites:**
 - GCP project with Cloud Run and GCS enabled
-- GCS bucket created
+- GCS bucket created (`tarasa_tourist_bot_content`)
 - Google API key for Gemini API
+- Authenticated gcloud CLI: `gcloud auth login`
 
 **Environment Variables (Cloud Run):**
 ```bash
-BACKEND_API_KEYS=key1,key2,key3   # Comma-separated API keys
-GCS_BUCKET=your-bucket-name        # GCS bucket for storage
-GOOGLE_API_KEY=your-google-key     # Gemini API key
+BACKEND_API_KEYS=key1,key2,key3   # Comma-separated API keys (create secure keys)
+GCS_BUCKET=tarasa_tourist_bot_content  # GCS bucket for storage
+GOOGLE_API_KEY=your-google-key     # Gemini API key (from .streamlit/secrets.toml)
 ```
 
 **Deploy to Cloud Run:**
 ```bash
 cd backend
-./deploy.sh <project-id> [region]
+./deploy.sh  # Uses defaults: gen-lang-client-0860749390, me-west1
+
+# Or with custom project/region:
+./deploy.sh <project-id> <region>
 ```
 
-Or manually:
+**Manual deployment:**
 ```bash
 # Build image
-gcloud builds submit --tag gcr.io/<project>/tourism-backend
+gcloud builds submit --tag gcr.io/gen-lang-client-0860749390/tourism-rag-backend \
+  --project gen-lang-client-0860749390
 
 # Deploy to Cloud Run
-gcloud run deploy tourism-backend \
-  --image gcr.io/<project>/tourism-backend \
-  --region us-central1 \
+gcloud run deploy tourism-rag-backend \
+  --image gcr.io/gen-lang-client-0860749390/tourism-rag-backend \
+  --region me-west1 \
+  --platform managed \
   --allow-unauthenticated \
   --memory 2Gi \
   --cpu 2 \
   --timeout 3600 \
-  --set-env-vars GCS_BUCKET=<bucket>,GOOGLE_API_KEY=<key>,BACKEND_API_KEYS=<keys>
+  --max-instances 10 \
+  --project gen-lang-client-0860749390 \
+  --set-env-vars GCS_BUCKET=tarasa_tourist_bot_content,GOOGLE_API_KEY=<key>,BACKEND_API_KEYS=<keys>
 ```
+
+**Post-deployment:**
+1. Copy the service URL from deployment output (e.g., `https://tourism-rag-backend-xxxxx.me-west1.run.app`)
+2. Add to `.streamlit/secrets.toml`:
+   ```toml
+   backend_api_url = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
+   backend_api_key = "one-of-your-BACKEND_API_KEYS"
+   ```
+3. Verify deployment: `curl https://<service-url>/health`
 
 **Local Testing:**
 ```bash
