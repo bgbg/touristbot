@@ -472,21 +472,110 @@ def _get_image_display_url(gcs_path: str, bucket_name: str, image_storage=None) 
     """
     # Normalize path to remove gs:// prefix if present
     if gcs_path.startswith("gs://"):
-        # Remove gs://bucket/ prefix to get relative path
         parts = gcs_path[5:].split('/', 1)
         if len(parts) > 1:
-            gcs_path = parts[1]  # Get path after bucket name
+            gcs_path = parts[1]
 
-    # If image_storage is available, generate signed URL for private images
     if image_storage:
         try:
             return image_storage.get_signed_url(gcs_path, expiration_minutes=60)
         except Exception:
-            # Fall back to public URL if signed URL generation fails
             pass
 
-    # Fallback: construct public URL (will only work if bucket/object is public)
     return f"https://storage.googleapis.com/{bucket_name}/{gcs_path}"
+
+
+def _parse_structured_response(response_text: str) -> tuple[str, bool, dict]:
+    """
+    Parse structured JSON response from LLM.
+
+    Extracts response_text, should_include_images, and image_relevance from
+    the LLM's JSON response. Handles various edge cases like markdown code blocks,
+    double-encoded JSON, and malformed responses.
+
+    Args:
+        response_text: Raw response text from LLM
+
+    Returns:
+        Tuple of (response_text, should_include_images, image_relevance_dict)
+        Falls back to (response_text, True, {}) if parsing fails
+    """
+    from gemini.json_helpers import parse_json
+    import re
+
+    structured_response = parse_json(response_text)
+
+    # Fallback: try to parse entire response as JSON
+    if structured_response is None:
+        try:
+            structured_response = json.loads(response_text)
+        except json.JSONDecodeError:
+            # Check if response looks like JSON but has issues
+            if response_text.strip().startswith('{') and '"response_text"' in response_text:
+                logger.info("Attempting to repair JSON-like response")
+                match = re.search(r'"response_text"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', response_text)
+                if match:
+                    extracted_text = match.group(1).replace('\\"', '"')
+                    return extracted_text, False, {}
+
+            logger.info("No JSON found in response, treating as plain text")
+            return response_text, True, {}
+
+    if not structured_response:
+        return response_text, True, {}
+
+    logger.debug(f"Structured response keys: {structured_response.keys()}")
+
+    result_text = structured_response.get("response_text", response_text)
+
+    # Handle double-encoded JSON (response_text is a JSON string)
+    if isinstance(result_text, str) and result_text.startswith('"') and result_text.endswith('"'):
+        try:
+            result_text = json.loads(result_text)
+        except json.JSONDecodeError:
+            # If decoding fails, keep the original string; it's not valid JSON but still usable as text.
+            logger.debug("Failed to decode double-encoded JSON in 'response_text'; using raw string value.")
+            pass
+
+    should_include = structured_response.get("should_include_images", True)
+    relevance_list = structured_response.get("image_relevance", [])
+
+    # Convert list format to dict
+    relevance_dict = {}
+    for item in relevance_list:
+        if isinstance(item, dict) and "image_uri" in item and "relevance_score" in item:
+            relevance_dict[item["image_uri"]] = item["relevance_score"]
+
+    return result_text, should_include, relevance_dict
+
+
+def _filter_relevant_images(images: list, should_include_images: bool, image_relevance: dict) -> list:
+    """
+    Filter images based on LLM-provided relevance scores.
+
+    Args:
+        images: List of image records
+        should_include_images: Whether images should be included at all
+        image_relevance: Dict mapping image URIs to relevance scores (0-100)
+
+    Returns:
+        List of images with relevance score >= 60
+    """
+    if not images or not should_include_images:
+        logger.info(f"Skipping image filtering (images={len(images) if images else 0}, should_include_images={should_include_images})")
+        return []
+
+    relevant_images = []
+    for image in images:
+        relevance_score = image_relevance.get(image.file_api_uri, 0)
+        if relevance_score >= 60:
+            logger.debug(f"Image {image.file_api_uri} passed threshold (score={relevance_score})")
+            relevant_images.append(image)
+        else:
+            logger.debug(f"Image {image.file_api_uri} below threshold (score={relevance_score})")
+
+    logger.info(f"Filtered to {len(relevant_images)} relevant images")
+    return relevant_images
 
 
 def get_response(
@@ -615,119 +704,20 @@ def get_response(
     # Extract citations from grounding metadata
     citations = extract_citations(response)
 
-    # Parse JSON from text response (LLM returns JSON in text since we can't use structured output with File Search)
+    # Parse structured JSON response from LLM
+    logger.debug(f"Raw response.text (first 500 chars): {response.text[:500] if len(response.text) > 500 else response.text}")
+
     try:
-        # Log raw response.text
-        logger.debug(f"Raw response.text type: {type(response.text)}")
-        logger.debug(f"Raw response.text (first 500 chars): {response.text[:500] if len(response.text) > 500 else response.text}")
-
-        # Extract JSON from response text (may be wrapped in markdown code blocks)
-        from gemini.json_helpers import parse_json
-
-        structured_response = parse_json(response.text)
-
-        if structured_response is None:
-            # Fallback: try to parse the entire response as JSON
-            try:
-                structured_response = json.loads(response.text)
-            except json.JSONDecodeError as e:
-                # No JSON found, check if response looks like JSON but has issues
-                logger.warning(f"No JSON found in response: {e}")
-                logger.info("Response text looks like JSON but failed to parse")
-
-                # Check if LLM returned JSON-like text without proper quotes
-                # Example: {"response_text": "הטקסט כאן", ...} but as a string
-                if response.text.strip().startswith('{') and '"response_text"' in response.text:
-                    logger.info("Attempting to repair JSON-like response")
-                    # Try to extract just the response_text value using regex
-                    import re
-                    match = re.search(r'"response_text"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', response.text)
-                    if match:
-                        extracted_text = match.group(1)
-                        # Unescape any escaped quotes
-                        extracted_text = extracted_text.replace('\\"', '"')
-                        logger.info(f"Extracted response_text via regex: {extracted_text[:200]}")
-                        # Create a minimal structured response
-                        structured_response = {
-                            "response_text": extracted_text,
-                            "should_include_images": False,  # Default to safe value
-                            "image_relevance": []
-                        }
-                    else:
-                        logger.warning("Could not extract response_text via regex")
-                        structured_response = None
-                else:
-                    logger.info("No JSON found in response, treating as plain text")
-                    structured_response = None
-
-        if structured_response:
-            # Log structured_response keys
-            logger.debug(f"Structured response keys: {structured_response.keys()}")
-            logger.debug(f"should_include_images value: {structured_response.get('should_include_images')}")
-            logger.debug(f"response_text type: {type(structured_response.get('response_text'))}")
-            logger.debug(f"response_text (first 200 chars): {str(structured_response.get('response_text'))[:200] if structured_response.get('response_text') else 'None'}")
-
-            response_text = structured_response.get("response_text", response.text)
-
-            # Check if response_text itself is JSON-encoded (double encoding issue)
-            # This can happen if the LLM returns escaped JSON within the structured output
-            if isinstance(response_text, str) and response_text.startswith('"') and response_text.endswith('"'):
-                try:
-                    # Try to decode once more to handle double-encoded JSON
-                    response_text = json.loads(response_text)
-                    logger.info(f"Double-decoded response_text (first 200 chars): {response_text[:200]}")
-                except json.JSONDecodeError:
-                    # If it fails, keep the original text (it's just a string that starts/ends with quotes)
-                    pass
-
-            should_include_images = structured_response.get("should_include_images", True)
-            image_relevance_list = structured_response.get("image_relevance", [])
-
-            logger.debug(f"Final should_include_images: {should_include_images}")
-            logger.debug(f"image_relevance_list length: {len(image_relevance_list)}")
-            logger.debug(f"images available: {len(images) if images else 0}")
-
-            # Convert list format to dict for easier lookup
-            image_relevance = {}
-            for item in image_relevance_list:
-                if isinstance(item, dict) and "image_uri" in item and "relevance_score" in item:
-                    image_relevance[item["image_uri"]] = item["relevance_score"]
-
-            logger.debug(f"image_relevance dict: {image_relevance}")
-        else:
-            # No JSON structure found, use plain text response
-            logger.warning("No structured output found, using plain text response")
-            response_text = response.text
-            should_include_images = True
-            image_relevance = {}
-
+        response_text, should_include_images, image_relevance = _parse_structured_response(response.text)
     except Exception as e:
-        # Fallback to raw response if parsing fails
         logger.error(f"Could not parse structured output: {e}", exc_info=True)
         response_text = response.text
         should_include_images = True
         image_relevance = {}
 
     # Filter images based on LLM-provided relevance scores
-    relevant_images = []
-    if images and should_include_images:
-        logger.debug(f"Filtering images (should_include_images={should_include_images})")
-        logger.debug(f"Available image URIs: {[image.file_api_uri for image in images]}")
-        logger.debug(f"LLM provided relevance for URIs: {list(image_relevance.keys())}")
-        # Filter images with relevance score >= 60
-        for image in images:
-            relevance_score = image_relevance.get(image.file_api_uri, 0)
-            logger.debug(f"Checking image URI: {image.file_api_uri}")
-            logger.debug(f"  Relevance score: {relevance_score}, threshold: 60")
-            if relevance_score >= 60:
-                logger.debug("  ✓ Image passed threshold, adding to relevant_images")
-                relevant_images.append(image)
-            else:
-                logger.debug("  ✗ Image below threshold, skipping")
-    else:
-        logger.info(f"Skipping image filtering (images={len(images) if images else 0}, should_include_images={should_include_images})")
+    relevant_images = _filter_relevant_images(images, should_include_images, image_relevance)
 
-    logger.info(f"Returning {len(relevant_images)} relevant images")
     return response_text, response_time, citations, relevant_images
 
 

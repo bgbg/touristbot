@@ -98,6 +98,26 @@ def find_config_file() -> str:
     raise FileNotFoundError("Could not find config.yaml in project directories")
 
 
+def _load_yaml_override(path: Path) -> Optional[dict]:
+    """
+    Load a YAML override file if it exists.
+
+    Args:
+        path: Path to YAML override file
+
+    Returns:
+        Parsed YAML data or None if file doesn't exist
+    """
+    if not path.exists():
+        return None
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise yaml.YAMLError(f"Failed to parse override file {path}: {e}") from e
+
+
 @dataclass
 class GeminiConfig:
     """Configuration for Gemini Tourism RAG system"""
@@ -168,7 +188,7 @@ class GeminiConfig:
         """
         Create configuration from YAML file with optional location-specific overrides
 
-        Supports hierarchical configuration loading: global → area → site
+        Supports hierarchical configuration loading: global -> area -> site
         Each level inherits all fields from parent and overrides specified fields only.
 
         Args:
@@ -178,46 +198,28 @@ class GeminiConfig:
 
         Returns:
             GeminiConfig instance with merged configuration
-
-        Example:
-            # Load global config only
-            config = GeminiConfig.from_yaml()
-
-            # Load with area override
-            config = GeminiConfig.from_yaml(area="hefer_valley")
-
-            # Load with site override (inherits from area if exists, then global)
-            config = GeminiConfig.from_yaml(area="hefer_valley", site="agamon_hefer")
         """
-        # Find config file
         if config_path is None:
             config_path = find_config_file()
 
-        # Load base YAML config
         with open(config_path, "r", encoding="utf-8") as f:
             yaml_config = yaml.safe_load(f)
 
-        # Apply location-specific overrides if provided
+        # Apply location-specific overrides
         if area:
-            # Find project root using unified detection
             project_root = find_project_root(Path(config_path))
+            locations_base = project_root / "config" / "locations"
 
-            # Try area-level override: config/locations/{area}.yaml
-            area_override_path = project_root / "config" / "locations" / f"{area}.yaml"
-            if area_override_path.exists():
-                with open(area_override_path, "r", encoding="utf-8") as f:
-                    area_config = yaml.safe_load(f)
-                    if area_config:
-                        yaml_config = merge_configs(yaml_config, area_config)
+            # Area-level override
+            area_config = _load_yaml_override(locations_base / f"{area}.yaml")
+            if area_config:
+                yaml_config = merge_configs(yaml_config, area_config)
 
-            # Try site-level override if site provided: config/locations/{area}/{site}.yaml
+            # Site-level override
             if site:
-                site_override_path = project_root / "config" / "locations" / area / f"{site}.yaml"
-                if site_override_path.exists():
-                    with open(site_override_path, "r", encoding="utf-8") as f:
-                        site_config = yaml.safe_load(f)
-                        if site_config:
-                            yaml_config = merge_configs(yaml_config, site_config)
+                site_config = _load_yaml_override(locations_base / area / f"{site}.yaml")
+                if site_config:
+                    yaml_config = merge_configs(yaml_config, site_config)
 
         # Load environment variables from .env file (optional fallback)
         load_env_file()
