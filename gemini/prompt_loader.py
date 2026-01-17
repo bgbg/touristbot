@@ -74,13 +74,13 @@ class PromptLoader:
 
         Example:
             # Load global prompt only
-            config = PromptLoader.load("prompts/tourism_qa.yaml")
+            config = PromptLoader.load("config/prompts/tourism_qa.yaml")
 
             # Load with area override
-            config = PromptLoader.load("prompts/tourism_qa.yaml", area="hefer_valley")
+            config = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley")
 
             # Load with site override
-            config = PromptLoader.load("prompts/tourism_qa.yaml",
+            config = PromptLoader.load("config/prompts/tourism_qa.yaml",
                                       area="hefer_valley", site="agamon_hefer")
         """
         # Normalize path to absolute before caching for better cache efficiency

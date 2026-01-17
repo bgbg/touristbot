@@ -34,7 +34,7 @@ def extract_topics_from_chunks(
         Exception: If topic extraction fails, returns invalid format, or Gemini API call fails
     """
     # Load topic extraction prompt configuration
-    prompt_path = "prompts/topic_extraction.yaml"
+    prompt_path = "config/prompts/topic_extraction.yaml"
     prompt_config = PromptLoader.load(prompt_path)
 
     # Format prompts with variables

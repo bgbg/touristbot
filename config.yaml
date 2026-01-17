@@ -37,7 +37,7 @@ gemini_rag:
   auto_rebuild_registry: false  # Disable slow registry rebuild on startup
 
   # Prompts directory for YAML-based LLM configurations
-  prompts_dir: "prompts/"
+  prompts_dir: "config/prompts/"
 
   # Chunks will be stored in GCS (path within bucket)
   chunks_dir: "chunks"

@@ -19,7 +19,7 @@ class TestGetResponseWithActualAPICalls:
 
         # Setup session state mocks
         mock_config = Mock()
-        mock_config.prompts_dir = "prompts/"
+        mock_config.prompts_dir = "config/prompts/"
         mock_config.model_name = "gemini-2.0-flash"
 
         mock_registry = Mock()
@@ -64,7 +64,7 @@ class TestGetResponseWithActualAPICalls:
 
         # Setup session state mocks
         mock_config = Mock()
-        mock_config.prompts_dir = "prompts/"
+        mock_config.prompts_dir = "config/prompts/"
         mock_config.model_name = "gemini-2.0-flash"
 
         mock_registry = Mock()
@@ -121,7 +121,7 @@ class TestGetResponseInspectAPICall:
 
         # Setup session state mocks
         mock_config = Mock()
-        mock_config.prompts_dir = "prompts/"
+        mock_config.prompts_dir = "config/prompts/"
         mock_config.model_name = "gemini-2.0-flash"
 
         mock_registry = Mock()
@@ -187,7 +187,7 @@ class TestGetResponseInspectAPICall:
 
         # Setup session state mocks
         mock_config = Mock()
-        mock_config.prompts_dir = "prompts/"
+        mock_config.prompts_dir = "config/prompts/"
         mock_config.model_name = "gemini-2.0-flash"
 
         mock_registry = Mock()

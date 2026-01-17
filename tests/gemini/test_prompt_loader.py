@@ -150,8 +150,8 @@ def test_prompt_loader_load_invalid_temperature_bounds(tmp_path):
 
 def test_prompt_loader_load_relative_path():
     """Test loading with relative path from project root"""
-    # This assumes prompts/tourism_qa.yaml exists in the project
-    config = PromptLoader.load("prompts/tourism_qa.yaml")
+    # This assumes config/prompts/tourism_qa.yaml exists in the project
+    config = PromptLoader.load("config/prompts/tourism_qa.yaml")
 
     assert config.model_name == "gemini-2.5-flash"
     assert config.temperature == 0.6
@@ -163,7 +163,7 @@ def test_prompt_loader_load_relative_path():
 
 def test_end_to_end_tourism_qa():
     """Test full workflow with tourism_qa.yaml"""
-    config = PromptLoader.load("prompts/tourism_qa.yaml")
+    config = PromptLoader.load("config/prompts/tourism_qa.yaml")
 
     # Note: context removed for File Search API - context provided automatically via File Search
     system, user = config.format(
