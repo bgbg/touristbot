@@ -66,6 +66,8 @@ def _load_yaml_file(path: Path, context: str) -> Optional[dict]:
             return yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise yaml.YAMLError(f"Failed to parse {context} {path}: {e}") from e
+    except IOError as e:
+        raise IOError(f"Failed to read {context} {path}: {e}") from e
 
 
 def _validate_prompt_config(config_data: dict, yaml_path: str) -> float:

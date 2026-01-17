@@ -533,6 +533,8 @@ def _parse_structured_response(response_text: str) -> tuple[str, bool, dict]:
         try:
             result_text = json.loads(result_text)
         except json.JSONDecodeError:
+            # If decoding fails, keep the original string; it's not valid JSON but still usable as text.
+            logger.debug("Failed to decode double-encoded JSON in 'response_text'; using raw string value.")
             pass
 
     should_include = structured_response.get("should_include_images", True)

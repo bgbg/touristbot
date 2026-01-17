@@ -111,8 +111,11 @@ def _load_yaml_override(path: Path) -> Optional[dict]:
     if not path.exists():
         return None
 
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise yaml.YAMLError(f"Failed to parse override file {path}: {e}") from e
 
 
 @dataclass
