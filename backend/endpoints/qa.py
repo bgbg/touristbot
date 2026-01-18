@@ -234,7 +234,9 @@ async def chat_query(
         # Build conversation history for context
         history_messages = []
         for msg in conversation.messages[:-1]:  # Exclude current query
-            history_messages.append({"role": msg.role, "parts": [{"text": msg.content}]})
+            # Convert "assistant" role to "model" for Gemini API
+            role = "model" if msg.role == "assistant" else msg.role
+            history_messages.append({"role": role, "parts": [{"text": msg.content}]})
 
         # Format system prompt
         system_instruction = prompt_config.system_prompt
@@ -256,7 +258,7 @@ async def chat_query(
             types.Tool(
                 file_search=types.FileSearch(
                     file_search_store_names=[store_name],
-                    metadata_filter=f'location="{request.area}/{request.site}"',
+                    metadata_filter=f'area="{request.area}" AND site="{request.site}"',
                 )
             )
         ]

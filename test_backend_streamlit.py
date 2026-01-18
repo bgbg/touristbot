@@ -182,7 +182,14 @@ if prompt := st.chat_input("Ask about the location..."):
                 response.raise_for_status()
 
                 # Parse response
-                data = response.json()
+                try:
+                    data = response.json()
+                except Exception as e:
+                    st.error(f"Failed to parse response as JSON: {e}")
+                    st.error(f"Response status: {response.status_code}")
+                    st.error(f"Response headers: {dict(response.headers)}")
+                    st.error(f"Response text (first 500 chars): {response.text[:500]}")
+                    raise
 
                 # Save conversation ID
                 st.session_state.conversation_id = data.get("conversation_id")
