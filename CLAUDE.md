@@ -254,7 +254,9 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - **FastAPI** backend deployed on Google Cloud Run
 - **REST API** for all operations (chat, topics, locations, uploads)
 - **Stateless design**: All state in GCS (conversations, logs, registries)
-- **Simple authentication**: API keys via `Authorization: Bearer <key>` header
+- **Two-layer authentication**:
+  1. **GCP IAM**: Cloud Run requires GCP authentication (not publicly accessible)
+  2. **API keys**: Application-level auth via `Authorization: Bearer <key>` header
 - **Single storage backend**: GCS for everything (no Firestore/BigQuery/Redis)
 
 ### API Endpoints
@@ -350,7 +352,7 @@ gcloud run deploy tourism-rag-backend \
   --image gcr.io/gen-lang-client-0860749390/tourism-rag-backend \
   --region me-west1 \
   --platform managed \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --memory 2Gi \
   --cpu 2 \
   --timeout 3600 \
@@ -361,12 +363,30 @@ gcloud run deploy tourism-rag-backend \
 
 **Post-deployment:**
 1. Copy the service URL from deployment output (e.g., `https://tourism-rag-backend-xxxxx.me-west1.run.app`)
-2. Add to `.streamlit/secrets.toml`:
+2. Grant Streamlit service account access to invoke Cloud Run:
+   ```bash
+   gcloud run services add-iam-policy-binding tourism-rag-backend \
+     --region=me-west1 \
+     --member='serviceAccount:<streamlit-sa>@<project>.iam.gserviceaccount.com' \
+     --role='roles/run.invoker'
+   ```
+   Or for local development, grant your own account:
+   ```bash
+   gcloud run services add-iam-policy-binding tourism-rag-backend \
+     --region=me-west1 \
+     --member='user:<your-email>@gmail.com' \
+     --role='roles/run.invoker'
+   ```
+3. Add to `.streamlit/secrets.toml`:
    ```toml
    backend_api_url = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
    backend_api_key = "one-of-your-BACKEND_API_KEYS"
    ```
-3. Verify deployment: `curl https://<service-url>/health`
+4. Verify deployment (requires GCP auth):
+   ```bash
+   curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+     https://<service-url>/health
+   ```
 
 **Local Testing:**
 ```bash
