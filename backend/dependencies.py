@@ -10,7 +10,7 @@ from functools import lru_cache
 from backend.conversation_storage.conversations import ConversationStore
 from backend.gcs_storage import GCSStorage, StorageBackend
 from backend.image_registry import ImageRegistry
-from backend.logging.query_logger import QueryLogger
+from backend.query_logging.query_logger import QueryLogger
 from backend.store_registry import StoreRegistry
 
 

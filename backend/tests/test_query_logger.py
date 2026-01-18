@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from backend.logging.query_logger import QueryLogger
+from backend.query_logging.query_logger import QueryLogger
 
 
 class TestQueryLogger:

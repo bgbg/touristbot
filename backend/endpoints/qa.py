@@ -26,7 +26,7 @@ from backend.dependencies import (
     get_store_registry,
 )
 from backend.image_registry import ImageRegistry
-from backend.logging.query_logger import QueryLogger
+from backend.query_logging.query_logger import QueryLogger
 from backend.models import Citation, ImageAwareResponse, ImageMetadata, QARequest, QAResponse
 from backend.prompt_loader import PromptLoader
 from backend.store_registry import StoreRegistry
@@ -260,6 +260,9 @@ async def chat_query(
 
         # Call Gemini API with structured output
         try:
+            # Use custom schema generator to avoid additionalProperties error
+            gemini_schema = ImageAwareResponse.get_gemini_schema()
+
             response = client.models.generate_content(
                 model=prompt_config.model_name,
                 contents=[*history_messages, {"role": "user", "parts": user_parts}],
@@ -268,7 +271,7 @@ async def chat_query(
                     tools=tools,
                     temperature=prompt_config.temperature,
                     response_mime_type="application/json",
-                    response_schema=ImageAwareResponse,
+                    response_schema=gemini_schema,
                 ),
             )
 
