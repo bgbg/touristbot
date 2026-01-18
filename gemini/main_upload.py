@@ -331,6 +331,13 @@ def main():
 
     tracker = UploadTracker(config.upload_tracking_path)
 
+    # Initialize GCS storage backend (needed for registries)
+    storage_backend = get_storage_backend(
+        bucket_name=config.gcs_bucket_name,
+        credentials_json=config.gcs_credentials_json,
+        enable_cache=config.enable_local_cache,
+    )
+
     # Connect to Gemini (skip in dry-run mode)
     if not args.dry_run:
         print("\n[Step 3/4] Connecting to Gemini and initializing File Search Store...")
