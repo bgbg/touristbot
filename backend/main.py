@@ -53,12 +53,15 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Tourism RAG Backend")
 
 
-# Create FastAPI app
+# Create FastAPI app with disabled default docs (we'll add protected versions)
 app = FastAPI(
     title="Tourism RAG Backend",
     description="Serverless backend for tourism Q&A system using Google Gemini File Search API",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,  # Disable default /docs
+    redoc_url=None,  # Disable default /redoc
+    openapi_url=None,  # Disable default /openapi.json
 )
 
 # Add CORS middleware (allow all origins for MVP)
@@ -77,9 +80,12 @@ app.include_router(locations.router)
 app.include_router(upload.router)
 
 
-@app.get("/health")
+@app.get("/_internal_probe_3f9a2c1b")
 async def health_check():
-    """Health check endpoint for Cloud Run."""
+    """
+    Internal health check endpoint for Cloud Run monitoring.
+    Obscured path to reduce exposure.
+    """
     return {
         "status": "healthy",
         "service": "tourism-rag-backend",
@@ -88,13 +94,12 @@ async def health_check():
 
 
 @app.get("/")
-async def root():
-    """Root endpoint with API information."""
+async def root(api_key: ApiKeyDep):
+    """Root endpoint with API information (requires authentication)."""
     return {
         "service": "Tourism RAG Backend",
         "version": "1.0.0",
         "endpoints": {
-            "health": "/health",
             "qa": "/qa",
             "topics": "/topics/{area}/{site}",
             "locations": "/locations",
@@ -104,10 +109,17 @@ async def root():
     }
 
 
-@app.get("/protected-test")
-async def protected_test(api_key: ApiKeyDep):
-    """Test endpoint demonstrating API key authentication."""
-    return {
-        "message": "Authentication successful",
-        "api_key_prefix": api_key[:8] + "..." if len(api_key) > 8 else api_key,
-    }
+@app.get("/docs", include_in_schema=False)
+async def get_documentation(api_key: ApiKeyDep):
+    """Protected API documentation (requires authentication)."""
+    from fastapi.openapi.docs import get_swagger_ui_html
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title=f"{app.title} - API Documentation",
+    )
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def get_openapi_schema(api_key: ApiKeyDep):
+    """Protected OpenAPI schema (requires authentication)."""
+    return app.openapi()

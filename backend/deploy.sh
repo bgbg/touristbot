@@ -36,16 +36,21 @@ fi
 
 # Generate secure API keys if not provided
 # You can override these by setting BACKEND_API_KEYS environment variable before running
+API_KEYS_SOURCE="loaded from .env"
 if [ -z "$BACKEND_API_KEYS" ]; then
     # Generate 2 random API keys for production use
     API_KEY_1=$(openssl rand -hex 32)
     API_KEY_2=$(openssl rand -hex 32)
     BACKEND_API_KEYS="${API_KEY_1},${API_KEY_2}"
+    API_KEYS_SOURCE="newly generated"
     echo "Generated new API keys:"
     echo "  Key 1: ${API_KEY_1}"
     echo "  Key 2: ${API_KEY_2}"
     echo ""
     echo "IMPORTANT: Save these keys securely! You'll need them to configure the frontend."
+    echo ""
+else
+    echo "Using existing API keys from environment (.env file)"
     echo ""
 fi
 
@@ -75,7 +80,7 @@ gcloud run deploy ${SERVICE_NAME} \
     --image ${IMAGE_NAME} \
     --region ${REGION} \
     --platform managed \
-    --no-allow-unauthenticated \
+    --allow-unauthenticated \
     --memory 2Gi \
     --cpu 2 \
     --timeout 3600 \
@@ -110,6 +115,7 @@ echo "  GOOGLE_API_KEY: ${GOOGLE_API_KEY}"
 echo "  BACKEND_API_KEYS: ${BACKEND_API_KEYS}"
 echo ""
 echo "Backend API Keys (for authentication):"
+echo "  Source: ${API_KEYS_SOURCE}"
 # Split the keys if they exist
 if [ -n "$BACKEND_API_KEYS" ]; then
     IFS=',' read -ra KEYS <<< "$BACKEND_API_KEYS"
