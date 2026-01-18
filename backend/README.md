@@ -28,7 +28,15 @@ Set in Cloud Run console or via CLI:
 BACKEND_API_KEYS=key1,key2,key3  # Comma-separated API keys (create secure keys)
 GCS_BUCKET=tarasa_tourist_bot_content
 GOOGLE_API_KEY=<your-gemini-api-key>  # Same as in .streamlit/secrets.toml
+LOG_LEVEL=INFO  # Optional: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
 ```
+
+**Logging configuration:**
+- **Cloud Run**: Logs to stdout only (captured by Cloud Logging), no file handler
+- **Local**: Logs to stdout + `backend.log` file (rotating, 10MB max, 5 backups)
+- **LOG_LEVEL**: Controls verbosity (default: INFO)
+  - Use DEBUG temporarily for troubleshooting
+  - WARNING: DEBUG logging is verbose and increases Cloud Logging costs in production
 
 ### Post-Deployment
 1. Copy service URL from deployment output
@@ -57,6 +65,49 @@ GOOGLE_API_KEY=<your-gemini-api-key>  # Same as in .streamlit/secrets.toml
 - Keep endpoints stateless
 - Use dependency injection
 
+## Logging and Monitoring
+
+### Viewing Production Logs
+
+**Cloud Logging (Application Logs):**
+```bash
+# Recent logs
+gcloud run logs read tourism-rag-backend --region me-west1 --limit 50
+
+# Follow logs in real-time
+gcloud run logs tail tourism-rag-backend --region me-west1
+
+# Filter by severity
+gcloud run logs read tourism-rag-backend --region me-west1 --log-filter="severity>=ERROR"
+```
+
+**Query Logs (GCS):**
+Query/response logs are stored in GCS at `query_logs/{YYYY-MM-DD}.jsonl`:
+```bash
+# Download today's logs
+gsutil cp gs://tarasa_tourist_bot_content/query_logs/$(date +%Y-%m-%d).jsonl .
+
+# View recent entries
+gsutil cat gs://tarasa_tourist_bot_content/query_logs/$(date +%Y-%m-%d).jsonl | tail -n 10
+```
+
+See `CLAUDE.md` "Logging and Monitoring" section for complete documentation.
+
+### Temporary DEBUG Logging
+
+To enable DEBUG logging in production (use sparingly):
+```bash
+# Enable DEBUG
+gcloud run services update tourism-rag-backend \
+  --region me-west1 \
+  --set-env-vars LOG_LEVEL=DEBUG
+
+# Revert to INFO
+gcloud run services update tourism-rag-backend \
+  --region me-west1 \
+  --set-env-vars LOG_LEVEL=INFO
+```
+
 ## Troubleshooting
 
 **Import errors:** Make sure you're in the project root and `backend/` is in PYTHONPATH
@@ -66,6 +117,8 @@ GOOGLE_API_KEY=<your-gemini-api-key>  # Same as in .streamlit/secrets.toml
 **GCS errors:** Verify bucket exists and service account has read/write permissions
 
 **Gemini API errors:** Check `GOOGLE_API_KEY` is valid and has File Search API enabled
+
+**No logs appearing:** Check Cloud Run service logs for startup errors, verify K_SERVICE env var is set in Cloud Run
 
 ## MVP Scope
 
