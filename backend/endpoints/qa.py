@@ -188,7 +188,7 @@ async def chat_query(
         # Load config and prompts with location overrides
         config = GeminiConfig.from_yaml(area=request.area, site=request.site)
         prompt_config = PromptLoader.load(
-            "prompts/tourism_qa.yaml", area=request.area, site=request.site
+            "config/prompts/tourism_qa.yaml", area=request.area, site=request.site
         )
 
         # Get or create conversation
