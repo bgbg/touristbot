@@ -1,6 +1,7 @@
 """
 Integration test for QA endpoint with actual backend API.
 """
+
 import os
 import pytest
 import requests
@@ -18,8 +19,7 @@ def backend_url():
 def api_key():
     """Get API key from environment."""
     key = os.getenv("BACKEND_API_KEY")
-    if not key:
-        pytest.skip("BACKEND_API_KEY not set")
+    assert key is not None, "BACKEND_API_KEY environment variable must be set"
     return key
 
 
@@ -40,22 +40,20 @@ def test_qa_endpoint_simple_query(backend_url, auth_headers):
     4. No schema validation errors occur
     """
     # Simple query
-    request_data = {
-        "area": "hefer_valley",
-        "site": "agamon_hefer",
-        "query": "hi"
-    }
+    request_data = {"area": "hefer_valley", "site": "agamon_hefer", "query": "hi"}
 
     # Call API
     response = requests.post(
         f"{backend_url}/qa",
         headers={**auth_headers, "Content-Type": "application/json"},
         json=request_data,
-        timeout=60
+        timeout=60,
     )
 
     # Check response
-    assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+    assert (
+        response.status_code == 200
+    ), f"Expected 200, got {response.status_code}: {response.text}"
 
     data = response.json()
 
@@ -92,14 +90,14 @@ def test_qa_endpoint_with_conversation(backend_url, auth_headers):
     request1 = {
         "area": "hefer_valley",
         "site": "agamon_hefer",
-        "query": "What birds can I see here?"
+        "query": "What birds can I see here?",
     }
 
     response1 = requests.post(
         f"{backend_url}/qa",
         headers={**auth_headers, "Content-Type": "application/json"},
         json=request1,
-        timeout=60
+        timeout=60,
     )
 
     assert response1.status_code == 200
@@ -111,22 +109,25 @@ def test_qa_endpoint_with_conversation(backend_url, auth_headers):
         "area": "hefer_valley",
         "site": "agamon_hefer",
         "query": "Tell me more about them",
-        "conversation_id": conversation_id
+        "conversation_id": conversation_id,
     }
 
     response2 = requests.post(
         f"{backend_url}/qa",
         headers={**auth_headers, "Content-Type": "application/json"},
         json=request2,
-        timeout=60
+        timeout=60,
     )
 
     # Verify no role validation error
-    assert response2.status_code == 200, f"Expected 200, got {response2.status_code}: {response2.text}"
+    assert (
+        response2.status_code == 200
+    ), f"Expected 200, got {response2.status_code}: {response2.text}"
 
     # Verify error message doesn't contain role validation error
-    assert "valid role" not in response2.text.lower(), \
-        f"Got role validation error: {response2.text}"
+    assert (
+        "valid role" not in response2.text.lower()
+    ), f"Got role validation error: {response2.text}"
 
     data2 = response2.json()
 

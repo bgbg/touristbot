@@ -18,129 +18,37 @@ st.set_page_config(
 )
 
 # =============================================================================
-# Backend Configuration and Endpoint Selection
+# Backend Configuration
 # =============================================================================
 
-def get_backend_config():
-    """
-    Load backend configuration from secrets and determine which endpoint to use.
+# Load backend configuration from secrets
+backend_url = st.secrets.get("backend_api_url")
+backend_key = st.secrets.get("backend_api_key")
 
-    Supports three configuration modes:
-    1. Dual endpoints (cloud + local): Shows selector, user can switch
-    2. Single cloud endpoint: Auto-use cloud, no selector
-    3. Single local endpoint: Auto-use local, no selector
-    4. Legacy single endpoint: Auto-use it, no selector (backward compatibility)
+if not backend_url:
+    st.error("Missing `backend_api_url` in .streamlit/secrets.toml")
+    st.info("Please configure `backend_api_url` with your backend endpoint URL")
+    st.stop()
 
-    Returns:
-        tuple: (backend_url, backend_key, show_selector, available_endpoints)
-    """
-    backend_key = st.secrets.get("backend_api_key")
-
-    if not backend_key:
-        st.error("Missing backend_api_key in .streamlit/secrets.toml")
-        st.stop()
-
-    # Check for dual-endpoint configuration
-    cloud_url = st.secrets.get("backend_api_url_cloud")
-    local_url = st.secrets.get("backend_api_url_local")
-
-    # Check for legacy single endpoint configuration
-    legacy_url = st.secrets.get("backend_api_url")
-
-    available_endpoints = {}
-    if cloud_url:
-        available_endpoints["cloud"] = cloud_url
-    if local_url:
-        available_endpoints["local"] = local_url
-    if legacy_url and not cloud_url and not local_url:
-        # Backward compatibility: treat legacy URL as cloud
-        available_endpoints["cloud"] = legacy_url
-
-    if not available_endpoints:
-        st.error("No backend endpoints configured in .streamlit/secrets.toml")
-        st.info("""
-        Please configure at least one of:
-        - `backend_api_url_cloud` and/or `backend_api_url_local` (recommended)
-        - `backend_api_url` (legacy, for backward compatibility)
-        """)
-        st.stop()
-
-    # Determine if we should show selector
-    show_selector = len(available_endpoints) > 1
-
-    # Initialize session state for endpoint selection
-    if "selected_endpoint_type" not in st.session_state:
-        # Default to cloud if available, otherwise use the only available endpoint
-        if "cloud" in available_endpoints:
-            st.session_state.selected_endpoint_type = "cloud"
-        else:
-            st.session_state.selected_endpoint_type = list(available_endpoints.keys())[0]
-
-    # Get selected endpoint URL
-    backend_url = available_endpoints.get(st.session_state.selected_endpoint_type)
-
-    if not backend_url:
-        # Fallback if selected endpoint is no longer available (edge case)
-        st.session_state.selected_endpoint_type = list(available_endpoints.keys())[0]
-        backend_url = available_endpoints[st.session_state.selected_endpoint_type]
-
-    return backend_url, backend_key, show_selector, available_endpoints
-
-
-# Get backend configuration
-backend_url, backend_key, show_selector, available_endpoints = get_backend_config()
+if not backend_key:
+    st.error("Missing `backend_api_key` in .streamlit/secrets.toml")
+    st.stop()
 
 # Store backend URL in session state for easy access
 st.session_state.backend_url = backend_url
 
 # =============================================================================
-# Sidebar - Endpoint Selector (if multiple endpoints configured)
+# Sidebar
 # =============================================================================
 
-if show_selector:
-    st.sidebar.markdown("### Backend Endpoint")
-
-    # Endpoint selector
-    endpoint_options = []
-    endpoint_mapping = {}
-
-    if "cloud" in available_endpoints:
-        endpoint_options.append("🌐 Cloud Run")
-        endpoint_mapping["🌐 Cloud Run"] = "cloud"
-
-    if "local" in available_endpoints:
-        endpoint_options.append("💻 Local Development")
-        endpoint_mapping["💻 Local Development"] = "local"
-
-    # Find current selection display name
-    current_display = None
-    for display_name, endpoint_type in endpoint_mapping.items():
-        if endpoint_type == st.session_state.selected_endpoint_type:
-            current_display = display_name
-            break
-
-    if not current_display:
-        current_display = endpoint_options[0]
-
-    selected_display = st.sidebar.radio(
-        "Select endpoint:",
-        options=endpoint_options,
-        index=endpoint_options.index(current_display),
-        key="endpoint_selector"
-    )
-
-    # Update session state if selection changed
-    new_endpoint_type = endpoint_mapping[selected_display]
-    if new_endpoint_type != st.session_state.selected_endpoint_type:
-        st.session_state.selected_endpoint_type = new_endpoint_type
-        st.session_state.backend_url = available_endpoints[new_endpoint_type]
-        # Reset conversation when switching endpoints
-        st.session_state.conversation_id = None
-        st.session_state.messages = []
-        st.rerun()
-
 # Display active endpoint
-st.sidebar.markdown(f"**Active:** `{st.session_state.backend_url}`")
+st.sidebar.markdown(f"**Backend:** `{backend_url}`")
+
+# Cache clear button
+if st.sidebar.button("🔄 Clear Cache"):
+    st.cache_data.clear()
+    st.rerun()
+
 st.sidebar.markdown("---")
 
 # =============================================================================
@@ -209,11 +117,14 @@ for loc in locations_data["locations"]:
         area_sites[area] = []
     area_sites[area].append(site)
 
-# Area selection
+# Area selection - default to mazkeret_batya if available
+area_options = sorted(area_sites.keys())
+default_index = area_options.index("mazkeret_batya") if "mazkeret_batya" in area_options else 0
+
 selected_area = st.sidebar.selectbox(
     "Area",
-    options=sorted(area_sites.keys()),
-    index=0
+    options=area_options,
+    index=default_index
 )
 
 # Site selection
