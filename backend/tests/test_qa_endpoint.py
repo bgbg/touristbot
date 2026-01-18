@@ -1,9 +1,6 @@
 """
 Test QA endpoint with actual API calls.
 """
-import os
-import pytest
-from unittest.mock import Mock, patch
 from backend.models import ImageAwareResponse
 
 

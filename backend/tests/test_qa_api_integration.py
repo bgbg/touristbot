@@ -17,7 +17,7 @@ def backend_url():
 @pytest.fixture
 def api_key():
     """Get API key from environment."""
-    key = os.getenv("BACKEND_API_KEY", "00dcc37da36b4467fb7f9b78ab6f775c1c762af6d376e330d68f0affcf9fbb2f")
+    key = os.getenv("BACKEND_API_KEY")
     if not key:
         pytest.skip("BACKEND_API_KEY not set")
     return key
@@ -82,6 +82,11 @@ def test_qa_endpoint_simple_query(backend_url, auth_headers):
 def test_qa_endpoint_with_conversation(backend_url, auth_headers):
     """
     Test QA endpoint with conversation continuity.
+
+    This test verifies:
+    1. Conversation ID persists across queries
+    2. Second query succeeds with conversation history
+    3. No "INVALID_ARGUMENT: Please use a valid role" error occurs
     """
     # First query
     request1 = {
@@ -116,7 +121,13 @@ def test_qa_endpoint_with_conversation(backend_url, auth_headers):
         timeout=60
     )
 
-    assert response2.status_code == 200
+    # Verify no role validation error
+    assert response2.status_code == 200, f"Expected 200, got {response2.status_code}: {response2.text}"
+
+    # Verify error message doesn't contain role validation error
+    assert "valid role" not in response2.text.lower(), \
+        f"Got role validation error: {response2.text}"
+
     data2 = response2.json()
 
     # Should use same conversation

@@ -13,15 +13,14 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 ## Setup
 - Python 3.11+; conda environment name: `tarasa`.
 - Activate environment: `conda activate tarasa`, then install dependencies: `pip install -r requirements.txt`.
-- Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`; set backend API credentials (`backend_api_key`, `backend_api_url_cloud`/`backend_api_url_local`), `GOOGLE_API_KEY` (for CLI tools), and GCS credentials.
+- Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`; set `GOOGLE_API_KEY` and GCS credentials.
 - **GCS is mandatory**: Image and store registries are stored in GCS bucket (no local fallback).
 - Adjust `config.yaml` for GCS paths, File Search Store name, chunking params, and model selection.
 - First run: Automatic migration moves any local registry files to GCS.
 
 ## Running
-- **Backend API** (local development): `python -m uvicorn backend.main:app --reload --port 8080` (see Backend API section for deployment)
-- **Web UI**: `streamlit run gemini/main_qa.py` (defaults to http://localhost:8501, requires backend API running or deployed)
-- **CLI upload**: `python gemini/main_upload.py [--area <area> --site <site> --force]` (uses direct Gemini API, not backend)
+- Web app: `streamlit run gemini/main_qa.py` (defaults to http://localhost:8501).
+- CLI upload: `python gemini/main_upload.py [--area <area> --site <site> --force]`.
 
 ## Project Layout
 - gemini/: core logic for File Search uploads, QA flow, registry, logging, topic extraction, image handling.
@@ -197,17 +196,26 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - Query process: query images by area/site → include URIs in API call → LLM assesses relevance → display relevant images in UI.
 - Note: File Search API does NOT extract images from DOCX (text-only), hence separate image pipeline.
 
-### LLM-Based Image Relevance (Issue #18)
-- Gemini API returns structured output (JSON) with image relevance signals via Pydantic schema `ImageAwareResponse`.
-- Structured output fields:
-  - `response_text`: Main response to user query (Hebrew or query language).
-  - `should_include_images`: Boolean indicating if images should be shown (false for initial greetings, true for substantive queries).
-  - `image_relevance`: Dict mapping image URIs to relevance scores (0-100).
-- Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks).
-- Image filtering: Only images with relevance score >= 60 are displayed.
-- Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!").
-- Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call.
-- Fallback: If structured output parsing fails, defaults to showing all images (backward compatibility).
+### LLM-Based Image Relevance (Issue #18, #40)
+- **Status**: Fully implemented and active
+- **Note**: Gemini 2.5 doesn't support File Search tool + structured output simultaneously
+- System prompt instructs model to return JSON with image relevance signals
+- JSON response parsed manually from text (not using response_schema)
+- Response fields:
+  - `response_text`: Main response to user query (Hebrew or query language)
+  - `should_include_images`: Boolean indicating if images should be shown (false for initial greetings, true for substantive queries)
+  - `image_relevance`: List of `{image_uri, relevance_score}` objects with relevance scores (0-100)
+- **Implementation flow**:
+  1. JSON parsing extracts `should_include_images` and `image_relevance` from Gemini response ([qa.py:294-308](backend/endpoints/qa.py#L294-L308))
+  2. If `should_include_images=false`, no images displayed (greeting/abstract question detection)
+  3. If `should_include_images=true` and relevance data available, `filter_images_by_relevance()` filters images with score >= 60 ([qa.py:109-174](backend/endpoints/qa.py#L109-L174))
+  4. Filtered images sorted by relevance score (descending)
+  5. Fallback: if no relevance data, shows all images (backward compatibility)
+- Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks)
+- Image filtering: Only images with relevance score >= 60 are displayed
+- Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!")
+- Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call
+- Comprehensive logging: tracks JSON parsing, image filtering, and relevance scores for debugging
 
 ## Data Storage Architecture
 - **GCS is mandatory**: All registries stored in Google Cloud Storage (no local fallback).
@@ -249,7 +257,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 
 ## Backend API (Serverless Architecture)
 
-**Status**: Backend API implemented and tested (40 unit tests passing). Deployed on Cloud Run. **Streamlit frontend fully integrated** (issues #34 and #37 complete).
+**Status**: Backend API deployed to Google Cloud Run (revision 00018). 44+ unit tests passing. Production-ready.
 
 ### Architecture
 - **FastAPI** backend deployed on Google Cloud Run
@@ -277,7 +285,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - `POST /upload/{area}/{site}`: Placeholder (returns 501 - use CLI uploader instead)
 
 **Health:**
-- `GET /health`: Health check for Cloud Run
+- `GET /_internal_probe_3f9a2c1b`: Internal health check for Cloud Run (obscured path for security)
 
 ### Backend Components
 
@@ -297,12 +305,12 @@ backend/
 │   └── upload.py              # Upload placeholder
 ├── conversation_storage/      # GCS conversation management
 │   └── conversations.py       # ConversationStore class
-├── logging/                   # Query logging
+├── query_logging/             # Query logging (renamed to avoid shadowing Python's logging)
 │   └── query_logger.py        # QueryLogger (JSONL to GCS)
 ├── gcs_storage.py             # GCS storage backend
 ├── store_registry.py          # File Search Store registry
 ├── image_registry.py          # Image metadata registry
-└── tests/                     # Unit tests (40 tests, all passing)
+└── tests/                     # Unit tests (44+ tests, all passing)
 ```
 
 **Storage in GCS:**
@@ -336,10 +344,11 @@ GOOGLE_API_KEY=your-google-key     # Gemini API key (from .streamlit/secrets.tom
 **Deploy to Cloud Run:**
 ```bash
 cd backend
-./deploy.sh  # Uses defaults: gen-lang-client-0860749390, me-west1
+./deploy.sh  # Uses defaults from .env: gen-lang-client-0860749390, me-west1
 
-# Or with custom project/region:
-./deploy.sh <project-id> <region>
+# Deployment reads secrets from .env file (NEVER commit .env to git)
+# Creates .env.yaml temporarily for Cloud Run environment variables
+# Deploys with --no-allow-unauthenticated (requires GCP auth + API key)
 ```
 
 **Manual deployment:**
@@ -363,26 +372,19 @@ gcloud run deploy tourism-rag-backend \
 ```
 
 **Post-deployment:**
-1. Copy the service URL from deployment output (e.g., `https://tourism-rag-backend-xxxxx.me-west1.run.app`)
-2. Grant Streamlit service account access to invoke Cloud Run:
-   ```bash
-   gcloud run services add-iam-policy-binding tourism-rag-backend \
-     --region=me-west1 \
-     --member='serviceAccount:<streamlit-sa>@<project>.iam.gserviceaccount.com' \
-     --role='roles/run.invoker'
+1. Service URL: `https://tourism-rag-backend-347968285860.me-west1.run.app` (deployed revision 00018)
+2. **Authentication**: Service uses `--no-allow-unauthenticated` requiring both GCP IAM and API keys
+   - API endpoints require `Authorization: Bearer <api-key>` header
+   - Health probe (`/_internal_probe_3f9a2c1b`) is unauthenticated for Cloud Run monitoring
+3. Add to `.streamlit/secrets.toml`:
+   ```toml
+   backend_api_url = "https://tourism-rag-backend-347968285860.me-west1.run.app"
+   backend_api_key = "<one-of-your-BACKEND_API_KEYS>"
    ```
-   Or for local development, grant your own account:
+4. Test deployment:
    ```bash
-   gcloud run services add-iam-policy-binding tourism-rag-backend \
-     --region=me-west1 \
-     --member='user:<your-email>@gmail.com' \
-     --role='roles/run.invoker'
-   ```
-3. Configure `.streamlit/secrets.toml` with backend endpoints (see Streamlit Frontend Integration section below)
-4. Verify deployment (requires GCP auth):
-   ```bash
-   curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-     https://<service-url>/health
+   curl -H "Authorization: Bearer <api-key>" \
+     https://tourism-rag-backend-347968285860.me-west1.run.app/locations
    ```
 
 **Local Testing:**
@@ -400,78 +402,6 @@ curl -H "Authorization: Bearer test-key-123" \
   http://localhost:8080/locations
 ```
 
-### Streamlit Frontend Integration
-
-**Status**: Fully integrated (issues #34 and #37 complete). The Streamlit UI (`gemini/main_qa.py`) now uses the backend REST API instead of direct Gemini API calls.
-
-**Endpoint Selector Feature**:
-The UI supports flexible backend configuration with an optional endpoint selector:
-
-**Configuration Options** (in `.streamlit/secrets.toml`):
-
-1. **Dual Endpoints** (Cloud + Local) - Shows selector:
-   ```toml
-   backend_api_key = "your-backend-api-key"
-   backend_api_url_cloud = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
-   backend_api_url_local = "http://localhost:8080"
-   ```
-   - Endpoint selector appears in sidebar (🌐 Cloud Run / 💻 Local Development)
-   - User can switch between endpoints during session
-   - Conversation resets when switching (different backends = separate storage)
-   - Default: Cloud Run
-
-2. **Single Endpoint** (Cloud or Local) - No selector:
-   ```toml
-   backend_api_key = "your-backend-api-key"
-   backend_api_url_cloud = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
-   ```
-   OR
-   ```toml
-   backend_api_key = "your-backend-api-key"
-   backend_api_url_local = "http://localhost:8080"
-   ```
-   - Auto-uses the configured endpoint
-   - No selector shown (cleaner production UI)
-
-3. **Legacy Format** (Backward Compatible):
-   ```toml
-   backend_api_key = "your-backend-api-key"
-   backend_api_url = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
-   ```
-   - Treats `backend_api_url` as cloud endpoint
-   - No selector shown
-
-**Development Workflow**:
-- Configure both `backend_api_url_cloud` and `backend_api_url_local` for development
-- Easily switch between testing Cloud Run deployment and local backend
-- No need to edit secrets file or restart app to switch
-
-**Production Deployment**:
-- Only configure `backend_api_url_cloud` for security
-- Do NOT expose local development endpoints in production secrets
-
-**UI Features**:
-- Active endpoint displayed in sidebar (e.g., "Active: `https://...`")
-- Clear error messages for unreachable backends or auth failures
-- Conversation history managed by backend (via `conversation_id`)
-- Citations and images use backend response format (`source`/`text`, `uri`/`file_api_uri`)
-- Full feature parity with previous direct Gemini API integration
-
-**Running the UI**:
-```bash
-streamlit run gemini/main_qa.py
-```
-
-**Troubleshooting**:
-- **"Missing backend_api_key"**: Add `backend_api_key` to `.streamlit/secrets.toml`
-- **"No backend endpoints configured"**: Add at least one of `backend_api_url_cloud`, `backend_api_url_local`, or `backend_api_url`
-- **"Cannot connect to backend"**:
-  - For Cloud Run: Verify deployment, check GCP IAM permissions
-  - For local: Ensure backend is running (`python -m uvicorn backend.main:app --port 8080`)
-  - Check API key is correct
-- **401 Unauthorized**: API key doesn't match backend's `BACKEND_API_KEYS` environment variable
-- **Conversation resets unexpectedly**: Normal when switching endpoints (separate storage)
-
 ### Configuration Overrides
 
 Backend fully supports location-specific config/prompt overrides:
@@ -487,8 +417,40 @@ pytest backend/tests/ -v
 # 11 tests: auth
 # 17 tests: conversation storage
 # 12 tests: query logger
-# Total: 40 tests, all passing
+# 4 tests: QA endpoint (schema validation, API integration)
+# Total: 44+ tests, all passing
+
+# Integration tests against deployed backend:
+pytest tests/test_qa_api_integration.py -v
 ```
+
+### Known Issues & Fixes
+
+**Critical fixes applied (revision 00018):**
+1. **Metadata filter mismatch** (Issue: File Search returning no results)
+   - Problem: Upload adds `area` and `site` metadata, query used `location="area/site"`
+   - Fix: Changed filter to `area="..." AND site="..."` in [backend/endpoints/qa.py:261](backend/endpoints/qa.py#L261)
+
+2. **Role validation error** (Issue: "Please use a valid role: user, model")
+   - Problem: Conversation store uses "assistant" role, Gemini API requires "model"
+   - Fix: Convert "assistant" → "model" when building history in [backend/endpoints/qa.py:237](backend/endpoints/qa.py#L237)
+
+3. **Module shadowing** (Issue: `logging.getLogger` not found)
+   - Problem: `backend/logging/` directory shadowed Python's built-in logging module
+   - Fix: Renamed to `backend/query_logging/`
+
+4. **Schema validation** (Issue: "additionalProperties is not supported")
+   - Problem: Pydantic v2 generates schemas with additionalProperties
+   - Fix: Custom GeminiJsonSchema generator removes additionalProperties in [backend/models.py:11](backend/models.py#L11)
+
+5. **Structured output compatibility** (Issue: Tools + structured output conflict)
+   - Problem: Gemini 2.5 doesn't support File Search tool + response_schema together
+   - Fix: Removed structured output, parse JSON from text response manually
+   - System prompt instructs model to return JSON format
+
+6. **LRU cache staleness** (Issue: Registry changes not reflected)
+   - Problem: Singleton dependencies cached, new locations not appearing
+   - Fix: Force Cloud Run restart with cache-busting env var or new deployment
 
 ### Limitations & Future Work
 
