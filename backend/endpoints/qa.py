@@ -106,14 +106,14 @@ def query_images_for_location(
 
 
 def filter_images_by_relevance(
-    images: List[dict], image_relevance: dict, min_score: int = 60
+    images: List[dict], image_relevance: List, min_score: int = 60
 ) -> List[ImageMetadata]:
     """
     Filter images by relevance scores from LLM.
 
     Args:
         images: List of image records from registry
-        image_relevance: Dict mapping URIs to relevance scores
+        image_relevance: List of ImageRelevanceScore objects from LLM
         min_score: Minimum relevance score (default: 60)
 
     Returns:
@@ -121,13 +121,16 @@ def filter_images_by_relevance(
     """
     relevant_images = []
 
+    # Convert list of scores to dict for lookup
+    relevance_dict = {item.uri: item.score for item in image_relevance}
+
     for img in images:
         file_api_uri = img.file_api_uri
         if not file_api_uri:
             continue
 
         # Get relevance score from LLM output
-        score = image_relevance.get(file_api_uri, 0)
+        score = relevance_dict.get(file_api_uri, 0)
 
         if score >= min_score:
             # Build context from before/after text

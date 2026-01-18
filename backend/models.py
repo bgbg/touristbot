@@ -42,6 +42,13 @@ class GeminiJsonSchema(GenerateJsonSchema):
         return schema
 
 
+class ImageRelevanceScore(BaseModel):
+    """Single image relevance score entry."""
+
+    uri: str = Field(description="Image File API URI")
+    score: int = Field(ge=0, le=100, description="Relevance score (0-100)")
+
+
 class ImageAwareResponse(BaseModel):
     """
     Structured response from Gemini API with image relevance signals.
@@ -55,9 +62,9 @@ class ImageAwareResponse(BaseModel):
     should_include_images: bool = Field(
         description="Whether images should be shown (false for initial greetings, true for substantive queries)"
     )
-    image_relevance: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Map of image URIs to relevance scores (0-100). Only images with score >= 60 should be displayed.",
+    image_relevance: List["ImageRelevanceScore"] = Field(
+        default_factory=list,
+        description="List of image URIs with relevance scores (0-100). Only images with score >= 60 should be displayed.",
     )
 
     @classmethod

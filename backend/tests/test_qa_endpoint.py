@@ -40,7 +40,7 @@ def test_pydantic_schema_for_gemini_api():
 
 def test_pydantic_schema_structure():
     """Verify the ImageAwareResponse schema has the expected structure."""
-    schema = ImageAwareResponse.model_json_schema()
+    schema = ImageAwareResponse.get_gemini_schema()
 
     # Must have required fields
     assert "properties" in schema
@@ -51,4 +51,20 @@ def test_pydantic_schema_structure():
     # Verify types
     assert schema["properties"]["response_text"]["type"] == "string"
     assert schema["properties"]["should_include_images"]["type"] == "boolean"
-    assert schema["properties"]["image_relevance"]["type"] == "object"
+    assert schema["properties"]["image_relevance"]["type"] == "array"
+
+    # Verify image_relevance array has items with proper structure
+    assert "items" in schema["properties"]["image_relevance"]
+    assert "$ref" in schema["properties"]["image_relevance"]["items"]
+
+    # Verify the referenced ImageRelevanceScore definition exists
+    assert "$defs" in schema
+    assert "ImageRelevanceScore" in schema["$defs"]
+
+    # Verify ImageRelevanceScore has required fields
+    score_def = schema["$defs"]["ImageRelevanceScore"]
+    assert "properties" in score_def
+    assert "uri" in score_def["properties"]
+    assert "score" in score_def["properties"]
+    assert score_def["properties"]["uri"]["type"] == "string"
+    assert score_def["properties"]["score"]["type"] == "integer"
