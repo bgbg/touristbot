@@ -37,8 +37,9 @@ def test_file_search_tool_with_real_client_single_message():
     """
     # Get API key from environment or secrets.toml
     api_key = get_api_key()
-    if not api_key:
-        pytest.skip("GOOGLE_API_KEY not set in environment or .streamlit/secrets.toml")
+    assert (
+        api_key is not None
+    ), "GOOGLE_API_KEY must be set in environment or secrets.toml"
 
     # Create real client
     client = genai.Client(api_key=api_key)
@@ -88,8 +89,9 @@ def test_file_search_tool_with_real_client_multiple_messages():
     Test with chat history to reproduce the 400 error
     """
     api_key = get_api_key()
-    if not api_key:
-        pytest.skip("GOOGLE_API_KEY not set in environment or .streamlit/secrets.toml")
+    assert (
+        api_key is not None
+    ), "GOOGLE_API_KEY must be set in environment or secrets.toml"
 
     client = genai.Client(api_key=api_key)
 

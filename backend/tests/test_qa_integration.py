@@ -4,15 +4,9 @@ Integration tests for QA endpoint with signed URLs
 NOTE: These tests require GCS credentials and make real API calls.
 Skip by not setting GCS_CREDENTIALS_JSON environment variable.
 """
+
 import os
 import pytest
-
-
-# Skip all tests in this module if GCS credentials not available
-pytestmark = pytest.mark.skipif(
-    "GCS_CREDENTIALS_JSON" not in os.environ,
-    reason="GCS_CREDENTIALS_JSON not set - skipping integration tests"
-)
 
 
 @pytest.fixture(scope="module")
@@ -23,8 +17,7 @@ def setup_env():
     os.environ["BACKEND_API_KEYS"] = "test-key-123"
 
     # GOOGLE_API_KEY should already be set externally
-    if "GOOGLE_API_KEY" not in os.environ:
-        pytest.skip("GOOGLE_API_KEY not set")
+    assert "GOOGLE_API_KEY" in os.environ, "GOOGLE_API_KEY must be set for tests"
 
     yield
 
@@ -47,15 +40,13 @@ def test_qa_endpoint_with_images(client):
     response = client.post(
         "/qa",
         headers={"Authorization": "Bearer test-key-123"},
-        json={
-            "area": "hefer_valley",
-            "site": "agamon_hefer",
-            "query": "hi"
-        }
+        json={"area": "hefer_valley", "site": "agamon_hefer", "query": "hi"},
     )
 
     # Should return 200 OK
-    assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+    assert (
+        response.status_code == 200
+    ), f"Expected 200, got {response.status_code}: {response.text}"
 
     data = response.json()
 
@@ -70,7 +61,10 @@ def test_qa_endpoint_with_images(client):
         for img in data["images"]:
             assert "uri" in img
             # Signed URLs should contain X-Goog-Signature parameter
-            assert "X-Goog-Signature" in img["uri"] or "storage.googleapis.com" in img["uri"]
+            assert (
+                "X-Goog-Signature" in img["uri"]
+                or "storage.googleapis.com" in img["uri"]
+            )
             assert "caption" in img
             assert "context" in img
 
@@ -81,11 +75,7 @@ def test_qa_endpoint_conversation_history(client):
     response1 = client.post(
         "/qa",
         headers={"Authorization": "Bearer test-key-123"},
-        json={
-            "area": "hefer_valley",
-            "site": "agamon_hefer",
-            "query": "hello"
-        }
+        json={"area": "hefer_valley", "site": "agamon_hefer", "query": "hello"},
     )
 
     assert response1.status_code == 200
@@ -100,8 +90,8 @@ def test_qa_endpoint_conversation_history(client):
             "area": "hefer_valley",
             "site": "agamon_hefer",
             "query": "what else?",
-            "conversation_id": conversation_id
-        }
+            "conversation_id": conversation_id,
+        },
     )
 
     assert response2.status_code == 200

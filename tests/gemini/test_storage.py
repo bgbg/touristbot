@@ -39,6 +39,7 @@ def gcs_config():
 def test_prefix():
     """Generate unique test prefix with timestamp to avoid conflicts between parallel workers"""
     import uuid
+
     # Use UUID to ensure uniqueness across parallel workers
     return f"test_gcs_storage_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
@@ -46,8 +47,9 @@ def test_prefix():
 @pytest.fixture(scope="module")
 def gcs_storage(gcs_config):
     """Create GCSStorage instance for testing"""
-    if not gcs_config.gcs_credentials_json:
-        pytest.skip("GCS credentials not configured in .streamlit/secrets.toml - skipping GCS tests")
+    assert (
+        gcs_config.gcs_credentials_json is not None
+    ), "GCS credentials must be configured for GCS tests"
 
     storage = GCSStorage(
         bucket_name=gcs_config.gcs_bucket_name,
