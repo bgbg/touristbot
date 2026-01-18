@@ -13,14 +13,15 @@ Guidance for Claude Code (claude.ai/code) when working in this repo.
 ## Setup
 - Python 3.11+; conda environment name: `tarasa`.
 - Activate environment: `conda activate tarasa`, then install dependencies: `pip install -r requirements.txt`.
-- Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`; set `GOOGLE_API_KEY` and GCS credentials.
+- Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`; set backend API credentials (`backend_api_key`, `backend_api_url_cloud`/`backend_api_url_local`), `GOOGLE_API_KEY` (for CLI tools), and GCS credentials.
 - **GCS is mandatory**: Image and store registries are stored in GCS bucket (no local fallback).
 - Adjust `config.yaml` for GCS paths, File Search Store name, chunking params, and model selection.
 - First run: Automatic migration moves any local registry files to GCS.
 
 ## Running
-- Web app: `streamlit run gemini/main_qa.py` (defaults to http://localhost:8501).
-- CLI upload: `python gemini/main_upload.py [--area <area> --site <site> --force]`.
+- **Backend API** (local development): `python -m uvicorn backend.main:app --reload --port 8080` (see Backend API section for deployment)
+- **Web UI**: `streamlit run gemini/main_qa.py` (defaults to http://localhost:8501, requires backend API running or deployed)
+- **CLI upload**: `python gemini/main_upload.py [--area <area> --site <site> --force]` (uses direct Gemini API, not backend)
 
 ## Project Layout
 - gemini/: core logic for File Search uploads, QA flow, registry, logging, topic extraction, image handling.
@@ -248,7 +249,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 
 ## Backend API (Serverless Architecture)
 
-**Status**: Backend API implemented and tested (40 unit tests passing). Ready for Cloud Run deployment.
+**Status**: Backend API implemented and tested (40 unit tests passing). Deployed on Cloud Run. **Streamlit frontend fully integrated** (issues #34 and #37 complete).
 
 ### Architecture
 - **FastAPI** backend deployed on Google Cloud Run
@@ -377,11 +378,7 @@ gcloud run deploy tourism-rag-backend \
      --member='user:<your-email>@gmail.com' \
      --role='roles/run.invoker'
    ```
-3. Add to `.streamlit/secrets.toml`:
-   ```toml
-   backend_api_url = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
-   backend_api_key = "one-of-your-BACKEND_API_KEYS"
-   ```
+3. Configure `.streamlit/secrets.toml` with backend endpoints (see Streamlit Frontend Integration section below)
 4. Verify deployment (requires GCP auth):
    ```bash
    curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
@@ -402,6 +399,78 @@ python -m uvicorn backend.main:app --reload --port 8080
 curl -H "Authorization: Bearer test-key-123" \
   http://localhost:8080/locations
 ```
+
+### Streamlit Frontend Integration
+
+**Status**: Fully integrated (issues #34 and #37 complete). The Streamlit UI (`gemini/main_qa.py`) now uses the backend REST API instead of direct Gemini API calls.
+
+**Endpoint Selector Feature**:
+The UI supports flexible backend configuration with an optional endpoint selector:
+
+**Configuration Options** (in `.streamlit/secrets.toml`):
+
+1. **Dual Endpoints** (Cloud + Local) - Shows selector:
+   ```toml
+   backend_api_key = "your-backend-api-key"
+   backend_api_url_cloud = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
+   backend_api_url_local = "http://localhost:8080"
+   ```
+   - Endpoint selector appears in sidebar (🌐 Cloud Run / 💻 Local Development)
+   - User can switch between endpoints during session
+   - Conversation resets when switching (different backends = separate storage)
+   - Default: Cloud Run
+
+2. **Single Endpoint** (Cloud or Local) - No selector:
+   ```toml
+   backend_api_key = "your-backend-api-key"
+   backend_api_url_cloud = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
+   ```
+   OR
+   ```toml
+   backend_api_key = "your-backend-api-key"
+   backend_api_url_local = "http://localhost:8080"
+   ```
+   - Auto-uses the configured endpoint
+   - No selector shown (cleaner production UI)
+
+3. **Legacy Format** (Backward Compatible):
+   ```toml
+   backend_api_key = "your-backend-api-key"
+   backend_api_url = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
+   ```
+   - Treats `backend_api_url` as cloud endpoint
+   - No selector shown
+
+**Development Workflow**:
+- Configure both `backend_api_url_cloud` and `backend_api_url_local` for development
+- Easily switch between testing Cloud Run deployment and local backend
+- No need to edit secrets file or restart app to switch
+
+**Production Deployment**:
+- Only configure `backend_api_url_cloud` for security
+- Do NOT expose local development endpoints in production secrets
+
+**UI Features**:
+- Active endpoint displayed in sidebar (e.g., "Active: `https://...`")
+- Clear error messages for unreachable backends or auth failures
+- Conversation history managed by backend (via `conversation_id`)
+- Citations and images use backend response format (`source`/`text`, `uri`/`file_api_uri`)
+- Full feature parity with previous direct Gemini API integration
+
+**Running the UI**:
+```bash
+streamlit run gemini/main_qa.py
+```
+
+**Troubleshooting**:
+- **"Missing backend_api_key"**: Add `backend_api_key` to `.streamlit/secrets.toml`
+- **"No backend endpoints configured"**: Add at least one of `backend_api_url_cloud`, `backend_api_url_local`, or `backend_api_url`
+- **"Cannot connect to backend"**:
+  - For Cloud Run: Verify deployment, check GCP IAM permissions
+  - For local: Ensure backend is running (`python -m uvicorn backend.main:app --port 8080`)
+  - Check API key is correct
+- **401 Unauthorized**: API key doesn't match backend's `BACKEND_API_KEYS` environment variable
+- **Conversation resets unexpectedly**: Normal when switching endpoints (separate storage)
 
 ### Configuration Overrides
 
