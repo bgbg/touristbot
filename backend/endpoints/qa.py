@@ -298,7 +298,7 @@ async def chat_query(
 
                     relevant_images.append(
                         ImageMetadata(
-                            uri=img.gcs_uri,
+                            uri=img.gcs_path,
                             file_api_uri=img.file_api_uri,
                             caption=img.caption or "",
                             context=context,
