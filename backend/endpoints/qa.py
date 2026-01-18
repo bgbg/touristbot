@@ -24,8 +24,10 @@ from backend.dependencies import (
     get_conversation_store,
     get_image_registry,
     get_query_logger,
+    get_storage_backend,
     get_store_registry,
 )
+from backend.gcs_storage import StorageBackend
 from backend.image_registry import ImageRegistry
 from backend.query_logging.query_logger import QueryLogger
 from backend.models import Citation, ImageMetadata, QARequest, QAResponse
@@ -107,7 +109,10 @@ def query_images_for_location(
 
 
 def filter_images_by_relevance(
-    images: List[dict], image_relevance: List, min_score: int = 60
+    images: List[dict],
+    image_relevance: List,
+    storage: StorageBackend,
+    min_score: int = 60,
 ) -> List[ImageMetadata]:
     """
     Filter images by relevance scores from LLM.
@@ -115,12 +120,14 @@ def filter_images_by_relevance(
     Args:
         images: List of image records from registry
         image_relevance: List of dicts with 'image_uri' and 'relevance_score' from LLM JSON
+        storage: Storage backend for generating signed URLs
         min_score: Minimum relevance score (default: 60)
 
     Returns:
         List of ImageMetadata objects for relevant images
     """
     relevant_images = []
+    failed_images = []
 
     # Convert list of scores to dict for lookup
     # Handle both dict format (from JSON) and object format (for compatibility)
@@ -155,9 +162,20 @@ def filter_images_by_relevance(
                     context += " "
                 context += img.context_after
 
+            # Generate signed URL for GCS path
+            # gcs_path is like "images/area/site/image_001.jpg"
+            try:
+                signed_url = storage.generate_signed_url(
+                    img.gcs_path, expiration_minutes=60
+                )
+            except Exception as e:
+                logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}")
+                failed_images.append(img.gcs_path)
+                continue
+
             relevant_images.append(
                 ImageMetadata(
-                    uri=img.gcs_path,  # Fixed: use gcs_path instead of gcs_uri
+                    uri=signed_url,
                     file_api_uri=file_api_uri,
                     caption=img.caption or "",
                     context=context,
@@ -168,8 +186,15 @@ def filter_images_by_relevance(
     # Sort by relevance score (descending)
     relevant_images.sort(key=lambda x: x.relevance_score, reverse=True)
 
+    # Log summary
+    if failed_images:
+        logger.warning(
+            f"Failed to generate signed URLs for {len(failed_images)} images: {failed_images}"
+        )
+
     logger.info(
-        f"Filtered to {len(relevant_images)} relevant images (>= {min_score})"
+        f"Filtered to {len(relevant_images)} relevant images (>= {min_score}), "
+        f"{len(failed_images)} failed"
     )
     return relevant_images
 
@@ -182,6 +207,7 @@ async def chat_query(
     image_registry: ImageRegistry = Depends(get_image_registry),
     conversation_store: ConversationStore = Depends(get_conversation_store),
     query_logger: QueryLogger = Depends(get_query_logger),
+    storage: StorageBackend = Depends(get_storage_backend),
 ) -> QAResponse:
     """
     Process a chat query with File Search and multimodal images.
@@ -193,6 +219,7 @@ async def chat_query(
         image_registry: Image registry (injected)
         conversation_store: Conversation store (injected)
         query_logger: Query logger (injected)
+        storage: Storage backend for generating signed URLs (injected)
 
     Returns:
         QAResponse with response text, citations, relevant images
@@ -326,10 +353,11 @@ async def chat_query(
                 if image_relevance_data and len(image_relevance_data) > 0:
                     logger.info(f"Filtering {len(location_images)} images using LLM relevance scores")
                     relevant_images = filter_images_by_relevance(
-                        location_images, image_relevance_data, min_score=60
+                        location_images, image_relevance_data, storage, min_score=60
                     )
                 else:
                     # Fallback: show all images if no relevance data (backward compatibility)
+                    failed_images = []
                     logger.info(f"No relevance data from LLM, showing all {len(location_images)} images (fallback)")
                     for img in location_images[:5]:  # Limit to 5 images
                         context = ""
@@ -340,14 +368,32 @@ async def chat_query(
                                 context += " "
                             context += img.context_after
 
+                        # Generate signed URL for GCS path
+                        try:
+                            signed_url = storage.generate_signed_url(
+                                img.gcs_path, expiration_minutes=60
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to generate signed URL for {img.gcs_path}: {e}"
+                            )
+                            failed_images.append(img.gcs_path)
+                            continue
+
                         relevant_images.append(
                             ImageMetadata(
-                                uri=img.gcs_path,
+                                uri=signed_url,
                                 file_api_uri=img.file_api_uri,
                                 caption=img.caption or "",
                                 context=context,
                                 relevance_score=100,  # Default score
                             )
+                        )
+
+                    # Log summary of failed images
+                    if failed_images:
+                        logger.warning(
+                            f"Failed to generate signed URLs for {len(failed_images)} images: {failed_images}"
                         )
 
             # Decide whether images should be included in the QA response

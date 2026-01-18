@@ -176,6 +176,33 @@ class GCSStorage(StorageBackend):
             print(f"Error deleting from GCS: {e}")
             return False
 
+    def generate_signed_url(self, path: str, expiration_minutes: int = 60) -> str:
+        """
+        Generate a signed URL for a GCS blob
+
+        Args:
+            path: Blob path
+            expiration_minutes: URL expiration time in minutes (default: 60)
+
+        Returns:
+            Signed URL string
+
+        Raises:
+            Exception: If URL generation fails
+        """
+        from datetime import timedelta
+
+        try:
+            blob = self.bucket.blob(path)
+            url = blob.generate_signed_url(
+                version="v4",
+                expiration=timedelta(minutes=expiration_minutes),
+                method="GET"
+            )
+            return url
+        except Exception as e:
+            raise Exception(f"Error generating signed URL for {path}: {e}")
+
     def file_exists(self, path: str) -> bool:
         """
         Check if blob exists in GCS
