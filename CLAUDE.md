@@ -206,7 +206,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
   - `should_include_images`: Boolean indicating if images should be shown (false for initial greetings, true for substantive queries)
   - `image_relevance`: List of `{image_uri, relevance_score}` objects with relevance scores (0-100)
 - **Implementation flow**:
-  1. JSON parsing extracts `should_include_images` and `image_relevance` from Gemini response ([qa.py:284-308](backend/endpoints/qa.py#L284-L308))
+  1. JSON parsing extracts `should_include_images` and `image_relevance` from Gemini response ([qa.py:294-308](backend/endpoints/qa.py#L294-L308))
   2. If `should_include_images=false`, no images displayed (greeting/abstract question detection)
   3. If `should_include_images=true` and relevance data available, `filter_images_by_relevance()` filters images with score >= 60 ([qa.py:109-174](backend/endpoints/qa.py#L109-L174))
   4. Filtered images sorted by relevance score (descending)

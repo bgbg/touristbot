@@ -350,6 +350,13 @@ async def chat_query(
                             )
                         )
 
+            # Decide whether images should be included in the QA response
+            should_include_images = (
+                False
+                if should_include_images_flag is False
+                else len(relevant_images) > 0
+            )
+
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
             # Fallback: error response
