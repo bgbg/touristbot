@@ -9,6 +9,7 @@ Main endpoint for conversational queries using:
 - Conversation history management
 """
 
+import json
 import logging
 import time
 from typing import List, Optional
@@ -23,11 +24,12 @@ from backend.dependencies import (
     get_conversation_store,
     get_image_registry,
     get_query_logger,
+    get_storage_backend,
     get_store_registry,
 )
 from backend.image_registry import ImageRegistry
 from backend.query_logging.query_logger import QueryLogger
-from backend.models import Citation, ImageAwareResponse, ImageMetadata, QARequest, QAResponse
+from backend.models import Citation, ImageMetadata, QARequest, QAResponse
 from backend.prompt_loader import PromptLoader
 from backend.store_registry import StoreRegistry
 from backend.utils import get_secret
@@ -106,7 +108,7 @@ def query_images_for_location(
 
 
 def filter_images_by_relevance(
-    images: List[dict], image_relevance: List, min_score: int = 60
+    images: List[dict], image_relevance: List, storage, min_score: int = 60
 ) -> List[ImageMetadata]:
     """
     Filter images by relevance scores from LLM.
@@ -142,9 +144,17 @@ def filter_images_by_relevance(
                     context += " "
                 context += img.context_after
 
+            # Generate signed URL for GCS path
+            # gcs_path is like "images/area/site/image_001.jpg"
+            try:
+                signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=60)
+            except Exception as e:
+                logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}")
+                continue
+
             relevant_images.append(
                 ImageMetadata(
-                    uri=img.gcs_uri,
+                    uri=signed_url,
                     file_api_uri=file_api_uri,
                     caption=img.caption or "",
                     context=context,
@@ -169,6 +179,7 @@ async def chat_query(
     image_registry: ImageRegistry = Depends(get_image_registry),
     conversation_store: ConversationStore = Depends(get_conversation_store),
     query_logger: QueryLogger = Depends(get_query_logger),
+    storage = Depends(get_storage_backend),
 ) -> QAResponse:
     """
     Process a chat query with File Search and multimodal images.
@@ -234,7 +245,9 @@ async def chat_query(
         # Build conversation history for context
         history_messages = []
         for msg in conversation.messages[:-1]:  # Exclude current query
-            history_messages.append({"role": msg.role, "parts": [{"text": msg.content}]})
+            # Convert "assistant" role to "model" for Gemini API
+            role = "model" if msg.role == "assistant" else msg.role
+            history_messages.append({"role": role, "parts": [{"text": msg.content}]})
 
         # Format system prompt
         system_instruction = prompt_config.system_prompt
@@ -256,7 +269,7 @@ async def chat_query(
             types.Tool(
                 file_search=types.FileSearch(
                     file_search_store_names=[store_name],
-                    metadata_filter=f'location="{request.area}/{request.site}"',
+                    metadata_filter=f'area="{request.area}" AND site="{request.site}"',
                 )
             )
         ]
@@ -279,7 +292,6 @@ async def chat_query(
             # Try to parse as JSON if the model returned structured output
             # (happens when system prompt requests JSON format)
             try:
-                import json
                 parsed = json.loads(response_text)
                 if isinstance(parsed, dict) and "response_text" in parsed:
                     response_text = parsed["response_text"]
@@ -308,9 +320,16 @@ async def chat_query(
                             context += " "
                         context += img.context_after
 
+                    # Generate signed URL for GCS path
+                    try:
+                        signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=60)
+                    except Exception as e:
+                        logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}")
+                        continue
+
                     relevant_images.append(
                         ImageMetadata(
-                            uri=img.gcs_path,
+                            uri=signed_url,
                             file_api_uri=img.file_api_uri,
                             caption=img.caption or "",
                             context=context,

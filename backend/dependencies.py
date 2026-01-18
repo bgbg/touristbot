@@ -21,7 +21,10 @@ def get_storage_backend() -> StorageBackend:
     if not gcs_bucket:
         raise ValueError("GCS_BUCKET environment variable not set")
 
-    return GCSStorage(gcs_bucket)
+    # Get GCS credentials JSON if provided
+    gcs_credentials_json = os.getenv("GCS_CREDENTIALS_JSON")
+
+    return GCSStorage(gcs_bucket, credentials_json=gcs_credentials_json)
 
 
 @lru_cache()
