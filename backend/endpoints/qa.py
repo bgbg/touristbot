@@ -261,11 +261,8 @@ async def chat_query(
             )
         ]
 
-        # Call Gemini API with structured output
+        # Call Gemini API
         try:
-            # Use custom schema generator to avoid additionalProperties error
-            gemini_schema = ImageAwareResponse.get_gemini_schema()
-
             response = client.models.generate_content(
                 model=prompt_config.model_name,
                 contents=[*history_messages, {"role": "user", "parts": user_parts}],
@@ -273,33 +270,45 @@ async def chat_query(
                     system_instruction=system_instruction,
                     tools=tools,
                     temperature=prompt_config.temperature,
-                    response_mime_type="application/json",
-                    response_schema=gemini_schema,
                 ),
             )
 
-            # Parse structured output
-            structured_output = ImageAwareResponse.model_validate_json(response.text)
-
-            response_text = structured_output.response_text
-            should_include_images = structured_output.should_include_images
-            image_relevance = structured_output.image_relevance
+            # Get response text
+            response_text = response.text
 
             # Extract citations from grounding metadata
             citations = get_citations_from_grounding(
                 getattr(response, "grounding_metadata", None)
             )
 
-            # Filter images by relevance
+            # For MVP: show all images if there are any
+            # TODO: Implement LLM-based image relevance filtering
             relevant_images = []
-            if should_include_images and location_images:
-                relevant_images = filter_images_by_relevance(
-                    location_images, image_relevance
-                )
+            should_include_images = len(location_images) > 0
+            if should_include_images:
+                # Convert all images to ImageMetadata format
+                for img in location_images[:5]:  # Limit to 5 images
+                    context = ""
+                    if img.context_before:
+                        context += img.context_before
+                    if img.context_after:
+                        if context:
+                            context += " "
+                        context += img.context_after
+
+                    relevant_images.append(
+                        ImageMetadata(
+                            uri=img.gcs_uri,
+                            file_api_uri=img.file_api_uri,
+                            caption=img.caption or "",
+                            context=context,
+                            relevance_score=100,  # Default score
+                        )
+                    )
 
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
-            # Fallback: simple text response without structured output
+            # Fallback: error response
             response_text = f"Error processing query: {str(e)}"
             citations = []
             relevant_images = []
