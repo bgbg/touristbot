@@ -9,6 +9,7 @@ Main endpoint for conversational queries using:
 - Conversation history management
 """
 
+import json
 import logging
 import time
 from typing import List, Optional
@@ -26,8 +27,8 @@ from backend.dependencies import (
     get_store_registry,
 )
 from backend.image_registry import ImageRegistry
-from backend.logging.query_logger import QueryLogger
-from backend.models import Citation, ImageAwareResponse, ImageMetadata, QARequest, QAResponse
+from backend.query_logging.query_logger import QueryLogger
+from backend.models import Citation, ImageMetadata, QARequest, QAResponse
 from backend.prompt_loader import PromptLoader
 from backend.store_registry import StoreRegistry
 from backend.utils import get_secret
@@ -106,14 +107,14 @@ def query_images_for_location(
 
 
 def filter_images_by_relevance(
-    images: List[dict], image_relevance: dict, min_score: int = 60
+    images: List[dict], image_relevance: List, min_score: int = 60
 ) -> List[ImageMetadata]:
     """
     Filter images by relevance scores from LLM.
 
     Args:
         images: List of image records from registry
-        image_relevance: Dict mapping URIs to relevance scores
+        image_relevance: List of ImageRelevanceScore objects from LLM
         min_score: Minimum relevance score (default: 60)
 
     Returns:
@@ -121,13 +122,16 @@ def filter_images_by_relevance(
     """
     relevant_images = []
 
+    # Convert list of scores to dict for lookup
+    relevance_dict = {item.uri: item.score for item in image_relevance}
+
     for img in images:
         file_api_uri = img.file_api_uri
         if not file_api_uri:
             continue
 
         # Get relevance score from LLM output
-        score = image_relevance.get(file_api_uri, 0)
+        score = relevance_dict.get(file_api_uri, 0)
 
         if score >= min_score:
             # Build context from before/after text
@@ -188,7 +192,7 @@ async def chat_query(
         # Load config and prompts with location overrides
         config = GeminiConfig.from_yaml(area=request.area, site=request.site)
         prompt_config = PromptLoader.load(
-            "prompts/tourism_qa.yaml", area=request.area, site=request.site
+            "config/prompts/tourism_qa.yaml", area=request.area, site=request.site
         )
 
         # Get or create conversation
@@ -225,13 +229,15 @@ async def chat_query(
         )
 
         # Build Gemini API request
-        # Configure client
-        genai.configure(api_key=get_secret("GOOGLE_API_KEY"))
+        # Create client
+        client = genai.Client(api_key=get_secret("GOOGLE_API_KEY"))
 
         # Build conversation history for context
         history_messages = []
         for msg in conversation.messages[:-1]:  # Exclude current query
-            history_messages.append({"role": msg.role, "parts": [{"text": msg.content}]})
+            # Convert "assistant" role to "model" for Gemini API
+            role = "model" if msg.role == "assistant" else msg.role
+            history_messages.append({"role": role, "parts": [{"text": msg.content}]})
 
         # Format system prompt
         system_instruction = prompt_config.system_prompt
@@ -247,56 +253,76 @@ async def chat_query(
                     user_parts.append({"file_data": {"file_uri": file_api_uri}})
 
         # Create File Search tool with metadata filter
+        from google.genai import types
+
         tools = [
-            {
-                "file_search": {
-                    "metadata_filter": {
-                        "key": "location",
-                        "value": f"{request.area}/{request.site}",
-                    }
-                }
-            }
+            types.Tool(
+                file_search=types.FileSearch(
+                    file_search_store_names=[store_name],
+                    metadata_filter=f'area="{request.area}" AND site="{request.site}"',
+                )
+            )
         ]
 
-        # Call Gemini API with structured output
+        # Call Gemini API
         try:
-            model = genai.GenerativeModel(
-                model_name=prompt_config.model_name,
-                system_instruction=system_instruction,
-                tools=tools,
-                generation_config={
-                    "temperature": prompt_config.temperature,
-                    "response_mime_type": "application/json",
-                    "response_schema": ImageAwareResponse,
-                },
+            response = client.models.generate_content(
+                model=prompt_config.model_name,
+                contents=[*history_messages, {"role": "user", "parts": user_parts}],
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    tools=tools,
+                    temperature=prompt_config.temperature,
+                ),
             )
 
-            response = model.generate_content(
-                contents=[*history_messages, {"role": "user", "parts": user_parts}]
-            )
+            # Get response text
+            response_text = response.text
 
-            # Parse structured output
-            structured_output = ImageAwareResponse.model_validate_json(response.text)
-
-            response_text = structured_output.response_text
-            should_include_images = structured_output.should_include_images
-            image_relevance = structured_output.image_relevance
+            # Try to parse as JSON if the model returned structured output
+            # (happens when system prompt requests JSON format)
+            try:
+                parsed = json.loads(response_text)
+                if isinstance(parsed, dict) and "response_text" in parsed:
+                    response_text = parsed["response_text"]
+                    logger.info("Parsed structured JSON response from Gemini")
+            except (json.JSONDecodeError, KeyError):
+                # Not JSON or doesn't have expected structure, use as-is
+                pass
 
             # Extract citations from grounding metadata
             citations = get_citations_from_grounding(
                 getattr(response, "grounding_metadata", None)
             )
 
-            # Filter images by relevance
+            # For MVP: show all images if there are any
+            # TODO: Implement LLM-based image relevance filtering
             relevant_images = []
-            if should_include_images and location_images:
-                relevant_images = filter_images_by_relevance(
-                    location_images, image_relevance
-                )
+            should_include_images = len(location_images) > 0
+            if should_include_images:
+                # Convert all images to ImageMetadata format
+                for img in location_images[:5]:  # Limit to 5 images
+                    context = ""
+                    if img.context_before:
+                        context += img.context_before
+                    if img.context_after:
+                        if context:
+                            context += " "
+                        context += img.context_after
+
+                    relevant_images.append(
+                        ImageMetadata(
+                            uri=img.gcs_path,
+                            file_api_uri=img.file_api_uri,
+                            caption=img.caption or "",
+                            context=context,
+                            relevance_score=100,  # Default score
+                        )
+                    )
 
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
-            # Fallback: simple text response without structured output
+            # Fallback: error response
             response_text = f"Error processing query: {str(e)}"
             citations = []
             relevant_images = []

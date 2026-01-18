@@ -2,9 +2,51 @@
 Pydantic models for API request/response schemas.
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import GenerateJsonSchema
+
+
+class GeminiJsonSchema(GenerateJsonSchema):
+    """
+    Custom JSON schema generator for Gemini API compatibility.
+
+    Removes 'additionalProperties' from schema as it's not supported by
+    the google-genai SDK client-side validation (Issue #1815).
+    """
+
+    def generate(self, schema: Any, mode: str = "validation") -> Dict[str, Any]:
+        json_schema = super().generate(schema, mode=mode)
+        return self._remove_additional_properties(json_schema)
+
+    def _remove_additional_properties(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively remove additionalProperties from schema."""
+        if isinstance(schema, dict):
+            # Remove from current level
+            schema.pop("additionalProperties", None)
+
+            # Remove from nested properties
+            if "properties" in schema:
+                for prop_schema in schema["properties"].values():
+                    if isinstance(prop_schema, dict):
+                        self._remove_additional_properties(prop_schema)
+
+            # Remove from definitions/defs
+            for key in ["$defs", "definitions"]:
+                if key in schema:
+                    for def_schema in schema[key].values():
+                        if isinstance(def_schema, dict):
+                            self._remove_additional_properties(def_schema)
+
+        return schema
+
+
+class ImageRelevanceScore(BaseModel):
+    """Single image relevance score entry."""
+
+    uri: str = Field(description="Image File API URI")
+    score: int = Field(ge=0, le=100, description="Relevance score (0-100)")
 
 
 class ImageAwareResponse(BaseModel):
@@ -20,10 +62,20 @@ class ImageAwareResponse(BaseModel):
     should_include_images: bool = Field(
         description="Whether images should be shown (false for initial greetings, true for substantive queries)"
     )
-    image_relevance: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Map of image URIs to relevance scores (0-100). Only images with score >= 60 should be displayed.",
+    image_relevance: List["ImageRelevanceScore"] = Field(
+        default_factory=list,
+        description="List of image URIs with relevance scores (0-100). Only images with score >= 60 should be displayed.",
     )
+
+    @classmethod
+    def get_gemini_schema(cls) -> Dict[str, Any]:
+        """
+        Get JSON schema compatible with Gemini API.
+
+        Returns schema without 'additionalProperties' which causes
+        client-side validation errors in google-genai SDK.
+        """
+        return cls.model_json_schema(schema_generator=GeminiJsonSchema)
 
 
 class QARequest(BaseModel):

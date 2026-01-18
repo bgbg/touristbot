@@ -5,7 +5,7 @@ pydantic>=2.5.0
 python-multipart>=0.0.6
 
 # Google Cloud and Gemini
-google-genai
+google-genai>=1.59.0  # Required for file_search_stores API
 google-cloud-storage
 
 # Core dependencies (from main requirements.txt)

@@ -30,7 +30,6 @@ WORKDIR /app
 COPY backend /app/backend/
 COPY gemini /app/gemini/
 COPY config /app/config/
-COPY prompts /app/prompts/
 COPY config.yaml /app/config.yaml
 
 # Set environment variables

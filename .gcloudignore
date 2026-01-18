@@ -1,0 +1,89 @@
+# This file specifies files that are *not* uploaded to Google Cloud Build
+# using gcloud. It follows the same syntax as .gitignore.
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments (large directory, not needed in build)
+.venv/
+venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.coverage.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+logs/
+
+# Cache
+.cache/
+
+# Streamlit secrets (never upload)
+.streamlit/
+secrets.toml
+
+# Documentation (not needed in build)
+*.md
+docs/
+TESTING_GUIDE.md
+README.md
+CLAUDE.md
+
+# Test files (not needed in production build)
+tests/
+**/tests/
+test_*.py
+*_test.py
+
+# Data files (should be in GCS, not in container)
+data/
+chunks/
+
+# Scraper (not needed in backend)
+scraper/
+
+# Git worktrees
+.trees/
+
+# Deployment scripts (not needed in container)
+deploy.sh
+test_local.sh
+
+# Local development files
+.env
+.env.local
+.env.*.local
+
+# Analysis and temporary files
+test_audit_summary_statistics.md
+test_optimization_recommendations.md
+todo__*.md
+qr.py
+list_file_search_contents.py
+
+# Scripts directory (if not needed in backend)
+scripts/

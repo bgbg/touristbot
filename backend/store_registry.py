@@ -235,13 +235,35 @@ class StoreRegistry:
             Dict mapping (area, site) tuples to store IDs
         """
         result = {}
+
+        # Get global store name (all locations share the same store)
+        global_store_name = None
+        if "_global" in self.registry:
+            global_entry = self.registry["_global"]
+            if isinstance(global_entry, dict):
+                global_store_name = global_entry.get("file_search_store_name")
+
         for key, entry in self.registry.items():
             # Skip global entry
             if key == "_global":
                 continue
+
             area, site = key.split(":", 1)
-            store_id = entry.get("store_id") if isinstance(entry, dict) else entry
-            result[(area, site)] = store_id
+
+            # Check if entry has store_id (old format)
+            if isinstance(entry, dict):
+                store_id = entry.get("store_id")
+                # If no store_id but has metadata, use global store
+                if not store_id and "metadata" in entry:
+                    store_id = global_store_name
+            else:
+                # Entry is a string (very old format)
+                store_id = entry
+
+            # Only include if we have a store_id
+            if store_id:
+                result[(area, site)] = store_id
+
         return result
 
     def print_registry(self):

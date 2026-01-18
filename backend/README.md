@@ -1,6 +1,47 @@
-# Backend Development Guide
+# Backend API - Tourism RAG System
 
-## Adding New Endpoints
+FastAPI backend for tourism Q&A system with Gemini File Search RAG, deployed on Google Cloud Run.
+
+## Deployment
+
+### Quick Start
+```bash
+# From project root
+cd backend
+./deploy.sh  # Uses defaults: gen-lang-client-0860749390, me-west1 (Tel Aviv)
+```
+
+### Project Configuration
+- **GCP Project**: `gen-lang-client-0860749390`
+- **Region**: `me-west1` (Tel Aviv, Israel)
+- **GCS Bucket**: `tarasa_tourist_bot_content`
+- **Service**: `tourism-rag-backend`
+
+### Prerequisites
+1. Authenticate with GCP: `gcloud auth login`
+2. Verify project: `gcloud config get-value project`
+3. Ensure GCS bucket exists: `gsutil ls gs://tarasa_tourist_bot_content`
+
+### Environment Variables
+Set in Cloud Run console or via CLI:
+```bash
+BACKEND_API_KEYS=key1,key2,key3  # Comma-separated API keys (create secure keys)
+GCS_BUCKET=tarasa_tourist_bot_content
+GOOGLE_API_KEY=<your-gemini-api-key>  # Same as in .streamlit/secrets.toml
+```
+
+### Post-Deployment
+1. Copy service URL from deployment output
+2. Update `.streamlit/secrets.toml`:
+   ```toml
+   backend_api_url = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
+   backend_api_key = "one-of-your-BACKEND_API_KEYS"
+   ```
+3. Test: `curl https://<service-url>/_internal_probe_3f9a2c1b`
+
+## Development
+
+### Adding New Endpoints
 
 1. Create endpoint file in `backend/endpoints/`
 2. Define router with `APIRouter(prefix="/path", tags=["tag"])`
