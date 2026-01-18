@@ -14,8 +14,8 @@ def test_pydantic_schema_for_gemini_api():
     The Gemini API doesn't support 'additionalProperties' in schemas.
     This test verifies the schema can be serialized without that field.
     """
-    # Get the schema
-    schema = ImageAwareResponse.model_json_schema()
+    # Get the Gemini-compatible schema
+    schema = ImageAwareResponse.get_gemini_schema()
 
     # Check that additionalProperties is not in the schema
     # If it exists, it will cause: "additionalProperties is not supported in the Gemini API"
