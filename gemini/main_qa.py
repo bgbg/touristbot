@@ -168,7 +168,11 @@ def get_locations(backend_url_param: str, backend_key_param: str):
         response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as e:
-        st.error(f"Backend error ({e.response.status_code}): {e.response.text}")
+        try:
+            error_detail = e.response.json().get("detail", e.response.text)
+        except:
+            error_detail = e.response.text
+        st.error(f"Backend error ({e.response.status_code}): {error_detail}")
         return {"locations": [], "areas": [], "count": 0}
     except requests.exceptions.RequestException as e:
         st.error(f"Cannot connect to backend. Check that the server is running and .streamlit/secrets.toml is configured correctly.")
@@ -374,7 +378,11 @@ if prompt := st.chat_input("Ask about the location..."):
                 st.caption(f"⏱️ Response time: {data.get('latency_ms', 0)}ms")
 
             except requests.exceptions.HTTPError as e:
-                st.error(f"Backend error ({e.response.status_code}): {e.response.text}")
+                try:
+                    error_detail = e.response.json().get("detail", e.response.text)
+                except:
+                    error_detail = e.response.text
+                st.error(f"Backend error ({e.response.status_code}): {error_detail}")
             except requests.exceptions.RequestException as e:
                 st.error("Cannot connect to backend. Check that the server is running and .streamlit/secrets.toml is configured correctly.")
                 st.error(f"Error: {str(e)}")
