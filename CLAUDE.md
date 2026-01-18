@@ -196,20 +196,26 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - Query process: query images by area/site → include URIs in API call → LLM assesses relevance → display relevant images in UI.
 - Note: File Search API does NOT extract images from DOCX (text-only), hence separate image pipeline.
 
-### LLM-Based Image Relevance (Issue #18)
+### LLM-Based Image Relevance (Issue #18, #40)
+- **Status**: Fully implemented and active
 - **Note**: Gemini 2.5 doesn't support File Search tool + structured output simultaneously
 - System prompt instructs model to return JSON with image relevance signals
 - JSON response parsed manually from text (not using response_schema)
 - Response fields:
   - `response_text`: Main response to user query (Hebrew or query language)
   - `should_include_images`: Boolean indicating if images should be shown (false for initial greetings, true for substantive queries)
-  - `image_relevance`: List of `{uri, score}` objects with relevance scores (0-100)
+  - `image_relevance`: List of `{image_uri, relevance_score}` objects with relevance scores (0-100)
+- **Implementation flow**:
+  1. JSON parsing extracts `should_include_images` and `image_relevance` from Gemini response ([qa.py:294-308](backend/endpoints/qa.py#L294-L308))
+  2. If `should_include_images=false`, no images displayed (greeting/abstract question detection)
+  3. If `should_include_images=true` and relevance data available, `filter_images_by_relevance()` filters images with score >= 60 ([qa.py:109-174](backend/endpoints/qa.py#L109-L174))
+  4. Filtered images sorted by relevance score (descending)
+  5. Fallback: if no relevance data, shows all images (backward compatibility)
 - Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks)
 - Image filtering: Only images with relevance score >= 60 are displayed
 - Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!")
 - Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call
-- Fallback: If JSON parsing fails, defaults to showing all images (backward compatibility)
-- Implementation: [backend/endpoints/qa.py:280-289](backend/endpoints/qa.py#L280-L289)
+- Comprehensive logging: tracks JSON parsing, image filtering, and relevance scores for debugging
 
 ## Data Storage Architecture
 - **GCS is mandatory**: All registries stored in Google Cloud Storage (no local fallback).

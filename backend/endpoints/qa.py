@@ -114,7 +114,7 @@ def filter_images_by_relevance(
 
     Args:
         images: List of image records from registry
-        image_relevance: List of ImageRelevanceScore objects from LLM
+        image_relevance: List of dicts with 'image_uri' and 'relevance_score' from LLM JSON
         min_score: Minimum relevance score (default: 60)
 
     Returns:
@@ -123,7 +123,19 @@ def filter_images_by_relevance(
     relevant_images = []
 
     # Convert list of scores to dict for lookup
-    relevance_dict = {item.uri: item.score for item in image_relevance}
+    # Handle both dict format (from JSON) and object format (for compatibility)
+    relevance_dict = {}
+    for item in image_relevance:
+        if isinstance(item, dict):
+            # JSON format: {"image_uri": "...", "relevance_score": 85}
+            uri = item.get("image_uri")
+            score = item.get("relevance_score", 0)
+        else:
+            # Object format (legacy): item.uri, item.score
+            uri = getattr(item, "uri", getattr(item, "image_uri", None))
+            score = getattr(item, "score", getattr(item, "relevance_score", 0))
+        if uri:
+            relevance_dict[uri] = score
 
     for img in images:
         file_api_uri = img.file_api_uri
@@ -145,7 +157,7 @@ def filter_images_by_relevance(
 
             relevant_images.append(
                 ImageMetadata(
-                    uri=img.gcs_uri,
+                    uri=img.gcs_path,  # Fixed: use gcs_path instead of gcs_uri
                     file_api_uri=file_api_uri,
                     caption=img.caption or "",
                     context=context,
@@ -281,11 +293,19 @@ async def chat_query(
 
             # Try to parse as JSON if the model returned structured output
             # (happens when system prompt requests JSON format)
+            should_include_images_flag = None
+            image_relevance_data = None
             try:
                 parsed = json.loads(response_text)
                 if isinstance(parsed, dict) and "response_text" in parsed:
                     response_text = parsed["response_text"]
-                    logger.info("Parsed structured JSON response from Gemini")
+                    should_include_images_flag = parsed.get("should_include_images")
+                    image_relevance_data = parsed.get("image_relevance", [])
+                    logger.info(
+                        f"Parsed structured JSON response from Gemini: "
+                        f"should_include_images={should_include_images_flag}, "
+                        f"image_relevance count={len(image_relevance_data) if image_relevance_data else 0}"
+                    )
             except (json.JSONDecodeError, KeyError):
                 # Not JSON or doesn't have expected structure, use as-is
                 pass
@@ -295,30 +315,47 @@ async def chat_query(
                 getattr(response, "grounding_metadata", None)
             )
 
-            # For MVP: show all images if there are any
-            # TODO: Implement LLM-based image relevance filtering
+            # Filter images by LLM-determined relevance
             relevant_images = []
-            should_include_images = len(location_images) > 0
-            if should_include_images:
-                # Convert all images to ImageMetadata format
-                for img in location_images[:5]:  # Limit to 5 images
-                    context = ""
-                    if img.context_before:
-                        context += img.context_before
-                    if img.context_after:
-                        if context:
-                            context += " "
-                        context += img.context_after
 
-                    relevant_images.append(
-                        ImageMetadata(
-                            uri=img.gcs_path,
-                            file_api_uri=img.file_api_uri,
-                            caption=img.caption or "",
-                            context=context,
-                            relevance_score=100,  # Default score
-                        )
+            # Check if LLM indicated images should be included (handles greetings, abstract questions)
+            if should_include_images_flag is False:
+                logger.info("LLM indicated images should not be included (greeting or abstract question)")
+            elif location_images:
+                # If we have relevance data from LLM, use it to filter images
+                if image_relevance_data and len(image_relevance_data) > 0:
+                    logger.info(f"Filtering {len(location_images)} images using LLM relevance scores")
+                    relevant_images = filter_images_by_relevance(
+                        location_images, image_relevance_data, min_score=60
                     )
+                else:
+                    # Fallback: show all images if no relevance data (backward compatibility)
+                    logger.info(f"No relevance data from LLM, showing all {len(location_images)} images (fallback)")
+                    for img in location_images[:5]:  # Limit to 5 images
+                        context = ""
+                        if img.context_before:
+                            context += img.context_before
+                        if img.context_after:
+                            if context:
+                                context += " "
+                            context += img.context_after
+
+                        relevant_images.append(
+                            ImageMetadata(
+                                uri=img.gcs_path,
+                                file_api_uri=img.file_api_uri,
+                                caption=img.caption or "",
+                                context=context,
+                                relevance_score=100,  # Default score
+                            )
+                        )
+
+            # Decide whether images should be included in the QA response
+            should_include_images = (
+                False
+                if should_include_images_flag is False
+                else len(relevant_images) > 0
+            )
 
         except Exception as e:
             logger.error(f"Gemini API error: {e}")
