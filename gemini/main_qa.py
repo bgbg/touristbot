@@ -100,16 +100,6 @@ st.session_state.backend_url = backend_url
 if show_selector:
     st.sidebar.markdown("### Backend Endpoint")
 
-    # Warn users that endpoint selection is stored per browser tab/session.
-    # This means different tabs can have different selected endpoints.
-    if "endpoint_tab_warning_shown" not in st.session_state:
-        st.info(
-            "Note: The selected backend endpoint is stored per browser tab. "
-            "If you have multiple tabs open, each tab may use a different endpoint "
-            "depending on what you selected there."
-        )
-        st.session_state.endpoint_tab_warning_shown = True
-
     # Endpoint selector
     endpoint_options = []
     endpoint_mapping = {}
@@ -147,9 +137,6 @@ if show_selector:
         # Reset conversation when switching endpoints
         st.session_state.conversation_id = None
         st.session_state.messages = []
-        st.toast(
-            "Endpoint changed. Conversation history was cleared because each endpoint has separate storage."
-        )
         st.rerun()
 
 # Display active endpoint
@@ -172,14 +159,11 @@ st.sidebar.header("Select Location")
 @st.cache_data(ttl=3600)
 def get_locations(backend_url_param: str, backend_key_param: str):
     """Fetch available locations from backend"""
-    # Get configurable timeout (default: 10 seconds for metadata)
-    timeout_metadata = st.secrets.get("backend_timeout_metadata", 10)
-
     try:
         response = requests.get(
             f"{backend_url_param}/locations",
             headers={"Authorization": f"Bearer {backend_key_param}"},
-            timeout=timeout_metadata
+            timeout=10
         )
         response.raise_for_status()
         return response.json()
@@ -190,16 +174,8 @@ def get_locations(backend_url_param: str, backend_key_param: str):
             error_detail = e.response.text
         st.error(f"Backend error ({e.response.status_code}): {error_detail}")
         return {"locations": [], "areas": [], "count": 0}
-    except requests.exceptions.Timeout as e:
-        st.error(f"Backend request timed out after {timeout_metadata}s. The server may be overloaded or unreachable.")
-        st.error(f"Error: {str(e)}")
-        return {"locations": [], "areas": [], "count": 0}
-    except requests.exceptions.ConnectionError as e:
-        st.error(f"Cannot connect to backend at {backend_url_param}. Check that the server is running and the URL is correct.")
-        st.error(f"Error: {str(e)}")
-        return {"locations": [], "areas": [], "count": 0}
     except requests.exceptions.RequestException as e:
-        st.error(f"Network error while connecting to backend. Check .streamlit/secrets.toml configuration.")
+        st.error(f"Cannot connect to backend. Check that the server is running and .streamlit/secrets.toml is configured correctly.")
         st.error(f"Error: {str(e)}")
         return {"locations": [], "areas": [], "count": 0}
     except Exception as e:
@@ -255,14 +231,11 @@ selected_site = st.sidebar.selectbox(
 @st.cache_data(ttl=3600)
 def get_topics(backend_url_param: str, backend_key_param: str, area: str, site: str):
     """Fetch topics for a location"""
-    # Get configurable timeout (default: 10 seconds for metadata)
-    timeout_metadata = st.secrets.get("backend_timeout_metadata", 10)
-
     try:
         response = requests.get(
             f"{backend_url_param}/topics/{area}/{site}",
             headers={"Authorization": f"Bearer {backend_key_param}"},
-            timeout=timeout_metadata
+            timeout=10
         )
         response.raise_for_status()
         data = response.json()
@@ -340,9 +313,6 @@ if prompt := st.chat_input("Ask about the location..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # Get configurable timeout (default: 60 seconds for QA)
-                timeout_qa = st.secrets.get("backend_timeout_qa", 60)
-
                 # Prepare request
                 request_data = {
                     "area": selected_area,
@@ -361,7 +331,7 @@ if prompt := st.chat_input("Ask about the location..."):
                         "Content-Type": "application/json"
                     },
                     json=request_data,
-                    timeout=timeout_qa
+                    timeout=60
                 )
                 response.raise_for_status()
 
@@ -412,23 +382,12 @@ if prompt := st.chat_input("Ask about the location..."):
                     error_detail = e.response.json().get("detail", e.response.text)
                 except:
                     error_detail = e.response.text
-                if e.response.status_code == 401:
-                    st.error(f"Authentication failed. Check that backend_api_key in .streamlit/secrets.toml is correct.")
-                elif e.response.status_code == 404:
-                    st.error(f"Backend endpoint not found. The server may be outdated or misconfigured.")
-                else:
-                    st.error(f"Backend error ({e.response.status_code}): {error_detail}")
-            except requests.exceptions.Timeout as e:
-                st.error(f"Backend request timed out after {timeout_qa}s. The query may be too complex or the server is overloaded.")
-                st.error(f"Error: {str(e)}")
-            except requests.exceptions.ConnectionError as e:
-                st.error(f"Cannot connect to backend at {st.session_state.backend_url}. Check that the server is running and the URL is correct.")
-                st.error(f"Error: {str(e)}")
+                st.error(f"Backend error ({e.response.status_code}): {error_detail}")
             except requests.exceptions.RequestException as e:
-                st.error(f"Network error while communicating with backend. Check .streamlit/secrets.toml configuration.")
+                st.error("Cannot connect to backend. Check that the server is running and .streamlit/secrets.toml is configured correctly.")
                 st.error(f"Error: {str(e)}")
             except Exception as e:
-                st.error(f"Unexpected error: {str(e)}")
+                st.error(f"Error: {str(e)}")
 
 # =============================================================================
 # Sidebar - Debug Info and Controls
