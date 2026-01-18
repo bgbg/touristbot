@@ -467,3 +467,200 @@ pytest tests/test_qa_api_integration.py -v
 - Add caching (Redis) if performance becomes an issue
 - Async job processing (Cloud Tasks) for long uploads
 - Monitoring dashboards (Cloud Monitoring)
+
+## Logging and Monitoring
+
+The backend uses two separate logging systems optimized for their respective purposes:
+
+### Application Logs (Cloud Logging)
+
+**Purpose**: Real-time application monitoring, debugging, error tracking
+
+**Local development**:
+- Logs written to both stdout and `backend.log` file (rotating, 10MB max, 5 backups)
+- File location: project root directory
+- Immediate access for debugging
+
+**Cloud Run production**:
+- Logs written to stdout only (automatically captured by Cloud Logging)
+- No file-based logging (ephemeral filesystem)
+- 30-day retention by default
+
+**Log level**:
+- Configurable via `LOG_LEVEL` environment variable (default: INFO)
+- Supported levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+**Accessing production logs**:
+
+Via gcloud CLI:
+```bash
+# Recent logs (last 50 entries)
+gcloud run logs read tourism-rag-backend --region me-west1 --limit 50
+
+# Follow logs in real-time
+gcloud run logs tail tourism-rag-backend --region me-west1
+
+# Filter by severity
+gcloud run logs read tourism-rag-backend --region me-west1 --log-filter="severity>=ERROR"
+
+# Specific time range
+gcloud run logs read tourism-rag-backend --region me-west1 \
+  --log-filter="timestamp>=\"2024-01-01T00:00:00Z\""
+```
+
+Via Cloud Console:
+1. Navigate to Cloud Run: https://console.cloud.google.com/run
+2. Select service: `tourism-rag-backend`
+3. Click "LOGS" tab
+4. Use filters: severity, time range, search text
+
+**Log retention**: 30 days in Cloud Logging (default)
+
+### Query/Response Logs (GCS)
+
+**Purpose**: Long-term analytics, quality monitoring, training data
+
+**Storage location**: `gs://tarasa_tourist_bot_content/query_logs/{YYYY-MM-DD}.jsonl`
+
+**Format**: JSONL (one JSON object per line, newline-delimited)
+
+**Schema**:
+```json
+{
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "conversation_id": "uuid-string",
+  "area": "hefer_valley",
+  "site": "agamon_hefer",
+  "query": "שאלה של המשתמש",
+  "response_text": "תשובת הבוט",
+  "response_length": 150,
+  "latency_ms": 1234.56,
+  "citations_count": 3,
+  "images_count": 2,
+  "model_name": "gemini-2.5-flash",
+  "temperature": 0.6,
+  "error": null,
+  "should_include_images": true,
+  "image_relevance": [
+    {
+      "image_uri": "https://generativelanguage.googleapis.com/...",
+      "relevance_score": 85
+    }
+  ],
+  "citations": [
+    {
+      "source": "document-name.docx",
+      "chunk_id": "chunk-123",
+      "text": "קטע מהמסמך המקורי"
+    }
+  ],
+  "images": [
+    {
+      "uri": "https://storage.googleapis.com/...",
+      "file_api_uri": "https://generativelanguage.googleapis.com/...",
+      "caption": "תיאור התמונה",
+      "context": "הקשר מהמסמך",
+      "relevance_score": 85
+    }
+  ]
+}
+```
+
+**Field descriptions**:
+- `timestamp`: UTC timestamp in ISO 8601 format
+- `conversation_id`: Unique conversation identifier
+- `area`, `site`: Location hierarchy
+- `query`: Full user question text
+- `response_text`: Full bot response text (extracted from JSON if structured output)
+- `response_length`: Character count of response
+- `latency_ms`: Total query processing time in milliseconds
+- `citations_count`: Number of citations (legacy field)
+- `images_count`: Number of images displayed (legacy field)
+- `model_name`: Gemini model used
+- `temperature`: Temperature parameter
+- `error`: Error message if query failed (null on success)
+- `should_include_images`: Boolean flag from LLM structured output
+- `image_relevance`: Raw relevance scores from LLM for all candidate images
+- `citations`: Full citation objects with source documents and text snippets
+- `images`: Full metadata for displayed images (after relevance filtering)
+
+**Accessing query logs**:
+
+Via gsutil CLI:
+```bash
+# Download specific date
+gsutil cp gs://tarasa_tourist_bot_content/query_logs/2024-01-15.jsonl .
+
+# Download date range
+gsutil -m cp gs://tarasa_tourist_bot_content/query_logs/2024-01-*.jsonl .
+
+# View recent logs
+gsutil cat gs://tarasa_tourist_bot_content/query_logs/2024-01-15.jsonl | tail -n 10
+```
+
+Via Python (programmatic access):
+```python
+from backend.query_logging.query_logger import QueryLogger
+from backend.gcs_storage import StorageBackend
+
+storage = StorageBackend("tarasa_tourist_bot_content")
+logger = QueryLogger(storage)
+
+# Get logs for specific date
+logs = logger.get_logs("2024-01-15")
+
+# Get logs for date range
+logs = logger.get_logs_range("2024-01-01", "2024-01-31")
+```
+
+**Log retention**: Indefinite (controlled by GCS bucket lifecycle policy)
+
+### Searching and Filtering Best Practices
+
+**Application logs (Cloud Logging)**:
+- Use severity filters to focus on errors: `severity>=ERROR`
+- Filter by log name: `logName=~"tourism-rag-backend"`
+- Search text in messages: `textPayload=~"query failed"`
+- Combine filters: `severity>=ERROR AND textPayload=~"GCS"`
+
+**Query logs (GCS)**:
+- Use `jq` for JSON parsing: `cat logs.jsonl | jq 'select(.latency_ms > 5000)'`
+- Filter by location: `jq 'select(.area == "hefer_valley")'`
+- Aggregate statistics: `jq -s 'map(.latency_ms) | add/length'` (average latency)
+- Count errors: `jq -s 'map(select(.error != null)) | length'`
+- Extract specific fields: `jq '{query, response_text, latency_ms}'`
+
+**Monitoring key metrics**:
+- **Latency**: Track `latency_ms` for performance issues (>5s is slow)
+- **Error rate**: Count queries with non-null `error` field
+- **Image inclusion**: Analyze `should_include_images` distribution
+- **Citation usage**: Track `citations_count` to verify retrieval quality
+- **Model performance**: Compare metrics across different `model_name` values
+
+### Environment Detection
+
+The backend automatically detects its environment:
+- **Cloud Run**: Detected via `K_SERVICE` environment variable (set by GCP)
+- **Local**: No `K_SERVICE` variable present
+
+Logging configuration adapts accordingly:
+- Cloud Run: stdout only (no file handler)
+- Local: dual logging (stdout + rotating file)
+
+### Temporary Debugging in Production
+
+To enable DEBUG logging temporarily in Cloud Run:
+
+```bash
+# Update environment variable
+gcloud run services update tourism-rag-backend \
+  --region me-west1 \
+  --set-env-vars LOG_LEVEL=DEBUG
+
+# Revert to INFO after debugging
+gcloud run services update tourism-rag-backend \
+  --region me-west1 \
+  --set-env-vars LOG_LEVEL=INFO
+```
+
+**Warning**: DEBUG logging is verbose and increases Cloud Logging costs. Use sparingly in production.
