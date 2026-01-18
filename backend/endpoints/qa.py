@@ -225,8 +225,8 @@ async def chat_query(
         )
 
         # Build Gemini API request
-        # Configure client
-        genai.configure(api_key=get_secret("GOOGLE_API_KEY"))
+        # Create client
+        client = genai.Client(api_key=get_secret("GOOGLE_API_KEY"))
 
         # Build conversation history for context
         history_messages = []
@@ -247,32 +247,29 @@ async def chat_query(
                     user_parts.append({"file_data": {"file_uri": file_api_uri}})
 
         # Create File Search tool with metadata filter
+        from google.genai import types
+
         tools = [
-            {
-                "file_search": {
-                    "metadata_filter": {
-                        "key": "location",
-                        "value": f"{request.area}/{request.site}",
-                    }
-                }
-            }
+            types.Tool(
+                file_search=types.FileSearch(
+                    file_search_store_names=[store_name],
+                    metadata_filter=f'location="{request.area}/{request.site}"',
+                )
+            )
         ]
 
         # Call Gemini API with structured output
         try:
-            model = genai.GenerativeModel(
-                model_name=prompt_config.model_name,
-                system_instruction=system_instruction,
-                tools=tools,
-                generation_config={
-                    "temperature": prompt_config.temperature,
-                    "response_mime_type": "application/json",
-                    "response_schema": ImageAwareResponse,
-                },
-            )
-
-            response = model.generate_content(
-                contents=[*history_messages, {"role": "user", "parts": user_parts}]
+            response = client.models.generate_content(
+                model=prompt_config.model_name,
+                contents=[*history_messages, {"role": "user", "parts": user_parts}],
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    tools=tools,
+                    temperature=prompt_config.temperature,
+                    response_mime_type="application/json",
+                    response_schema=ImageAwareResponse,
+                ),
             )
 
             # Parse structured output
