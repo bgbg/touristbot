@@ -276,6 +276,18 @@ async def chat_query(
             # Get response text
             response_text = response.text
 
+            # Try to parse as JSON if the model returned structured output
+            # (happens when system prompt requests JSON format)
+            try:
+                import json
+                parsed = json.loads(response_text)
+                if isinstance(parsed, dict) and "response_text" in parsed:
+                    response_text = parsed["response_text"]
+                    logger.info("Parsed structured JSON response from Gemini")
+            except (json.JSONDecodeError, KeyError):
+                # Not JSON or doesn't have expected structure, use as-is
+                pass
+
             # Extract citations from grounding metadata
             citations = get_citations_from_grounding(
                 getattr(response, "grounding_metadata", None)
