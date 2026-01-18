@@ -197,16 +197,19 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - Note: File Search API does NOT extract images from DOCX (text-only), hence separate image pipeline.
 
 ### LLM-Based Image Relevance (Issue #18)
-- Gemini API returns structured output (JSON) with image relevance signals via Pydantic schema `ImageAwareResponse`.
-- Structured output fields:
-  - `response_text`: Main response to user query (Hebrew or query language).
-  - `should_include_images`: Boolean indicating if images should be shown (false for initial greetings, true for substantive queries).
-  - `image_relevance`: Dict mapping image URIs to relevance scores (0-100).
-- Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks).
-- Image filtering: Only images with relevance score >= 60 are displayed.
-- Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!").
-- Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call.
-- Fallback: If structured output parsing fails, defaults to showing all images (backward compatibility).
+- **Note**: Gemini 2.5 doesn't support File Search tool + structured output simultaneously
+- System prompt instructs model to return JSON with image relevance signals
+- JSON response parsed manually from text (not using response_schema)
+- Response fields:
+  - `response_text`: Main response to user query (Hebrew or query language)
+  - `should_include_images`: Boolean indicating if images should be shown (false for initial greetings, true for substantive queries)
+  - `image_relevance`: List of `{uri, score}` objects with relevance scores (0-100)
+- Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks)
+- Image filtering: Only images with relevance score >= 60 are displayed
+- Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!")
+- Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call
+- Fallback: If JSON parsing fails, defaults to showing all images (backward compatibility)
+- Implementation: [backend/endpoints/qa.py:280-289](backend/endpoints/qa.py#L280-L289)
 
 ## Data Storage Architecture
 - **GCS is mandatory**: All registries stored in Google Cloud Storage (no local fallback).
@@ -248,7 +251,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 
 ## Backend API (Serverless Architecture)
 
-**Status**: Backend API implemented and tested (40 unit tests passing). Ready for Cloud Run deployment.
+**Status**: Backend API deployed to Google Cloud Run (revision 00018). 44+ unit tests passing. Production-ready.
 
 ### Architecture
 - **FastAPI** backend deployed on Google Cloud Run
@@ -276,7 +279,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - `POST /upload/{area}/{site}`: Placeholder (returns 501 - use CLI uploader instead)
 
 **Health:**
-- `GET /health`: Health check for Cloud Run
+- `GET /_internal_probe_3f9a2c1b`: Internal health check for Cloud Run (obscured path for security)
 
 ### Backend Components
 
@@ -296,12 +299,12 @@ backend/
 │   └── upload.py              # Upload placeholder
 ├── conversation_storage/      # GCS conversation management
 │   └── conversations.py       # ConversationStore class
-├── logging/                   # Query logging
+├── query_logging/             # Query logging (renamed to avoid shadowing Python's logging)
 │   └── query_logger.py        # QueryLogger (JSONL to GCS)
 ├── gcs_storage.py             # GCS storage backend
 ├── store_registry.py          # File Search Store registry
 ├── image_registry.py          # Image metadata registry
-└── tests/                     # Unit tests (40 tests, all passing)
+└── tests/                     # Unit tests (44+ tests, all passing)
 ```
 
 **Storage in GCS:**
@@ -335,10 +338,11 @@ GOOGLE_API_KEY=your-google-key     # Gemini API key (from .streamlit/secrets.tom
 **Deploy to Cloud Run:**
 ```bash
 cd backend
-./deploy.sh  # Uses defaults: gen-lang-client-0860749390, me-west1
+./deploy.sh  # Uses defaults from .env: gen-lang-client-0860749390, me-west1
 
-# Or with custom project/region:
-./deploy.sh <project-id> <region>
+# Deployment reads secrets from .env file (NEVER commit .env to git)
+# Creates .env.yaml temporarily for Cloud Run environment variables
+# Deploys with --no-allow-unauthenticated (requires GCP auth + API key)
 ```
 
 **Manual deployment:**
@@ -362,30 +366,19 @@ gcloud run deploy tourism-rag-backend \
 ```
 
 **Post-deployment:**
-1. Copy the service URL from deployment output (e.g., `https://tourism-rag-backend-xxxxx.me-west1.run.app`)
-2. Grant Streamlit service account access to invoke Cloud Run:
-   ```bash
-   gcloud run services add-iam-policy-binding tourism-rag-backend \
-     --region=me-west1 \
-     --member='serviceAccount:<streamlit-sa>@<project>.iam.gserviceaccount.com' \
-     --role='roles/run.invoker'
-   ```
-   Or for local development, grant your own account:
-   ```bash
-   gcloud run services add-iam-policy-binding tourism-rag-backend \
-     --region=me-west1 \
-     --member='user:<your-email>@gmail.com' \
-     --role='roles/run.invoker'
-   ```
+1. Service URL: `https://tourism-rag-backend-347968285860.me-west1.run.app` (deployed revision 00018)
+2. **Authentication**: Service uses `--no-allow-unauthenticated` requiring both GCP IAM and API keys
+   - API endpoints require `Authorization: Bearer <api-key>` header
+   - Health probe (`/_internal_probe_3f9a2c1b`) is unauthenticated for Cloud Run monitoring
 3. Add to `.streamlit/secrets.toml`:
    ```toml
-   backend_api_url = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
-   backend_api_key = "one-of-your-BACKEND_API_KEYS"
+   backend_api_url = "https://tourism-rag-backend-347968285860.me-west1.run.app"
+   backend_api_key = "<one-of-your-BACKEND_API_KEYS>"
    ```
-4. Verify deployment (requires GCP auth):
+4. Test deployment:
    ```bash
-   curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-     https://<service-url>/health
+   curl -H "Authorization: Bearer <api-key>" \
+     https://tourism-rag-backend-347968285860.me-west1.run.app/locations
    ```
 
 **Local Testing:**
@@ -418,8 +411,40 @@ pytest backend/tests/ -v
 # 11 tests: auth
 # 17 tests: conversation storage
 # 12 tests: query logger
-# Total: 40 tests, all passing
+# 4 tests: QA endpoint (schema validation, API integration)
+# Total: 44+ tests, all passing
+
+# Integration tests against deployed backend:
+pytest tests/test_qa_api_integration.py -v
 ```
+
+### Known Issues & Fixes
+
+**Critical fixes applied (revision 00018):**
+1. **Metadata filter mismatch** (Issue: File Search returning no results)
+   - Problem: Upload adds `area` and `site` metadata, query used `location="area/site"`
+   - Fix: Changed filter to `area="..." AND site="..."` in [backend/endpoints/qa.py:261](backend/endpoints/qa.py#L261)
+
+2. **Role validation error** (Issue: "Please use a valid role: user, model")
+   - Problem: Conversation store uses "assistant" role, Gemini API requires "model"
+   - Fix: Convert "assistant" → "model" when building history in [backend/endpoints/qa.py:237](backend/endpoints/qa.py#L237)
+
+3. **Module shadowing** (Issue: `logging.getLogger` not found)
+   - Problem: `backend/logging/` directory shadowed Python's built-in logging module
+   - Fix: Renamed to `backend/query_logging/`
+
+4. **Schema validation** (Issue: "additionalProperties is not supported")
+   - Problem: Pydantic v2 generates schemas with additionalProperties
+   - Fix: Custom GeminiJsonSchema generator removes additionalProperties in [backend/models.py:11](backend/models.py#L11)
+
+5. **Structured output compatibility** (Issue: Tools + structured output conflict)
+   - Problem: Gemini 2.5 doesn't support File Search tool + response_schema together
+   - Fix: Removed structured output, parse JSON from text response manually
+   - System prompt instructs model to return JSON format
+
+6. **LRU cache staleness** (Issue: Registry changes not reflected)
+   - Problem: Singleton dependencies cached, new locations not appearing
+   - Fix: Force Cloud Run restart with cache-busting env var or new deployment
 
 ### Limitations & Future Work
 
