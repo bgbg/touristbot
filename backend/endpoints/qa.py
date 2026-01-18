@@ -287,6 +287,10 @@ async def chat_query(
             )
         ]
 
+        # Initialize variables that may be referenced in exception handler
+        should_include_images_flag = None
+        image_relevance_data = None
+
         # Call Gemini API
         try:
             response = client.models.generate_content(
@@ -304,8 +308,6 @@ async def chat_query(
 
             # Try to parse as JSON if the model returned structured output
             # (happens when system prompt requests JSON format)
-            should_include_images_flag = None
-            image_relevance_data = None
             try:
                 parsed = json.loads(response_text)
                 if isinstance(parsed, dict) and "response_text" in parsed:
