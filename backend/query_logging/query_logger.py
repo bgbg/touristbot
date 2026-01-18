@@ -62,6 +62,10 @@ class QueryLogger:
         model_name: Optional[str] = None,
         temperature: Optional[float] = None,
         error: Optional[str] = None,
+        should_include_images: Optional[bool] = None,
+        image_relevance: Optional[List[dict]] = None,
+        citations: Optional[List[dict]] = None,
+        images: Optional[List[dict]] = None,
     ):
         """
         Log a query to GCS.
@@ -76,16 +80,20 @@ class QueryLogger:
             query: User query text
             response_text: Assistant response text
             latency_ms: Query latency in milliseconds
-            citations_count: Number of citations in response
-            images_count: Number of images in response
+            citations_count: Number of citations in response (deprecated, use citations)
+            images_count: Number of images in response (deprecated, use images)
             model_name: Model used for response
             temperature: Temperature used for response
             error: Error message if query failed
+            should_include_images: Boolean indicating if images should be shown
+            image_relevance: List of dicts with image_uri and relevance_score
+            citations: Full list of citations with source, chunk_id, text
+            images: List of displayed images with uri, caption, context, relevance_score
         """
         timestamp = datetime.utcnow().isoformat() + "Z"
         log_path = self._get_log_path()
 
-        # Create log entry
+        # Create log entry with all fields
         log_entry = {
             "timestamp": timestamp,
             "conversation_id": conversation_id,
@@ -101,6 +109,19 @@ class QueryLogger:
             "temperature": temperature,
             "error": error,
         }
+
+        # Add new structured output fields if provided
+        if should_include_images is not None:
+            log_entry["should_include_images"] = should_include_images
+
+        if image_relevance is not None:
+            log_entry["image_relevance"] = image_relevance
+
+        if citations is not None:
+            log_entry["citations"] = citations
+
+        if images is not None:
+            log_entry["images"] = images
 
         try:
             # Read existing content

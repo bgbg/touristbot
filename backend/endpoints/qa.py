@@ -395,7 +395,7 @@ async def chat_query(
         # Calculate latency
         latency_ms = (time.time() - start_time) * 1000
 
-        # Log query
+        # Log query with all structured output fields
         query_logger.log_query(
             conversation_id=conversation.conversation_id,
             area=request.area,
@@ -407,6 +407,10 @@ async def chat_query(
             images_count=len(relevant_images),
             model_name=prompt_config.model_name,
             temperature=prompt_config.temperature,
+            should_include_images=should_include_images,
+            image_relevance=image_relevance_data if image_relevance_data else [],
+            citations=[c.model_dump() for c in citations],
+            images=[img.model_dump() for img in relevant_images],
         )
 
         logger.info(

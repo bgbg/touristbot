@@ -12,7 +12,9 @@ Authentication via API key in Authorization header.
 
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,11 +22,62 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.auth import ApiKeyDep
 from backend.endpoints import locations, qa, topics, upload
 
+
+def configure_logging():
+    """
+    Configure logging based on environment.
+
+    - Cloud Run (detected via K_SERVICE env var): stdout only, INFO level
+    - Local: dual logging (stdout + rotating file), INFO level
+    """
+    # Detect environment
+    is_cloud_run = bool(os.getenv("K_SERVICE"))
+    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+
+    # Create root logger configuration
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Clear any existing handlers
+    root_logger.handlers = []
+
+    # Format for log messages
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    # Always add stdout handler
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(log_level)
+    stdout_handler.setFormatter(formatter)
+    root_logger.addHandler(stdout_handler)
+
+    # Add file handler for local development only
+    if not is_cloud_run:
+        try:
+            file_handler = RotatingFileHandler(
+                "backend.log",
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=5,
+            )
+            file_handler.setLevel(log_level)
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
+        except Exception as e:
+            # Log error but don't fail startup
+            root_logger.warning(f"Failed to create file handler: {e}")
+
+    # Log configuration
+    env_type = "Cloud Run" if is_cloud_run else "Local"
+    handlers = "stdout only" if is_cloud_run else "stdout + file (backend.log)"
+    root_logger.info(f"Logging configured for {env_type}: level={log_level_str}, handlers={handlers}")
+
+    return root_logger
+
+
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
