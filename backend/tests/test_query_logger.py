@@ -234,3 +234,195 @@ class TestQueryLogger:
         # Hebrew should be preserved
         assert log_entry["query"] == "מה זה המקום הזה?"
         assert log_entry["response_text"] == "זהו אגמון חפר, שמורת טבע יפהפייה."
+
+    def test_log_query_with_structured_output_fields(self, logger, mock_storage):
+        """Test logging with all new structured output fields."""
+        mock_storage.read_file.side_effect = FileNotFoundError()
+
+        citations = [
+            {
+                "source": "document.docx",
+                "chunk_id": "chunk-123",
+                "text": "Some text from document",
+            },
+            {
+                "source": "other-doc.pdf",
+                "chunk_id": "chunk-456",
+                "text": "More text",
+            },
+        ]
+
+        image_relevance = [
+            {
+                "image_uri": "https://generativelanguage.googleapis.com/v1beta/files/abc123",
+                "relevance_score": 85,
+            },
+            {
+                "image_uri": "https://generativelanguage.googleapis.com/v1beta/files/def456",
+                "relevance_score": 60,
+            },
+        ]
+
+        images = [
+            {
+                "uri": "https://storage.googleapis.com/bucket/image1.jpg",
+                "file_api_uri": "https://generativelanguage.googleapis.com/v1beta/files/abc123",
+                "caption": "Beautiful landscape",
+                "context": "This shows the main area",
+                "relevance_score": 85,
+            }
+        ]
+
+        logger.log_query(
+            conversation_id="conv-structured",
+            area="test_area",
+            site="test_site",
+            query="Show me images of birds",
+            response_text="Here are some bird images.",
+            latency_ms=2000.0,
+            citations_count=2,
+            images_count=1,
+            model_name="gemini-2.5-flash",
+            temperature=0.6,
+            should_include_images=True,
+            image_relevance=image_relevance,
+            citations=citations,
+            images=images,
+        )
+
+        call_args = mock_storage.write_file.call_args
+        content = call_args[0][1]
+        log_entry = json.loads(content.strip())
+
+        # Verify all structured fields are present
+        assert log_entry["should_include_images"] is True
+        assert len(log_entry["image_relevance"]) == 2
+        assert log_entry["image_relevance"][0]["relevance_score"] == 85
+        assert len(log_entry["citations"]) == 2
+        assert log_entry["citations"][0]["source"] == "document.docx"
+        assert len(log_entry["images"]) == 1
+        assert log_entry["images"][0]["caption"] == "Beautiful landscape"
+
+    def test_log_query_backward_compatibility(self, logger, mock_storage):
+        """Test that old calls without new fields still work."""
+        mock_storage.read_file.side_effect = FileNotFoundError()
+
+        # Call without any of the new optional fields
+        logger.log_query(
+            conversation_id="conv-old",
+            area="area1",
+            site="site1",
+            query="Old style query",
+            response_text="Old style response",
+            latency_ms=100.0,
+        )
+
+        call_args = mock_storage.write_file.call_args
+        content = call_args[0][1]
+        log_entry = json.loads(content.strip())
+
+        # Should have basic fields
+        assert log_entry["query"] == "Old style query"
+        assert log_entry["response_text"] == "Old style response"
+        # New fields should not be present
+        assert "should_include_images" not in log_entry
+        assert "image_relevance" not in log_entry
+        assert "citations" not in log_entry
+        assert "images" not in log_entry
+
+    def test_log_query_partial_structured_fields(self, logger, mock_storage):
+        """Test logging with only some structured fields populated."""
+        mock_storage.read_file.side_effect = FileNotFoundError()
+
+        # Only provide should_include_images and citations
+        logger.log_query(
+            conversation_id="conv-partial",
+            area="area1",
+            site="site1",
+            query="Partial query",
+            response_text="Partial response",
+            latency_ms=500.0,
+            should_include_images=False,
+            citations=[{"source": "doc.txt", "chunk_id": "123", "text": "text"}],
+        )
+
+        call_args = mock_storage.write_file.call_args
+        content = call_args[0][1]
+        log_entry = json.loads(content.strip())
+
+        # Should have provided fields
+        assert log_entry["should_include_images"] is False
+        assert len(log_entry["citations"]) == 1
+        # Other fields should not be present
+        assert "image_relevance" not in log_entry
+        assert "images" not in log_entry
+
+    def test_log_query_empty_structured_lists(self, logger, mock_storage):
+        """Test logging with empty lists for structured fields."""
+        mock_storage.read_file.side_effect = FileNotFoundError()
+
+        logger.log_query(
+            conversation_id="conv-empty",
+            area="area1",
+            site="site1",
+            query="Query with no results",
+            response_text="No results found",
+            latency_ms=200.0,
+            should_include_images=False,
+            image_relevance=[],
+            citations=[],
+            images=[],
+        )
+
+        call_args = mock_storage.write_file.call_args
+        content = call_args[0][1]
+        log_entry = json.loads(content.strip())
+
+        # Empty lists should be present in log
+        assert log_entry["should_include_images"] is False
+        assert log_entry["image_relevance"] == []
+        assert log_entry["citations"] == []
+        assert log_entry["images"] == []
+
+    def test_log_query_complex_nested_structures(self, logger, mock_storage):
+        """Test JSON serialization of complex nested structures."""
+        mock_storage.read_file.side_effect = FileNotFoundError()
+
+        # Complex nested structure with Hebrew text
+        citations = [
+            {
+                "source": "hebrew-doc.docx",
+                "chunk_id": "chunk-789",
+                "text": "טקסט בעברית עם ציטוט מהמסמך המקורי",
+            }
+        ]
+
+        images = [
+            {
+                "uri": "https://storage.googleapis.com/bucket/image.jpg",
+                "file_api_uri": "https://generativelanguage.googleapis.com/file",
+                "caption": "כיתוב בעברית",
+                "context": "הקשר לפני התמונה. הקשר אחרי התמונה.",
+                "relevance_score": 95,
+            }
+        ]
+
+        logger.log_query(
+            conversation_id="conv-complex",
+            area="hefer_valley",
+            site="agamon_hefer",
+            query="שאלה מורכבת עם עברית",
+            response_text="תשובה מורכבת",
+            latency_ms=3000.0,
+            citations=citations,
+            images=images,
+        )
+
+        call_args = mock_storage.write_file.call_args
+        content = call_args[0][1]
+        log_entry = json.loads(content.strip())
+
+        # Verify complex structures are preserved
+        assert log_entry["citations"][0]["text"] == "טקסט בעברית עם ציטוט מהמסמך המקורי"
+        assert log_entry["images"][0]["caption"] == "כיתוב בעברית"
+        assert "הקשר לפני" in log_entry["images"][0]["context"]
