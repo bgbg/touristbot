@@ -5,14 +5,14 @@ These tests verify that the LLM prompt correctly prevents phantom image
 references when no relevant images exist (issue #44).
 """
 import re
-from typing import List
 
 
 # Common Hebrew image reference patterns that should NOT appear when no images are shown
 HEBREW_IMAGE_REFERENCE_PATTERNS = [
     r"תמונה",  # "picture/image" - direct mention
-    r"תסתכל",  # "look" (imperative) - often used with images
-    r"רוא.*ב",  # "see in" - often refers to images
+    r"תסתכל",  # "look" (imperative singular) - often used with images
+    r"תראו",  # "look/see" (imperative plural) - used in prompt examples like "תראו בתמונה"
+    r"רואים?\s+(ב|את\s+ה)?תמונה",  # "see (in) the picture/image" - explicit image reference
     r"שימו לב כמה",  # "notice how" - commentary phrase from prompt examples
 ]
 
