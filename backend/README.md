@@ -37,7 +37,7 @@ GOOGLE_API_KEY=<your-gemini-api-key>  # Same as in .streamlit/secrets.toml
    backend_api_url = "https://tourism-rag-backend-xxxxx.me-west1.run.app"
    backend_api_key = "one-of-your-BACKEND_API_KEYS"
    ```
-3. Test: `curl https://<service-url>/health`
+3. Test: `curl https://<service-url>/_internal_probe_3f9a2c1b`
 
 ## Development
 

@@ -9,6 +9,7 @@ Main endpoint for conversational queries using:
 - Conversation history management
 """
 
+import json
 import logging
 import time
 from typing import List, Optional
@@ -27,7 +28,7 @@ from backend.dependencies import (
 )
 from backend.image_registry import ImageRegistry
 from backend.query_logging.query_logger import QueryLogger
-from backend.models import Citation, ImageAwareResponse, ImageMetadata, QARequest, QAResponse
+from backend.models import Citation, ImageMetadata, QARequest, QAResponse
 from backend.prompt_loader import PromptLoader
 from backend.store_registry import StoreRegistry
 from backend.utils import get_secret
@@ -281,7 +282,6 @@ async def chat_query(
             # Try to parse as JSON if the model returned structured output
             # (happens when system prompt requests JSON format)
             try:
-                import json
                 parsed = json.loads(response_text)
                 if isinstance(parsed, dict) and "response_text" in parsed:
                     response_text = parsed["response_text"]

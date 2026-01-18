@@ -7,8 +7,6 @@ This is a temporary test app - full integration is in issue #34
 
 import streamlit as st
 import requests
-import json
-from typing import Optional
 
 # Page config
 st.set_page_config(
@@ -134,18 +132,23 @@ for message in st.session_state.messages:
         if "citations" in message and message["citations"]:
             with st.expander("📚 Sources", expanded=False):
                 for citation in message["citations"]:
-                    st.markdown(f"- **{citation.get('title', 'Unknown')}**")
-                    if citation.get("chunk_text"):
-                        st.text(citation["chunk_text"][:200] + "...")
+                    st.markdown(f"- **{citation.get('source', 'Unknown')}**")
+                    citation_text = citation.get("text")
+                    if citation_text:
+                        st.text(citation_text[:200] + "...")
 
         # Display images if present
         if "images" in message and message["images"]:
             with st.expander("🖼️ Images", expanded=False):
                 for img in message["images"]:
-                    if img.get("gcs_public_url"):
-                        st.image(img["gcs_public_url"], caption=img.get("caption", ""))
-                        if img.get("context_text"):
-                            st.caption(img["context_text"])
+                    # Prefer new backend fields (`uri`, `file_api_uri`), but fall back to legacy `gcs_public_url`
+                    image_url = img.get("uri") or img.get("file_api_uri") or img.get("gcs_public_url")
+                    if image_url:
+                        st.image(image_url, caption=img.get("caption", ""))
+                        # Prefer `context` but support legacy `context_text`
+                        context_text = img.get("context") or img.get("context_text")
+                        if context_text:
+                            st.caption(context_text)
 
 # Chat input
 if prompt := st.chat_input("Ask about the location..."):
@@ -211,18 +214,22 @@ if prompt := st.chat_input("Ask about the location..."):
                 if data.get("citations"):
                     with st.expander("📚 Sources", expanded=False):
                         for citation in data["citations"]:
-                            st.markdown(f"- **{citation.get('title', 'Unknown')}**")
-                            if citation.get("chunk_text"):
-                                st.text(citation["chunk_text"][:200] + "...")
+                            st.markdown(f"- **{citation.get('source', 'Unknown')}**")
+                            citation_text = citation.get("text")
+                            if citation_text:
+                                st.text(citation_text[:200] + "...")
 
                 # Display images
                 if data.get("images"):
                     with st.expander("🖼️ Images", expanded=False):
                         for img in data["images"]:
-                            if img.get("gcs_public_url"):
-                                st.image(img["gcs_public_url"], caption=img.get("caption", ""))
-                                if img.get("context_text"):
-                                    st.caption(img["context_text"])
+                            # Prefer new ImageMetadata fields, but fall back to legacy names if present
+                            image_url = img.get("uri") or img.get("file_api_uri") or img.get("gcs_public_url")
+                            if image_url:
+                                st.image(image_url, caption=img.get("caption", ""))
+                                context_text = img.get("context") or img.get("context_text")
+                                if context_text:
+                                    st.caption(context_text)
 
                 # Show latency
                 st.caption(f"⏱️ Response time: {data.get('latency_ms', 0)}ms")

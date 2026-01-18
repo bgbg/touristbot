@@ -17,7 +17,7 @@ def backend_url():
 @pytest.fixture
 def api_key():
     """Get API key from environment."""
-    key = os.getenv("BACKEND_API_KEY", "00dcc37da36b4467fb7f9b78ab6f775c1c762af6d376e330d68f0affcf9fbb2f")
+    key = os.getenv("BACKEND_API_KEY")
     if not key:
         pytest.skip("BACKEND_API_KEY not set")
     return key
