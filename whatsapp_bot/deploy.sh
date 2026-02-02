@@ -7,23 +7,44 @@
 #   - Region: me-west1 (Tel Aviv, Israel - closest to customers)
 
 set -e
+set -o pipefail
+
+# Resolve script directory (works from any working directory)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 PROJECT_ID=${1:-"gen-lang-client-0860749390"}
 REGION=${2:-"me-west1"}
 SERVICE_NAME="whatsapp-bot"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
+# Create secure temporary file for environment variables
+ENV_YAML_FILE=$(mktemp /tmp/whatsapp-bot-env.XXXXXX.yaml)
+chmod 600 "${ENV_YAML_FILE}"
+
+# Cleanup trap: ensure temporary file is removed on exit/error
+cleanup() {
+    rm -f "${ENV_YAML_FILE}"
+}
+trap cleanup EXIT INT TERM
+
 # Load environment variables from .env file if it exists
-if [ -f ../.env ]; then
+if [ -f "${PROJECT_ROOT}/.env" ]; then
     echo "Loading environment variables from project root .env file..."
-    export $(grep -v '^#' ../.env | xargs)
-elif [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${PROJECT_ROOT}/.env"
+    set +a
+elif [ -f "${SCRIPT_DIR}/.env" ]; then
     echo "Loading environment variables from whatsapp_bot/.env file..."
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    # shellcheck disable=SC1091
+    source "${SCRIPT_DIR}/.env"
+    set +a
 fi
 
-# Check for required environment variables
-required_vars=("WHATSAPP_VERIFY_TOKEN" "BORIS_GORELIK_WABA_ACCESS_TOKEN" "BORIS_GORELIK_WABA_PHONE_NUMBER_ID" "BACKEND_API_KEY")
+# Check for required environment variables (including WHATSAPP_APP_SECRET for production security)
+required_vars=("WHATSAPP_VERIFY_TOKEN" "BORIS_GORELIK_WABA_ACCESS_TOKEN" "BORIS_GORELIK_WABA_PHONE_NUMBER_ID" "BACKEND_API_KEY" "WHATSAPP_APP_SECRET")
 missing_vars=()
 
 for var in "${required_vars[@]}"; do
@@ -54,19 +75,18 @@ echo ""
 
 # Build and push Docker image (from project root, not whatsapp_bot/)
 echo "Building Docker image..."
-cd ..
-gcloud builds submit --config=whatsapp_bot/cloudbuild.yaml --project ${PROJECT_ID} .
-cd whatsapp_bot
+gcloud builds submit --config=whatsapp_bot/cloudbuild.yaml --project ${PROJECT_ID} "${PROJECT_ROOT}"
 
-# Create temporary env vars file for Cloud Run
+# Create temporary env vars file for Cloud Run (using secure temp file)
 echo "Creating environment variables file..."
-cat > .env.yaml <<EOF
+cat > "${ENV_YAML_FILE}" <<EOF
 WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
 BORIS_GORELIK_WABA_ACCESS_TOKEN: "${BORIS_GORELIK_WABA_ACCESS_TOKEN}"
 BORIS_GORELIK_WABA_PHONE_NUMBER_ID: "${BORIS_GORELIK_WABA_PHONE_NUMBER_ID}"
 BACKEND_API_URL: "${BACKEND_API_URL}"
 BACKEND_API_KEY: "${BACKEND_API_KEY}"
 META_GRAPH_API_VERSION: "${META_GRAPH_API_VERSION}"
+WHATSAPP_APP_SECRET: "${WHATSAPP_APP_SECRET}"
 EOF
 
 # Deploy to Cloud Run with environment variables
@@ -82,10 +102,9 @@ gcloud run deploy ${SERVICE_NAME} \
     --max-instances 10 \
     --min-instances 0 \
     --project ${PROJECT_ID} \
-    --env-vars-file .env.yaml
+    --env-vars-file "${ENV_YAML_FILE}"
 
-# Clean up
-rm -f .env.yaml
+# Cleanup handled by trap
 
 echo ""
 echo "Deployment complete!"
@@ -114,8 +133,8 @@ echo ""
 echo "=========================================="
 echo ""
 echo "Next steps:"
-echo "1. Test webhook verification:"
-echo "   curl \"${SERVICE_URL}/webhook?hub.mode=subscribe&hub.challenge=test&hub.verify_token=${WHATSAPP_VERIFY_TOKEN}\""
+echo "1. Test webhook verification (avoid pasting real tokens in shared terminals/logs):"
+echo "   curl \"${SERVICE_URL}/webhook?hub.mode=subscribe&hub.challenge=test&hub.verify_token=<YOUR_VERIFY_TOKEN>\""
 echo ""
 echo "2. Test health check:"
 echo "   curl ${SERVICE_URL}/health"
@@ -124,7 +143,7 @@ echo "3. Update Meta Developer Console webhook:"
 echo "   - Navigate to: https://developers.facebook.com/apps"
 echo "   - Go to WhatsApp > Configuration > Webhook"
 echo "   - Update Callback URL to: ${SERVICE_URL}/webhook"
-echo "   - Use Verify Token: ${WHATSAPP_VERIFY_TOKEN}"
+echo "   - Use your WHATSAPP_VERIFY_TOKEN from .env file"
 echo "   - Click 'Verify and Save'"
 echo ""
 echo "4. Monitor logs:"

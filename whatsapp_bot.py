@@ -18,6 +18,8 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import sys
@@ -44,7 +46,10 @@ WABA_PHONE_NUMBER_ID = os.getenv("BORIS_GORELIK_WABA_PHONE_NUMBER_ID")
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "https://tourism-rag-backend-347968285860.me-west1.run.app")
 BACKEND_API_KEY = os.getenv("BACKEND_API_KEY")
 GRAPH_API_VERSION = os.getenv("META_GRAPH_API_VERSION", "v22.0")
-PORT = int(os.getenv("PORT", "8080"))
+# Backward compatible PORT handling: Cloud Run uses PORT, local dev may use WHATSAPP_LISTENER_PORT
+_port_env = os.getenv("PORT") or os.getenv("WHATSAPP_LISTENER_PORT")
+PORT = int(_port_env) if _port_env else 8080
+APP_SECRET = os.getenv("WHATSAPP_APP_SECRET")  # Optional: for signature validation
 
 # Default location context
 DEFAULT_AREA = "hefer_valley"
@@ -55,6 +60,34 @@ LOG_DIR = Path("whatsapp_logs")
 CONV_DIR = Path("conversations")
 LOG_DIR.mkdir(exist_ok=True)
 CONV_DIR.mkdir(exist_ok=True)
+
+# Environment validation (runs at module import, before gunicorn starts serving)
+def _validate_required_env_vars() -> None:
+    """Validate required environment variables at startup (fail fast)."""
+    required_vars = {
+        "WHATSAPP_VERIFY_TOKEN": "Token for Meta webhook verification",
+        "BORIS_GORELIK_WABA_ACCESS_TOKEN": "WhatsApp Business API access token",
+        "BORIS_GORELIK_WABA_PHONE_NUMBER_ID": "WhatsApp phone number ID",
+        "BACKEND_API_KEY": "Backend API authentication key",
+    }
+
+    # In production, WHATSAPP_APP_SECRET is also required for webhook signature validation
+    is_production = os.getenv("K_SERVICE") or os.getenv("GAE_ENV")
+    if is_production:
+        required_vars["WHATSAPP_APP_SECRET"] = "Meta app secret for webhook signature validation (required in production)"
+
+    missing_vars = []
+    for var, description in required_vars.items():
+        if not os.getenv(var):
+            missing_vars.append(f"  - {var}: {description}")
+
+    if missing_vars:
+        error_msg = "Missing required environment variables:\n" + "\n".join(missing_vars)
+        print(error_msg, file=sys.stderr)
+        raise RuntimeError(error_msg)
+
+# Run validation at module import time (before gunicorn starts serving requests)
+_validate_required_env_vars()
 
 
 def eprint(*args: object) -> None:
@@ -84,6 +117,44 @@ def log_event(event_type: str, data: dict, correlation_id: str = None) -> None:
     eprint(f"[{timestamp}] {event_type}")
     if event_type == "error":
         eprint(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def verify_webhook_signature(payload: bytes, signature: str) -> bool:
+    """
+    Verify Meta webhook signature using HMAC-SHA256.
+
+    Args:
+        payload: Raw request body bytes
+        signature: X-Hub-Signature-256 header value (format: "sha256=<hex>")
+
+    Returns:
+        True if signature is valid, False otherwise
+    """
+    # Detect production environment (Cloud Run sets K_SERVICE, App Engine sets GAE_ENV)
+    is_production = os.getenv("K_SERVICE") or os.getenv("GAE_ENV")
+
+    if not APP_SECRET:
+        if is_production:
+            # Production: Fail closed - reject all requests without app secret
+            eprint("[SECURITY] WHATSAPP_APP_SECRET not set in production - rejecting request")
+            return False
+        else:
+            # Local dev: Warn but allow (for testing without Meta app secret)
+            eprint("[WARNING] WHATSAPP_APP_SECRET not set - skipping signature validation (local dev mode)")
+            return True
+
+    if not signature or not signature.startswith("sha256="):
+        return False
+
+    # Extract hex signature from header
+    expected_signature = signature[7:]  # Remove "sha256=" prefix
+
+    # Compute HMAC-SHA256 signature
+    mac = hmac.new(APP_SECRET.encode(), msg=payload, digestmod=hashlib.sha256)
+    computed_signature = mac.hexdigest()
+
+    # Constant-time comparison to prevent timing attacks
+    return hmac.compare_digest(computed_signature, expected_signature)
 
 
 def normalize_phone(raw: str) -> str:
@@ -403,6 +474,19 @@ def webhook_verification():
 def webhook_handler():
     """Webhook handler for incoming messages and status updates."""
     try:
+        # Verify webhook signature (Meta X-Hub-Signature-256)
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        payload = request.get_data()
+
+        if not verify_webhook_signature(payload, signature):
+            eprint("[SECURITY] Invalid webhook signature - rejecting request")
+            log_event("error", {
+                "type": "invalid_webhook_signature",
+                "signature": signature[:20] + "..." if len(signature) > 20 else signature,
+                "ip": request.remote_addr,
+            })
+            return jsonify({"status": "error", "message": "Invalid signature"}), 403
+
         data = request.get_json()
 
         if not data:
