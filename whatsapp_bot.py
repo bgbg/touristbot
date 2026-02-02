@@ -7,8 +7,8 @@ backend API, and sends responses back.
 
 Env vars expected:
   WHATSAPP_VERIFY_TOKEN - Token for webhook verification
-  BORIS_GORELIK_WABA_ACCESS_TOKEN - WhatsApp API access token
-  BORIS_GORELIK_WABA_PHONE_NUMBER_ID - WhatsApp phone number ID
+  WHATSAPP_ACCESS_TOKEN - WhatsApp API access token
+  WHATSAPP_PHONE_NUMBER_ID - WhatsApp phone number ID
   BACKEND_API_URL - Backend API base URL
   BACKEND_API_KEY - Backend API authentication key
 
@@ -42,8 +42,8 @@ app = Flask(__name__)
 
 # Configuration
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "your-verify-token-here")
-WABA_ACCESS_TOKEN = os.getenv("BORIS_GORELIK_WABA_ACCESS_TOKEN")
-WABA_PHONE_NUMBER_ID = os.getenv("BORIS_GORELIK_WABA_PHONE_NUMBER_ID")
+WABA_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
+WABA_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 # Auto-detect environment: use local backend in dev, Cloud Run backend in production
 # Can be overridden by setting USE_LOCAL_BACKEND explicitly in .env
 USE_LOCAL_BACKEND = os.getenv("USE_LOCAL_BACKEND", "false" if os.getenv("K_SERVICE") else "true").lower() in ("true", "1", "yes")
@@ -76,8 +76,8 @@ def _validate_required_env_vars() -> None:
     """Validate required environment variables at startup (fail fast)."""
     required_vars = {
         "WHATSAPP_VERIFY_TOKEN": "Token for Meta webhook verification",
-        "BORIS_GORELIK_WABA_ACCESS_TOKEN": "WhatsApp Business API access token",
-        "BORIS_GORELIK_WABA_PHONE_NUMBER_ID": "WhatsApp phone number ID",
+        "WHATSAPP_ACCESS_TOKEN": "WhatsApp Business API access token",
+        "WHATSAPP_PHONE_NUMBER_ID": "WhatsApp phone number ID",
         "BACKEND_API_KEY": "Backend API authentication key",
     }
 
@@ -571,8 +571,8 @@ def health_check():
 if __name__ == "__main__":
     # Validate critical environment variables
     required_env_vars = {
-        "BORIS_GORELIK_WABA_ACCESS_TOKEN": WABA_ACCESS_TOKEN,
-        "BORIS_GORELIK_WABA_PHONE_NUMBER_ID": WABA_PHONE_NUMBER_ID,
+        "WHATSAPP_ACCESS_TOKEN": WABA_ACCESS_TOKEN,
+        "WHATSAPP_PHONE_NUMBER_ID": WABA_PHONE_NUMBER_ID,
         "BACKEND_API_KEY": BACKEND_API_KEY,
     }
 

@@ -40,8 +40,10 @@ Add to your `.env` file:
 WHATSAPP_VERIFY_TOKEN=my-super-secret-verify-token-12345
 
 # WhatsApp API Credentials
-BORIS_GORELIK_WABA_ACCESS_TOKEN=your-whatsapp-access-token
-BORIS_GORELIK_WABA_PHONE_NUMBER_ID=your-phone-number-id
+# NOTE: Variable names changed from BORIS_GORELIK_WABA_* to WHATSAPP_*
+# If upgrading, update your .env file accordingly
+WHATSAPP_ACCESS_TOKEN=your-whatsapp-access-token
+WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
 
 # Backend API Configuration
 BACKEND_API_URL=https://tourism-rag-backend-347968285860.me-west1.run.app
