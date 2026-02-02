@@ -29,6 +29,7 @@ from backend.dependencies import (
 )
 from backend.endpoints.topics import get_topics_for_location
 from backend.image_registry import ImageRegistry
+from backend.json_helpers import parse_json
 from backend.query_logging.query_logger import QueryLogger
 from backend.models import Citation, ImageMetadata, QARequest, QAResponse
 from backend.prompt_loader import PromptLoader
@@ -318,37 +319,22 @@ async def chat_query(
 
             # Try to parse as JSON if the model returned structured output
             # (happens when system prompt requests JSON format)
-            try:
-                # Strip markdown code blocks if present (```json ... ``` or ``` ... ```)
-                text_to_parse = response_text.strip()
-                if text_to_parse.startswith("```"):
-                    # Find the first newline after opening ```
-                    first_newline = text_to_parse.find("\n")
-                    if first_newline != -1:
-                        # Skip the ```json or ``` line
-                        text_to_parse = text_to_parse[first_newline + 1:]
-                    # Remove closing ```
-                    if text_to_parse.endswith("```"):
-                        text_to_parse = text_to_parse[:-3].strip()
-
-                # Fix missing outer braces - LLM sometimes returns JSON without {}
-                if text_to_parse.startswith('"response_text"'):
-                    text_to_parse = "{" + text_to_parse + "}"
-
-                parsed = json.loads(text_to_parse)
-                if isinstance(parsed, dict) and "response_text" in parsed:
-                    response_text = parsed["response_text"]
-                    should_include_images_flag = parsed.get("should_include_images")
-                    image_relevance_data = parsed.get("image_relevance", [])
-                    logger.info(
-                        f"Parsed structured JSON response from Gemini: "
-                        f"should_include_images={should_include_images_flag}, "
-                        f"image_relevance count={len(image_relevance_data) if image_relevance_data else 0}"
-                    )
-            except (json.JSONDecodeError, KeyError) as e:
+            parsed = parse_json(response_text)
+            if parsed and isinstance(parsed, dict) and "response_text" in parsed:
+                response_text = parsed["response_text"]
+                should_include_images_flag = parsed.get("should_include_images")
+                image_relevance_data = parsed.get("image_relevance", [])
+                logger.info(
+                    f"Parsed structured JSON response from Gemini: "
+                    f"should_include_images={should_include_images_flag}, "
+                    f"image_relevance count={len(image_relevance_data) if image_relevance_data else 0}"
+                )
+            else:
                 # Not JSON or doesn't have expected structure, use as-is
-                logger.warning(f"Failed to parse JSON response: {e}")
-                pass
+                if parsed is None:
+                    logger.warning(f"Failed to parse JSON response, using text as-is")
+                else:
+                    logger.warning(f"Unexpected JSON structure: {type(parsed)}")
 
             # Extract citations from grounding metadata
             citations = get_citations_from_grounding(
