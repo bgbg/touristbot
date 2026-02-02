@@ -593,6 +593,12 @@ if __name__ == "__main__":
 
     # Setup and start ngrok tunnel
     try:
+        # Configure pyngrok to use system ngrok binary if available
+        import shutil
+        system_ngrok = shutil.which("ngrok")
+        if system_ngrok:
+            conf.get_default().ngrok_path = system_ngrok
+
         # Check if ngrok is already running by listing active tunnels
         tunnels = ngrok.get_tunnels()
 
