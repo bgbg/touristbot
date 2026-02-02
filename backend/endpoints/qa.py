@@ -319,7 +319,19 @@ async def chat_query(
             # Try to parse as JSON if the model returned structured output
             # (happens when system prompt requests JSON format)
             try:
-                parsed = json.loads(response_text)
+                # Strip markdown code blocks if present (```json ... ``` or ``` ... ```)
+                text_to_parse = response_text.strip()
+                if text_to_parse.startswith("```"):
+                    # Find the first newline after opening ```
+                    first_newline = text_to_parse.find("\n")
+                    if first_newline != -1:
+                        # Skip the ```json or ``` line
+                        text_to_parse = text_to_parse[first_newline + 1:]
+                    # Remove closing ```
+                    if text_to_parse.endswith("```"):
+                        text_to_parse = text_to_parse[:-3].strip()
+
+                parsed = json.loads(text_to_parse)
                 if isinstance(parsed, dict) and "response_text" in parsed:
                     response_text = parsed["response_text"]
                     should_include_images_flag = parsed.get("should_include_images")
