@@ -23,9 +23,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.auth import ApiKeyDep
 from backend.endpoints import locations, qa, topics, upload
 
-# Load environment variables from .env file (for local development)
+# Load environment variables from .env file (for local development only)
 # In Cloud Run, environment variables are set by the platform
-load_dotenv()
+if not os.getenv("K_SERVICE"):
+    load_dotenv()
 
 
 def configure_logging():

@@ -320,7 +320,7 @@ async def chat_query(
             # Try to parse as JSON if the model returned structured output
             # (happens when system prompt requests JSON format)
             parsed = parse_json(response_text)
-            if parsed and isinstance(parsed, dict) and "response_text" in parsed:
+            if parsed is not None and isinstance(parsed, dict) and "response_text" in parsed:
                 response_text = parsed["response_text"]
                 should_include_images_flag = parsed.get("should_include_images")
                 image_relevance_data = parsed.get("image_relevance", [])
