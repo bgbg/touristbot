@@ -5,6 +5,8 @@ python-docx
 PyPDF2
 markdown
 python-dotenv
+defopt
+flask
 tiktoken
 streamlit
 pandas
@@ -15,3 +17,4 @@ pytest-xdist
 watchdog
 Pillow
 scrapy>=2.11
+python-bidi
