@@ -27,6 +27,7 @@ from backend.dependencies import (
     get_storage_backend,
     get_store_registry,
 )
+from backend.endpoints.topics import get_topics_for_location
 from backend.image_registry import ImageRegistry
 from backend.query_logging.query_logger import QueryLogger
 from backend.models import Citation, ImageMetadata, QARequest, QAResponse
@@ -218,6 +219,10 @@ async def chat_query(
             "config/prompts/tourism_qa.yaml", area=request.area, site=request.site
         )
 
+        # Load topics from GCS and format as bullet list
+        topics = get_topics_for_location(storage, request.area, request.site)
+        topics_text = "\n".join(f"- {topic}" for topic in topics) if topics else ""
+
         # Get or create conversation
         if request.conversation_id:
             conversation = conversation_store.get_conversation(request.conversation_id)
@@ -262,11 +267,16 @@ async def chat_query(
             role = "model" if msg.role == "assistant" else msg.role
             history_messages.append({"role": role, "parts": [{"text": msg.content}]})
 
-        # Format system prompt
-        system_instruction = prompt_config.system_prompt
+        # Format prompts with template variable substitution
+        system_instruction, user_prompt = prompt_config.format(
+            area=request.area,
+            site=request.site,
+            topics=topics_text,
+            question=request.query,
+        )
 
         # Build user message with images
-        user_parts = [{"text": request.query}]
+        user_parts = [{"text": user_prompt}]
 
         # Add image URIs to user message (up to 5 images for context)
         if location_images:
