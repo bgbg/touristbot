@@ -7,19 +7,40 @@
 #   - Region: me-west1 (Tel Aviv, Israel - closest to customers)
 
 set -e
+set -o pipefail
+
+# Resolve script directory (works from any working directory)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 PROJECT_ID=${1:-"gen-lang-client-0860749390"}
 REGION=${2:-"me-west1"}
 SERVICE_NAME="whatsapp-bot"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
+# Create secure temporary file for environment variables
+ENV_YAML_FILE=$(mktemp /tmp/whatsapp-bot-env.XXXXXX.yaml)
+chmod 600 "${ENV_YAML_FILE}"
+
+# Cleanup trap: ensure temporary file is removed on exit/error
+cleanup() {
+    rm -f "${ENV_YAML_FILE}"
+}
+trap cleanup EXIT INT TERM
+
 # Load environment variables from .env file if it exists
-if [ -f ../.env ]; then
+if [ -f "${PROJECT_ROOT}/.env" ]; then
     echo "Loading environment variables from project root .env file..."
-    export $(grep -v '^#' ../.env | xargs)
-elif [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${PROJECT_ROOT}/.env"
+    set +a
+elif [ -f "${SCRIPT_DIR}/.env" ]; then
     echo "Loading environment variables from whatsapp_bot/.env file..."
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    # shellcheck disable=SC1091
+    source "${SCRIPT_DIR}/.env"
+    set +a
 fi
 
 # Check for required environment variables
@@ -46,6 +67,13 @@ fi
 BACKEND_API_URL=${BACKEND_API_URL:-"https://tourism-rag-backend-347968285860.me-west1.run.app"}
 META_GRAPH_API_VERSION=${META_GRAPH_API_VERSION:-"v22.0"}
 
+# Optional: WHATSAPP_APP_SECRET for webhook signature validation (recommended for production)
+if [ -n "${WHATSAPP_APP_SECRET}" ]; then
+    echo "WHATSAPP_APP_SECRET configured - webhook signature validation enabled"
+else
+    echo "WARNING: WHATSAPP_APP_SECRET not set - webhook signature validation disabled"
+fi
+
 echo "Deploying WhatsApp Bot to Cloud Run"
 echo "Project: ${PROJECT_ID}"
 echo "Region: ${REGION}"
@@ -54,13 +82,11 @@ echo ""
 
 # Build and push Docker image (from project root, not whatsapp_bot/)
 echo "Building Docker image..."
-cd ..
-gcloud builds submit --config=whatsapp_bot/cloudbuild.yaml --project ${PROJECT_ID} .
-cd whatsapp_bot
+gcloud builds submit --config=whatsapp_bot/cloudbuild.yaml --project ${PROJECT_ID} "${PROJECT_ROOT}"
 
-# Create temporary env vars file for Cloud Run
+# Create temporary env vars file for Cloud Run (using secure temp file)
 echo "Creating environment variables file..."
-cat > .env.yaml <<EOF
+cat > "${ENV_YAML_FILE}" <<EOF
 WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN}"
 BORIS_GORELIK_WABA_ACCESS_TOKEN: "${BORIS_GORELIK_WABA_ACCESS_TOKEN}"
 BORIS_GORELIK_WABA_PHONE_NUMBER_ID: "${BORIS_GORELIK_WABA_PHONE_NUMBER_ID}"
@@ -68,6 +94,11 @@ BACKEND_API_URL: "${BACKEND_API_URL}"
 BACKEND_API_KEY: "${BACKEND_API_KEY}"
 META_GRAPH_API_VERSION: "${META_GRAPH_API_VERSION}"
 EOF
+
+# Add optional WHATSAPP_APP_SECRET if set
+if [ -n "${WHATSAPP_APP_SECRET}" ]; then
+    echo "WHATSAPP_APP_SECRET: \"${WHATSAPP_APP_SECRET}\"" >> "${ENV_YAML_FILE}"
+fi
 
 # Deploy to Cloud Run with environment variables
 echo "Deploying to Cloud Run..."
@@ -82,10 +113,9 @@ gcloud run deploy ${SERVICE_NAME} \
     --max-instances 10 \
     --min-instances 0 \
     --project ${PROJECT_ID} \
-    --env-vars-file .env.yaml
+    --env-vars-file "${ENV_YAML_FILE}"
 
-# Clean up
-rm -f .env.yaml
+# Cleanup handled by trap
 
 echo ""
 echo "Deployment complete!"
