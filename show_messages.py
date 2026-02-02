@@ -55,18 +55,11 @@ def extract_messages(log_file: Path) -> list[dict]:
                 # Look for outgoing messages
                 elif entry.get("event_type") == "outgoing_message":
                     data = entry.get("data", {})
-                    if data.get("type") in ("text", "image"):
+                    # Outgoing messages have: to, text, status, response
+                    if "to" in data and "text" in data:
                         timestamp = entry.get("timestamp")
                         to = data.get("to")
                         text = data.get("text", "")
-                        msg_type = data.get("type")
-
-                        # For image messages, show caption or indicate image
-                        if msg_type == "image":
-                            if text:
-                                text = f"[Image: {text}]"
-                            else:
-                                text = "[Image]"
 
                         messages.append({
                             "timestamp": timestamp,
