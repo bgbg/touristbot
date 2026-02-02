@@ -27,10 +27,16 @@ import sys
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Logging directory (same as whatsapp_bot.py)
+LOG_DIR = Path("whatsapp_logs")
+LOG_DIR.mkdir(exist_ok=True)
 
 
 GRAPH_API_VERSION = os.getenv("META_GRAPH_API_VERSION", "v22.0")
@@ -38,6 +44,24 @@ GRAPH_API_VERSION = os.getenv("META_GRAPH_API_VERSION", "v22.0")
 
 def eprint(*args: object) -> None:
     print(*args, file=sys.stderr)
+
+
+def log_event(event_type: str, data: dict) -> None:
+    """Log event to daily JSONL file (same format as whatsapp_bot.py)."""
+    timestamp = datetime.now(timezone.utc).isoformat()
+    log_entry = {
+        "timestamp": timestamp,
+        "event_type": event_type,
+        "data": data,
+    }
+
+    # Log to daily file
+    log_file = LOG_DIR / f"{datetime.now(timezone.utc).date()}.jsonl"
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        eprint(f"[ERROR] Failed to write log: {e}")
 
 
 def normalize_msisdn(raw: str) -> str:
@@ -292,6 +316,16 @@ def main(
             msg_id = resp_json["messages"][0].get("id", "unknown")
             eprint(f"Message ID: {msg_id}")
         eprint("=" * 60)
+
+        # Log outgoing message to daily log file
+        log_event("outgoing_message", {
+            "to": to_msisdn,
+            "text": text or "",
+            "message_type": "image" if image else "text",
+            "status": status,
+            "response": resp_json
+        })
+
         return 0
     else:
         eprint("\n" + "=" * 60)
