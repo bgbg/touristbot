@@ -331,6 +331,10 @@ async def chat_query(
                     if text_to_parse.endswith("```"):
                         text_to_parse = text_to_parse[:-3].strip()
 
+                # Fix missing outer braces - LLM sometimes returns JSON without {}
+                if text_to_parse.startswith('"response_text"'):
+                    text_to_parse = "{" + text_to_parse + "}"
+
                 parsed = json.loads(text_to_parse)
                 if isinstance(parsed, dict) and "response_text" in parsed:
                     response_text = parsed["response_text"]
@@ -341,8 +345,9 @@ async def chat_query(
                         f"should_include_images={should_include_images_flag}, "
                         f"image_relevance count={len(image_relevance_data) if image_relevance_data else 0}"
                     )
-            except (json.JSONDecodeError, KeyError):
+            except (json.JSONDecodeError, KeyError) as e:
                 # Not JSON or doesn't have expected structure, use as-is
+                logger.warning(f"Failed to parse JSON response: {e}")
                 pass
 
             # Extract citations from grounding metadata
