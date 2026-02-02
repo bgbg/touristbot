@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+import subprocess
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from pyngrok import ngrok, conf
@@ -44,13 +45,21 @@ app = Flask(__name__)
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "your-verify-token-here")
 WABA_ACCESS_TOKEN = os.getenv("BORIS_GORELIK_WABA_ACCESS_TOKEN")
 WABA_PHONE_NUMBER_ID = os.getenv("BORIS_GORELIK_WABA_PHONE_NUMBER_ID")
-BACKEND_API_URL = os.getenv("BACKEND_API_URL", "https://tourism-rag-backend-347968285860.me-west1.run.app")
+# Use local backend by default for development (can be overridden in .env)
+USE_LOCAL_BACKEND = os.getenv("USE_LOCAL_BACKEND", "true").lower() in ("true", "1", "yes")
+BACKEND_PORT = int(os.getenv("BACKEND_PORT", "5000"))
+BACKEND_API_URL = os.getenv("BACKEND_API_URL",
+    f"http://localhost:{BACKEND_PORT}" if USE_LOCAL_BACKEND
+    else "https://tourism-rag-backend-347968285860.me-west1.run.app")
 BACKEND_API_KEY = os.getenv("BACKEND_API_KEY")
 GRAPH_API_VERSION = os.getenv("META_GRAPH_API_VERSION", "v22.0")
 # Backward compatible PORT handling: Cloud Run uses PORT, local dev may use WHATSAPP_LISTENER_PORT
 _port_env = os.getenv("PORT") or os.getenv("WHATSAPP_LISTENER_PORT")
 PORT = int(_port_env) if _port_env else 8080
 APP_SECRET = os.getenv("WHATSAPP_APP_SECRET")  # Optional: for signature validation
+
+# Backend process (will be started if USE_LOCAL_BACKEND=true)
+backend_process = None
 
 # Default location context
 DEFAULT_AREA = "hefer_valley"
@@ -591,6 +600,28 @@ if __name__ == "__main__":
     eprint(f"Default Location: {DEFAULT_AREA}/{DEFAULT_SITE}")
     eprint("=" * 60)
 
+    # Start local backend if USE_LOCAL_BACKEND=true
+    if USE_LOCAL_BACKEND:
+        try:
+            eprint(f"\n🚀 Starting local backend on port {BACKEND_PORT}...")
+            backend_process = subprocess.Popen(
+                [sys.executable, "-m", "uvicorn", "backend.main:app",
+                 "--reload", "--port", str(BACKEND_PORT), "--host", "127.0.0.1"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+            eprint(f"✓ Backend process started (PID: {backend_process.pid})")
+            eprint(f"📡 Backend API: http://localhost:{BACKEND_PORT}")
+
+            # Wait a moment for backend to start
+            time.sleep(2)
+        except Exception as e:
+            eprint(f"⚠️  Warning: Could not start local backend: {e}")
+            eprint(f"💡 You can manually run: uvicorn backend.main:app --reload --port {BACKEND_PORT}")
+            sys.exit(1)
+
     # Setup and start ngrok tunnel
     public_url = None
     try:
@@ -639,4 +670,13 @@ if __name__ == "__main__":
 
     # Run Flask app with auto-reload enabled
     debug_mode = os.getenv("FLASK_DEBUG", "1").lower() in ("1", "true", "yes", "on")
-    app.run(host="0.0.0.0", port=PORT, debug=debug_mode, use_reloader=True)
+
+    try:
+        app.run(host="0.0.0.0", port=PORT, debug=debug_mode, use_reloader=True)
+    finally:
+        # Clean up backend process on exit
+        if backend_process and backend_process.poll() is None:
+            eprint("\n🛑 Stopping local backend...")
+            backend_process.terminate()
+            backend_process.wait(timeout=5)
+            eprint("✓ Backend stopped")
