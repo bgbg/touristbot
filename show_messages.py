@@ -39,18 +39,38 @@ def extract_messages(log_file: Path) -> list[dict]:
 
                             # Extract messages
                             for message in value.get("messages", []):
-                                if message.get("type") == "text":
-                                    msg_from = message.get("from")
-                                    text_body = message.get("text", {}).get("body")
-                                    timestamp = entry.get("timestamp")
+                                msg_from = message.get("from")
+                                msg_type = message.get("type")
+                                timestamp = entry.get("timestamp")
 
-                                    messages.append({
-                                        "timestamp": timestamp,
-                                        "from": msg_from,
-                                        "name": contact_name,
-                                        "text": text_body,
-                                        "direction": "incoming"
-                                    })
+                                # Format message text based on type
+                                if msg_type == "text":
+                                    text_body = message.get("text", {}).get("body")
+                                elif msg_type == "image":
+                                    caption = message.get("image", {}).get("caption", "")
+                                    text_body = f"[Image{': ' + caption if caption else ''}]"
+                                elif msg_type == "audio":
+                                    text_body = "[Audio message]"
+                                elif msg_type == "video":
+                                    caption = message.get("video", {}).get("caption", "")
+                                    text_body = f"[Video{': ' + caption if caption else ''}]"
+                                elif msg_type == "document":
+                                    filename = message.get("document", {}).get("filename", "")
+                                    text_body = f"[Document{': ' + filename if filename else ''}]"
+                                elif msg_type == "location":
+                                    loc = message.get("location", {})
+                                    name = loc.get("name", "")
+                                    text_body = f"[Location{': ' + name if name else ''}]"
+                                else:
+                                    text_body = f"[{msg_type or 'Unknown'} message]"
+
+                                messages.append({
+                                    "timestamp": timestamp,
+                                    "from": msg_from,
+                                    "name": contact_name,
+                                    "text": text_body,
+                                    "direction": "incoming"
+                                })
 
                 # Look for outgoing messages
                 elif entry.get("event_type") == "outgoing_message":
