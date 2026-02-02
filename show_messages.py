@@ -6,7 +6,7 @@ Handles Hebrew (RTL) text properly.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -170,7 +170,7 @@ if __name__ == "__main__":
         print()
 
     log_dir = Path("whatsapp_logs")
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     log_file = log_dir / f"{today}.jsonl"
 
     if not log_file.exists():

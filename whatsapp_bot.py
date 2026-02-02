@@ -26,9 +26,8 @@ import traceback
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import requests
 from dotenv import load_dotenv
@@ -65,7 +64,7 @@ def eprint(*args: object) -> None:
 
 def log_event(event_type: str, data: dict, correlation_id: str = None) -> None:
     """Log event to daily JSONL file."""
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     log_entry = {
         "timestamp": timestamp,
         "event_type": event_type,
@@ -74,7 +73,7 @@ def log_event(event_type: str, data: dict, correlation_id: str = None) -> None:
     }
 
     # Log to daily file
-    log_file = LOG_DIR / f"{datetime.utcnow().date()}.jsonl"
+    log_file = LOG_DIR / f"{datetime.now(timezone.utc).date()}.jsonl"
     try:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
@@ -124,18 +123,23 @@ def create_new_conversation(phone: str) -> dict:
     normalized = normalize_phone(phone)
     return {
         "conversation_id": f"whatsapp_{normalized}",
-        "phone": phone,
+        "phone": normalized,  # Store normalized phone for consistency
         "area": DEFAULT_AREA,
         "site": DEFAULT_SITE,
         "history": [],
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def save_conversation(conv: dict) -> None:
-    """Save conversation to local JSON file."""
-    conv["updated_at"] = datetime.utcnow().isoformat()
+    """Save conversation to local JSON file.
+
+    Note: Local storage is for Phase 1 development/debugging only.
+    Backend maintains authoritative conversation state in GCS.
+    Local and backend histories may diverge on errors - this is acceptable for Phase 1.
+    """
+    conv["updated_at"] = datetime.now(timezone.utc).isoformat()
     conv_path = get_conversation_path(conv["phone"])
     try:
         with open(conv_path, "w", encoding="utf-8") as f:
@@ -149,7 +153,7 @@ def add_interaction(conv: dict, role: str, content: str) -> None:
     conv["history"].append({
         "role": role,
         "content": content,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
 
@@ -291,14 +295,19 @@ def call_backend_qa(conversation_id: str, area: str, site: str, query: str, corr
                     }
 
         except requests.exceptions.Timeout:
-            log_event("error", {
-                "type": "backend_timeout",
-                "latency_ms": (time.time() - start_time) * 1000,
-            }, correlation_id)
-            return {
-                "error": "Backend timeout",
-                "response_text": "מצטער, השרת לא הגיב בזמן. אנא נסה שוב.",
-            }
+            if attempt < 2:
+                delay = 2 ** attempt
+                eprint(f"[RETRY] Backend timeout, retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                log_event("error", {
+                    "type": "backend_timeout",
+                    "latency_ms": (time.time() - start_time) * 1000,
+                }, correlation_id)
+                return {
+                    "error": "Backend timeout",
+                    "response_text": "מצטער, השרת לא הגיב בזמן. אנא נסה שוב.",
+                }
 
         except Exception as e:
             if attempt < 2:
@@ -462,10 +471,30 @@ def webhook_handler():
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint."""
-    return jsonify({"status": "healthy", "timestamp": datetime.utcnow().isoformat()}), 200
+    return jsonify({"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}), 200
 
 
 if __name__ == "__main__":
+    # Validate critical environment variables
+    required_env_vars = {
+        "BORIS_GORELIK_WABA_ACCESS_TOKEN": WABA_ACCESS_TOKEN,
+        "BORIS_GORELIK_WABA_PHONE_NUMBER_ID": WABA_PHONE_NUMBER_ID,
+        "BACKEND_API_KEY": BACKEND_API_KEY,
+    }
+
+    missing_vars = [name for name, value in required_env_vars.items() if not value]
+
+    if missing_vars:
+        eprint("=" * 60)
+        eprint("ERROR: Missing required environment variables")
+        eprint("=" * 60)
+        for var in missing_vars:
+            eprint(f"  - {var}")
+        eprint("\nPlease set these variables in your .env file or environment.")
+        eprint("See WHATSAPP_WEBHOOK_README.md for setup instructions.")
+        eprint("=" * 60)
+        sys.exit(1)
+
     eprint("=" * 60)
     eprint("WhatsApp Bot - Tourism RAG Integration")
     eprint("=" * 60)
@@ -482,4 +511,5 @@ if __name__ == "__main__":
     eprint("=" * 60)
 
     # Run Flask app
-    app.run(host="0.0.0.0", port=PORT, debug=True)
+    debug_mode = os.getenv("FLASK_DEBUG", "").lower() in ("1", "true", "yes", "on")
+    app.run(host="0.0.0.0", port=PORT, debug=debug_mode)
