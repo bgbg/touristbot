@@ -7,6 +7,7 @@ markdown
 python-dotenv
 defopt
 flask
+requests
 tiktoken
 streamlit
 pandas

@@ -53,3 +53,8 @@ coverage.xml
 .scrapy/
 data/sapir/
 *.log
+
+# WhatsApp bot logs and conversations
+whatsapp_logs/*.jsonl
+conversations/*.json
+data/hilik.png
