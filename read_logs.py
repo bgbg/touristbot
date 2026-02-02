@@ -46,7 +46,7 @@ def format_time(timestamp_str: str) -> str:
     try:
         dt = datetime.fromisoformat(timestamp_str)
         return dt.strftime("%H:%M:%S")
-    except:
+    except Exception:
         return "??:??:??"
 
 

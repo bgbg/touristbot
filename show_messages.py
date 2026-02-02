@@ -17,7 +17,7 @@ except ImportError:
 
 
 def extract_messages(log_file: Path) -> list[dict]:
-    """Extract text messages with sender names from webhook log."""
+    """Extract text messages (incoming and outgoing) from webhook log."""
     messages = []
 
     with open(log_file, "r", encoding="utf-8") as f:
@@ -48,8 +48,35 @@ def extract_messages(log_file: Path) -> list[dict]:
                                         "timestamp": timestamp,
                                         "from": msg_from,
                                         "name": contact_name,
-                                        "text": text_body
+                                        "text": text_body,
+                                        "direction": "incoming"
                                     })
+
+                # Look for outgoing messages
+                elif entry.get("event_type") == "outgoing_message":
+                    data = entry.get("data", {})
+                    if data.get("type") in ("text", "image"):
+                        timestamp = entry.get("timestamp")
+                        to = data.get("to")
+                        text = data.get("text", "")
+                        msg_type = data.get("type")
+
+                        # For image messages, show caption or indicate image
+                        if msg_type == "image":
+                            if text:
+                                text = f"[Image: {text}]"
+                            else:
+                                text = "[Image]"
+
+                        messages.append({
+                            "timestamp": timestamp,
+                            "from": "You",
+                            "name": "You",
+                            "text": text,
+                            "to": to,
+                            "direction": "outgoing"
+                        })
+
             except (json.JSONDecodeError, KeyError) as e:
                 # Skip malformed entries
                 continue
@@ -87,14 +114,24 @@ def print_table(messages: list[dict]):
         return
 
     # Print header
-    print(f"{'Time':<10} {'From':<15} {'Name':<20} {'Message'}")
-    print("-" * 95)
+    print(f"{'Time':<10} {'Dir':<4} {'From/To':<15} {'Name':<20} {'Message'}")
+    print("-" * 100)
 
     # Print messages
     for msg in messages:
         time = format_time(msg["timestamp"])
-        from_num = msg["from"] or "Unknown"
-        name = msg["name"] or "Unknown"
+        direction = msg.get("direction", "incoming")
+
+        # Visual indicator for direction
+        if direction == "incoming":
+            dir_symbol = "←"
+            from_num = msg["from"] or "Unknown"
+            name = msg["name"] or "Unknown"
+        else:  # outgoing
+            dir_symbol = "→"
+            from_num = msg.get("to", "Unknown")
+            name = "You"
+
         text = msg["text"] or ""
 
         # Format RTL text (Hebrew)
@@ -107,7 +144,7 @@ def print_table(messages: list[dict]):
 
         # Print with proper RTL formatting
         # Note: Padding RTL text is tricky, so we just use left-aligned fields
-        print(f"{time:<10} {from_num:<15} {name_display:<20} {text_display}")
+        print(f"{time:<10} {dir_symbol:<4} {from_num:<15} {name_display:<20} {text_display}")
 
     print(f"\nTotal messages: {len(messages)}")
 
@@ -128,4 +165,8 @@ if __name__ == "__main__":
         exit(1)
 
     messages = extract_messages(log_file)
+
+    # Sort messages by timestamp (chronological order)
+    messages.sort(key=lambda m: m["timestamp"])
+
     print_table(messages)
