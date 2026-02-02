@@ -44,7 +44,7 @@ WABA_PHONE_NUMBER_ID = os.getenv("BORIS_GORELIK_WABA_PHONE_NUMBER_ID")
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "https://tourism-rag-backend-347968285860.me-west1.run.app")
 BACKEND_API_KEY = os.getenv("BACKEND_API_KEY")
 GRAPH_API_VERSION = os.getenv("META_GRAPH_API_VERSION", "v22.0")
-PORT = int(os.getenv("WHATSAPP_LISTENER_PORT", "5001"))
+PORT = int(os.getenv("PORT", "8080"))
 
 # Default location context
 DEFAULT_AREA = "hefer_valley"
