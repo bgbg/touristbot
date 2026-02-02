@@ -34,6 +34,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
+from pyngrok import ngrok, conf
 
 load_dotenv()
 
@@ -588,12 +589,41 @@ if __name__ == "__main__":
     eprint(f"Log Directory: {LOG_DIR.absolute()}")
     eprint(f"Conversations Directory: {CONV_DIR.absolute()}")
     eprint(f"Default Location: {DEFAULT_AREA}/{DEFAULT_SITE}")
-    eprint("\nTo expose this server with ngrok:")
-    eprint(f"  ngrok http {PORT}")
-    eprint("\nThen configure the webhook URL in Meta Developer Console:")
-    eprint(f"  <ngrok-url>/webhook")
     eprint("=" * 60)
 
-    # Run Flask app
-    debug_mode = os.getenv("FLASK_DEBUG", "").lower() in ("1", "true", "yes", "on")
-    app.run(host="0.0.0.0", port=PORT, debug=debug_mode)
+    # Setup and start ngrok tunnel
+    try:
+        # Check if ngrok is already running by listing active tunnels
+        tunnels = ngrok.get_tunnels()
+
+        # Look for existing tunnel on our port
+        existing_tunnel = None
+        for tunnel in tunnels:
+            if str(PORT) in tunnel.config.get('addr', ''):
+                existing_tunnel = tunnel
+                break
+
+        if existing_tunnel:
+            public_url = existing_tunnel.public_url
+            eprint(f"\n✓ Using existing ngrok tunnel")
+        else:
+            # Start new ngrok tunnel
+            eprint(f"\n⚡ Starting ngrok tunnel on port {PORT}...")
+            public_url = ngrok.connect(PORT, bind_tls=True).public_url
+            eprint(f"✓ ngrok tunnel started")
+
+        eprint(f"\n🌐 Local:      http://127.0.0.1:{PORT}")
+        eprint(f"🌐 Public:     {public_url}")
+        eprint(f"\n📋 Webhook URL for Meta Console:")
+        eprint(f"   {public_url}/webhook")
+        eprint("=" * 60)
+
+    except Exception as e:
+        eprint(f"\n⚠️  Warning: Could not start ngrok: {e}")
+        eprint(f"💡 You can manually run: ngrok http {PORT}")
+        eprint(f"🌐 Local only: http://127.0.0.1:{PORT}")
+        eprint("=" * 60)
+
+    # Run Flask app with auto-reload enabled
+    debug_mode = os.getenv("FLASK_DEBUG", "1").lower() in ("1", "true", "yes", "on")
+    app.run(host="0.0.0.0", port=PORT, debug=debug_mode, use_reloader=True)
