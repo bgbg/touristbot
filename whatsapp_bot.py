@@ -35,7 +35,6 @@ import requests
 import subprocess
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
-from pyngrok import ngrok, conf
 
 load_dotenv()
 
@@ -47,7 +46,7 @@ WABA_ACCESS_TOKEN = os.getenv("BORIS_GORELIK_WABA_ACCESS_TOKEN")
 WABA_PHONE_NUMBER_ID = os.getenv("BORIS_GORELIK_WABA_PHONE_NUMBER_ID")
 # Use local backend by default for development (can be overridden in .env)
 USE_LOCAL_BACKEND = os.getenv("USE_LOCAL_BACKEND", "true").lower() in ("true", "1", "yes")
-BACKEND_PORT = int(os.getenv("BACKEND_PORT", "5000"))
+BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8001"))
 BACKEND_API_URL = os.getenv("BACKEND_API_URL",
     f"http://localhost:{BACKEND_PORT}" if USE_LOCAL_BACKEND
     else "https://tourism-rag-backend-347968285860.me-west1.run.app")
@@ -603,7 +602,25 @@ if __name__ == "__main__":
     # Start local backend if USE_LOCAL_BACKEND=true
     if USE_LOCAL_BACKEND:
         try:
-            eprint(f"\n🚀 Starting local backend on port {BACKEND_PORT}...")
+            # Kill any existing process on backend port
+            eprint(f"\n🔍 Checking for processes on port {BACKEND_PORT}...")
+            try:
+                result = subprocess.run(
+                    ["lsof", "-ti", f":{BACKEND_PORT}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.stdout.strip():
+                    pids = result.stdout.strip().split('\n')
+                    for pid in pids:
+                        eprint(f"   Killing process {pid} on port {BACKEND_PORT}")
+                        subprocess.run(["kill", "-9", pid], timeout=5)
+                    time.sleep(1)
+            except Exception as e:
+                eprint(f"   (Could not check/kill processes: {e})")
+
+            eprint(f"🚀 Starting local backend on port {BACKEND_PORT}...")
             # Pass environment variables to backend subprocess
             backend_env = os.environ.copy()
             backend_process = subprocess.Popen(
@@ -628,7 +645,7 @@ if __name__ == "__main__":
     # Setup and start ngrok tunnel
     public_url = None
     try:
-        # First, check if ngrok is already running (manually started)
+        # First, check if ngrok is already running
         # ngrok exposes a local API at http://127.0.0.1:4040/api/tunnels
         try:
             ngrok_api_response = requests.get("http://127.0.0.1:4040/api/tunnels", timeout=2)
@@ -640,23 +657,49 @@ if __name__ == "__main__":
                     if f"localhost:{PORT}" in config_addr or f"127.0.0.1:{PORT}" in config_addr:
                         public_url = tunnel.get("public_url")
                         if public_url:
-                            eprint(f"\n✓ Found existing ngrok tunnel (manually started)")
+                            eprint(f"\n✓ Found existing ngrok tunnel")
                             break
         except Exception:
             # ngrok API not available (not running)
             pass
 
-        # If no existing tunnel found, start new one with pyngrok
+        # If no existing tunnel found, start ngrok as background process
         if not public_url:
-            # Configure pyngrok to use system ngrok binary if available
             import shutil
             system_ngrok = shutil.which("ngrok")
-            if system_ngrok:
-                conf.get_default().ngrok_path = system_ngrok
+            if not system_ngrok:
+                raise Exception("ngrok not found in PATH")
 
-            eprint(f"\n⚡ Starting ngrok tunnel on port {PORT}...")
-            public_url = ngrok.connect(PORT, bind_tls=True).public_url
-            eprint(f"✓ ngrok tunnel started")
+            eprint(f"\n⚡ Starting ngrok tunnel on port {PORT} (background process)...")
+            # Start ngrok as detached background process
+            subprocess.Popen(
+                [system_ngrok, "http", str(PORT), "--log=stdout"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True  # Detach from parent process
+            )
+
+            # Wait for ngrok to start and get the tunnel URL
+            for attempt in range(10):
+                time.sleep(1)
+                try:
+                    ngrok_api_response = requests.get("http://127.0.0.1:4040/api/tunnels", timeout=2)
+                    if ngrok_api_response.status_code == 200:
+                        tunnels_data = ngrok_api_response.json()
+                        for tunnel in tunnels_data.get("tunnels", []):
+                            config_addr = tunnel.get("config", {}).get("addr", "")
+                            if f"localhost:{PORT}" in config_addr or f"127.0.0.1:{PORT}" in config_addr:
+                                public_url = tunnel.get("public_url")
+                                if public_url:
+                                    eprint(f"✓ ngrok tunnel started (persists across bot restarts)")
+                                    break
+                        if public_url:
+                            break
+                except Exception:
+                    continue
+
+            if not public_url:
+                raise Exception("Failed to get ngrok tunnel URL after 10 seconds")
 
         if public_url:
             eprint(f"\n🌐 Local:      http://127.0.0.1:{PORT}")

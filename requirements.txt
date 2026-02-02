@@ -19,4 +19,3 @@ watchdog
 Pillow
 scrapy>=2.11
 python-bidi
-pyngrok
