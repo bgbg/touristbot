@@ -255,15 +255,12 @@ if prompt := st.chat_input("Ask about the location..."):
                 # Extract response text with fallback for unexpected types
                 response_text = data["response_text"]
 
-                # Defensive fallback: if response_text is not a string, try to extract it
+                # Defensive fallback: if response_text is not a string, convert it to string
+                # Note: Backend validation (qa.py) should ensure this is always a string,
+                # but this provides an extra safety layer for edge cases
                 if not isinstance(response_text, str):
-                    st.warning("⚠️ Backend returned unexpected response format. Attempting to recover...")
-                    # If it's a dict, try to extract response_text field
-                    if isinstance(response_text, dict) and "response_text" in response_text:
-                        response_text = response_text["response_text"]
-                    # Last resort: convert to string
-                    if not isinstance(response_text, str):
-                        response_text = str(response_text)
+                    st.warning("⚠️ Backend returned unexpected response format. Converting response to text.")
+                    response_text = str(response_text)
 
                 # Display response
                 st.markdown(response_text)

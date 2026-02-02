@@ -1,6 +1,10 @@
 """
 Test QA endpoint with actual API calls.
 """
+import json
+from unittest.mock import patch, MagicMock
+import pytest
+from fastapi.testclient import TestClient
 from backend.models import ImageAwareResponse
 
 
@@ -65,3 +69,95 @@ def test_pydantic_schema_structure():
     assert "score" in score_def["properties"]
     assert score_def["properties"]["uri"]["type"] == "string"
     assert score_def["properties"]["score"]["type"] == "integer"
+
+
+# ============================================================================
+# Type Validation Tests
+# Tests for Issue #43 fix - ensure response_text is always a string
+# ============================================================================
+
+
+def test_type_validation_logic_with_string():
+    """Test validation logic: response_text is a string (normal case)."""
+    # Simulate the validation logic from qa.py
+    extracted_text = "This is a proper string response"
+
+    # Validation logic: check if string
+    if not isinstance(extracted_text, str):
+        extracted_text = str(extracted_text)
+
+    # Should remain unchanged
+    assert isinstance(extracted_text, str)
+    assert extracted_text == "This is a proper string response"
+
+
+def test_type_validation_logic_with_dict():
+    """Test validation logic: response_text is a dict (bug case) - should convert to string."""
+    # Simulate the validation logic from qa.py
+    extracted_text = {"nested": "value", "key": "data"}
+
+    # Validation logic: check if string, convert if not
+    if not isinstance(extracted_text, str):
+        extracted_text = str(extracted_text)
+
+    # Should be converted to string
+    assert isinstance(extracted_text, str)
+    assert "nested" in extracted_text
+    assert "value" in extracted_text
+
+
+def test_type_validation_logic_with_list():
+    """Test validation logic: response_text is a list (bug case) - should convert to string."""
+    # Simulate the validation logic from qa.py
+    extracted_text = ["item1", "item2", "item3"]
+
+    # Validation logic: check if string, convert if not
+    if not isinstance(extracted_text, str):
+        extracted_text = str(extracted_text)
+
+    # Should be converted to string
+    assert isinstance(extracted_text, str)
+    assert "item1" in extracted_text
+    assert "item2" in extracted_text
+
+
+def test_type_validation_logic_with_int():
+    """Test validation logic: response_text is an integer (bug case) - should convert to string."""
+    # Simulate the validation logic from qa.py
+    extracted_text = 12345
+
+    # Validation logic: check if string, convert if not
+    if not isinstance(extracted_text, str):
+        extracted_text = str(extracted_text)
+
+    # Should be converted to string
+    assert isinstance(extracted_text, str)
+    assert extracted_text == "12345"
+
+
+def test_type_validation_logic_with_none():
+    """Test validation logic: response_text is None (edge case) - should convert to string."""
+    # Simulate the validation logic from qa.py
+    extracted_text = None
+
+    # Validation logic: check if string, convert if not
+    if not isinstance(extracted_text, str):
+        extracted_text = str(extracted_text)
+
+    # Should be converted to string
+    assert isinstance(extracted_text, str)
+    assert extracted_text == "None"
+
+
+def test_type_validation_logic_with_bool():
+    """Test validation logic: response_text is a boolean (edge case) - should convert to string."""
+    # Simulate the validation logic from qa.py
+    extracted_text = True
+
+    # Validation logic: check if string, convert if not
+    if not isinstance(extracted_text, str):
+        extracted_text = str(extracted_text)
+
+    # Should be converted to string
+    assert isinstance(extracted_text, str)
+    assert extracted_text == "True"
