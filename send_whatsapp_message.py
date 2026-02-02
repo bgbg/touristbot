@@ -3,8 +3,8 @@
 Send a WhatsApp message via Meta WhatsApp Cloud API.
 
 Env vars expected:
-  BORIS_GORELIK_WABA_ACCESS_TOKEN
-  BORIS_GORELIK_WABA_PHONE_NUMBER_ID
+  WHATSAPP_ACCESS_TOKEN
+  WHATSAPP_PHONE_NUMBER_ID
 
 Usage:
   # Send text message only
@@ -265,14 +265,14 @@ def main(
         eprint("Error: Either --text or --image must be provided")
         return 2
 
-    token = os.getenv("BORIS_GORELIK_WABA_ACCESS_TOKEN")
-    phone_number_id = os.getenv("BORIS_GORELIK_WABA_PHONE_NUMBER_ID")
+    token = os.getenv("WHATSAPP_ACCESS_TOKEN")
+    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 
     if not token:
-        eprint("Missing env var: BORIS_GORELIK_WABA_ACCESS_TOKEN")
+        eprint("Missing env var: WHATSAPP_ACCESS_TOKEN")
         return 2
     if not phone_number_id:
-        eprint("Missing env var: BORIS_GORELIK_WABA_PHONE_NUMBER_ID")
+        eprint("Missing env var: WHATSAPP_PHONE_NUMBER_ID")
         return 2
 
     to_msisdn = normalize_msisdn(to)
