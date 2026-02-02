@@ -6,7 +6,7 @@ Handles Hebrew (RTL) text properly.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -17,7 +17,7 @@ except ImportError:
 
 
 def extract_messages(log_file: Path) -> list[dict]:
-    """Extract text messages with sender names from webhook log."""
+    """Extract text messages (incoming and outgoing) from webhook log."""
     messages = []
 
     with open(log_file, "r", encoding="utf-8") as f:
@@ -39,17 +39,57 @@ def extract_messages(log_file: Path) -> list[dict]:
 
                             # Extract messages
                             for message in value.get("messages", []):
-                                if message.get("type") == "text":
-                                    msg_from = message.get("from")
-                                    text_body = message.get("text", {}).get("body")
-                                    timestamp = entry.get("timestamp")
+                                msg_from = message.get("from")
+                                msg_type = message.get("type")
+                                timestamp = entry.get("timestamp")
 
-                                    messages.append({
-                                        "timestamp": timestamp,
-                                        "from": msg_from,
-                                        "name": contact_name,
-                                        "text": text_body
-                                    })
+                                # Format message text based on type
+                                if msg_type == "text":
+                                    text_body = message.get("text", {}).get("body")
+                                elif msg_type == "image":
+                                    caption = message.get("image", {}).get("caption", "")
+                                    text_body = f"[Image{': ' + caption if caption else ''}]"
+                                elif msg_type == "audio":
+                                    text_body = "[Audio message]"
+                                elif msg_type == "video":
+                                    caption = message.get("video", {}).get("caption", "")
+                                    text_body = f"[Video{': ' + caption if caption else ''}]"
+                                elif msg_type == "document":
+                                    filename = message.get("document", {}).get("filename", "")
+                                    text_body = f"[Document{': ' + filename if filename else ''}]"
+                                elif msg_type == "location":
+                                    loc = message.get("location", {})
+                                    name = loc.get("name", "")
+                                    text_body = f"[Location{': ' + name if name else ''}]"
+                                else:
+                                    text_body = f"[{msg_type or 'Unknown'} message]"
+
+                                messages.append({
+                                    "timestamp": timestamp,
+                                    "from": msg_from,
+                                    "name": contact_name,
+                                    "text": text_body,
+                                    "direction": "incoming"
+                                })
+
+                # Look for outgoing messages
+                elif entry.get("event_type") == "outgoing_message":
+                    data = entry.get("data", {})
+                    # Outgoing messages have: to, text, status, response
+                    if "to" in data and "text" in data:
+                        timestamp = entry.get("timestamp")
+                        to = data.get("to")
+                        text = data.get("text", "")
+
+                        messages.append({
+                            "timestamp": timestamp,
+                            "from": "You",
+                            "name": "You",
+                            "text": text,
+                            "to": to,
+                            "direction": "outgoing"
+                        })
+
             except (json.JSONDecodeError, KeyError) as e:
                 # Skip malformed entries
                 continue
@@ -87,14 +127,24 @@ def print_table(messages: list[dict]):
         return
 
     # Print header
-    print(f"{'Time':<10} {'From':<15} {'Name':<20} {'Message'}")
-    print("-" * 95)
+    print(f"{'Time':<10} {'Dir':<4} {'From/To':<15} {'Name':<20} {'Message'}")
+    print("-" * 100)
 
     # Print messages
     for msg in messages:
         time = format_time(msg["timestamp"])
-        from_num = msg["from"] or "Unknown"
-        name = msg["name"] or "Unknown"
+        direction = msg.get("direction", "incoming")
+
+        # Visual indicator for direction
+        if direction == "incoming":
+            dir_symbol = "←"
+            from_num = msg["from"] or "Unknown"
+            name = msg["name"] or "Unknown"
+        else:  # outgoing
+            dir_symbol = "→"
+            from_num = msg.get("to", "Unknown")
+            name = "You"
+
         text = msg["text"] or ""
 
         # Format RTL text (Hebrew)
@@ -107,7 +157,7 @@ def print_table(messages: list[dict]):
 
         # Print with proper RTL formatting
         # Note: Padding RTL text is tricky, so we just use left-aligned fields
-        print(f"{time:<10} {from_num:<15} {name_display:<20} {text_display}")
+        print(f"{time:<10} {dir_symbol:<4} {from_num:<15} {name_display:<20} {text_display}")
 
     print(f"\nTotal messages: {len(messages)}")
 
@@ -120,7 +170,7 @@ if __name__ == "__main__":
         print()
 
     log_dir = Path("whatsapp_logs")
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     log_file = log_dir / f"{today}.jsonl"
 
     if not log_file.exists():
@@ -128,4 +178,8 @@ if __name__ == "__main__":
         exit(1)
 
     messages = extract_messages(log_file)
+
+    # Sort messages by timestamp (chronological order)
+    messages.sort(key=lambda m: m["timestamp"])
+
     print_table(messages)
