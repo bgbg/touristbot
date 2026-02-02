@@ -7,8 +7,8 @@ backend API, and sends responses back.
 
 Env vars expected:
   WHATSAPP_VERIFY_TOKEN - Token for webhook verification
-  BORIS_GORELIK_WABA_ACCESS_TOKEN - WhatsApp API access token
-  BORIS_GORELIK_WABA_PHONE_NUMBER_ID - WhatsApp phone number ID
+  WHATSAPP_ACCESS_TOKEN - WhatsApp API access token
+  WHATSAPP_PHONE_NUMBER_ID - WhatsApp phone number ID
   BACKEND_API_URL - Backend API base URL
   BACKEND_API_KEY - Backend API authentication key
 
@@ -41,8 +41,8 @@ app = Flask(__name__)
 
 # Configuration
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "your-verify-token-here")
-WABA_ACCESS_TOKEN = os.getenv("BORIS_GORELIK_WABA_ACCESS_TOKEN")
-WABA_PHONE_NUMBER_ID = os.getenv("BORIS_GORELIK_WABA_PHONE_NUMBER_ID")
+WABA_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN")
+WABA_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "https://tourism-rag-backend-347968285860.me-west1.run.app")
 BACKEND_API_KEY = os.getenv("BACKEND_API_KEY")
 GRAPH_API_VERSION = os.getenv("META_GRAPH_API_VERSION", "v22.0")
@@ -66,8 +66,8 @@ def _validate_required_env_vars() -> None:
     """Validate required environment variables at startup (fail fast)."""
     required_vars = {
         "WHATSAPP_VERIFY_TOKEN": "Token for Meta webhook verification",
-        "BORIS_GORELIK_WABA_ACCESS_TOKEN": "WhatsApp Business API access token",
-        "BORIS_GORELIK_WABA_PHONE_NUMBER_ID": "WhatsApp phone number ID",
+        "WHATSAPP_ACCESS_TOKEN": "WhatsApp Business API access token",
+        "WHATSAPP_PHONE_NUMBER_ID": "WhatsApp phone number ID",
         "BACKEND_API_KEY": "Backend API authentication key",
     }
 
@@ -561,8 +561,8 @@ def health_check():
 if __name__ == "__main__":
     # Validate critical environment variables
     required_env_vars = {
-        "BORIS_GORELIK_WABA_ACCESS_TOKEN": WABA_ACCESS_TOKEN,
-        "BORIS_GORELIK_WABA_PHONE_NUMBER_ID": WABA_PHONE_NUMBER_ID,
+        "WHATSAPP_ACCESS_TOKEN": WABA_ACCESS_TOKEN,
+        "WHATSAPP_PHONE_NUMBER_ID": WABA_PHONE_NUMBER_ID,
         "BACKEND_API_KEY": BACKEND_API_KEY,
     }
 

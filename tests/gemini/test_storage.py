@@ -32,7 +32,10 @@ from gemini.storage import (
 @pytest.fixture(scope="module")
 def gcs_config():
     """Load GCS configuration once for all tests in this module"""
-    return GeminiConfig.from_yaml()
+    config = GeminiConfig.from_yaml()
+    if config.gcs_credentials_json is None:
+        pytest.skip("GCS credentials not configured - skipping GCS tests")
+    return config
 
 
 @pytest.fixture(scope="function")
