@@ -252,13 +252,23 @@ if prompt := st.chat_input("Ask about the location..."):
                 # Save conversation ID
                 st.session_state.conversation_id = data.get("conversation_id")
 
+                # Extract response text with fallback for unexpected types
+                response_text = data["response_text"]
+
+                # Defensive fallback: if response_text is not a string, convert it to string
+                # Note: Backend validation (qa.py) should ensure this is always a string,
+                # but this provides an extra safety layer for edge cases
+                if not isinstance(response_text, str):
+                    st.warning("⚠️ Backend returned unexpected response format. Converting response to text.")
+                    response_text = str(response_text)
+
                 # Display response
-                st.markdown(data["response_text"])
+                st.markdown(response_text)
 
                 # Build assistant message
                 assistant_msg = {
                     "role": "assistant",
-                    "content": data["response_text"],
+                    "content": response_text,
                     "citations": data.get("citations", []),
                     "images": data.get("images", [])
                 }

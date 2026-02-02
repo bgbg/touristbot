@@ -321,7 +321,18 @@ async def chat_query(
             # (happens when system prompt requests JSON format)
             parsed = parse_json(response_text)
             if parsed is not None and isinstance(parsed, dict) and "response_text" in parsed:
-                response_text = parsed["response_text"]
+                extracted_text = parsed["response_text"]
+
+                # Defensive type validation: ensure response_text is a string
+                if not isinstance(extracted_text, str):
+                    logger.error(
+                        f"Extracted response_text is not a string! Type: {type(extracted_text)}. "
+                        f"This indicates a bug in JSON parsing. Converting to string."
+                    )
+                    # Last resort: convert to string to prevent UI breakage
+                    extracted_text = str(extracted_text)
+
+                response_text = extracted_text
                 should_include_images_flag = parsed.get("should_include_images")
                 image_relevance_data = parsed.get("image_relevance", [])
                 logger.info(
@@ -332,7 +343,7 @@ async def chat_query(
             else:
                 # Not JSON or doesn't have expected structure, use as-is
                 if parsed is None:
-                    logger.warning(f"Failed to parse JSON response, using text as-is")
+                    logger.debug(f"Failed to parse JSON response, using text as-is")
                 else:
                     logger.warning(f"Unexpected JSON structure: {type(parsed)}")
 
