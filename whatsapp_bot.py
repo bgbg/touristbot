@@ -592,37 +592,44 @@ if __name__ == "__main__":
     eprint("=" * 60)
 
     # Setup and start ngrok tunnel
+    public_url = None
     try:
-        # Configure pyngrok to use system ngrok binary if available
-        import shutil
-        system_ngrok = shutil.which("ngrok")
-        if system_ngrok:
-            conf.get_default().ngrok_path = system_ngrok
+        # First, check if ngrok is already running (manually started)
+        # ngrok exposes a local API at http://127.0.0.1:4040/api/tunnels
+        try:
+            ngrok_api_response = requests.get("http://127.0.0.1:4040/api/tunnels", timeout=2)
+            if ngrok_api_response.status_code == 200:
+                tunnels_data = ngrok_api_response.json()
+                for tunnel in tunnels_data.get("tunnels", []):
+                    # Look for tunnel on our port
+                    config_addr = tunnel.get("config", {}).get("addr", "")
+                    if f"localhost:{PORT}" in config_addr or f"127.0.0.1:{PORT}" in config_addr:
+                        public_url = tunnel.get("public_url")
+                        if public_url:
+                            eprint(f"\n✓ Found existing ngrok tunnel (manually started)")
+                            break
+        except Exception:
+            # ngrok API not available (not running)
+            pass
 
-        # Check if ngrok is already running by listing active tunnels
-        tunnels = ngrok.get_tunnels()
+        # If no existing tunnel found, start new one with pyngrok
+        if not public_url:
+            # Configure pyngrok to use system ngrok binary if available
+            import shutil
+            system_ngrok = shutil.which("ngrok")
+            if system_ngrok:
+                conf.get_default().ngrok_path = system_ngrok
 
-        # Look for existing tunnel on our port
-        existing_tunnel = None
-        for tunnel in tunnels:
-            if str(PORT) in tunnel.config.get('addr', ''):
-                existing_tunnel = tunnel
-                break
-
-        if existing_tunnel:
-            public_url = existing_tunnel.public_url
-            eprint(f"\n✓ Using existing ngrok tunnel")
-        else:
-            # Start new ngrok tunnel
             eprint(f"\n⚡ Starting ngrok tunnel on port {PORT}...")
             public_url = ngrok.connect(PORT, bind_tls=True).public_url
             eprint(f"✓ ngrok tunnel started")
 
-        eprint(f"\n🌐 Local:      http://127.0.0.1:{PORT}")
-        eprint(f"🌐 Public:     {public_url}")
-        eprint(f"\n📋 Webhook URL for Meta Console:")
-        eprint(f"   {public_url}/webhook")
-        eprint("=" * 60)
+        if public_url:
+            eprint(f"\n🌐 Local:      http://127.0.0.1:{PORT}")
+            eprint(f"🌐 Public:     {public_url}")
+            eprint(f"\n📋 Webhook URL for Meta Console:")
+            eprint(f"   {public_url}/webhook")
+            eprint("=" * 60)
 
     except Exception as e:
         eprint(f"\n⚠️  Warning: Could not start ngrok: {e}")
