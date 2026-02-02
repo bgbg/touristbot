@@ -43,8 +43,8 @@ elif [ -f "${SCRIPT_DIR}/.env" ]; then
     set +a
 fi
 
-# Check for required environment variables
-required_vars=("WHATSAPP_VERIFY_TOKEN" "BORIS_GORELIK_WABA_ACCESS_TOKEN" "BORIS_GORELIK_WABA_PHONE_NUMBER_ID" "BACKEND_API_KEY")
+# Check for required environment variables (including WHATSAPP_APP_SECRET for production security)
+required_vars=("WHATSAPP_VERIFY_TOKEN" "BORIS_GORELIK_WABA_ACCESS_TOKEN" "BORIS_GORELIK_WABA_PHONE_NUMBER_ID" "BACKEND_API_KEY" "WHATSAPP_APP_SECRET")
 missing_vars=()
 
 for var in "${required_vars[@]}"; do
@@ -67,13 +67,6 @@ fi
 BACKEND_API_URL=${BACKEND_API_URL:-"https://tourism-rag-backend-347968285860.me-west1.run.app"}
 META_GRAPH_API_VERSION=${META_GRAPH_API_VERSION:-"v22.0"}
 
-# Optional: WHATSAPP_APP_SECRET for webhook signature validation (recommended for production)
-if [ -n "${WHATSAPP_APP_SECRET}" ]; then
-    echo "WHATSAPP_APP_SECRET configured - webhook signature validation enabled"
-else
-    echo "WARNING: WHATSAPP_APP_SECRET not set - webhook signature validation disabled"
-fi
-
 echo "Deploying WhatsApp Bot to Cloud Run"
 echo "Project: ${PROJECT_ID}"
 echo "Region: ${REGION}"
@@ -93,12 +86,8 @@ BORIS_GORELIK_WABA_PHONE_NUMBER_ID: "${BORIS_GORELIK_WABA_PHONE_NUMBER_ID}"
 BACKEND_API_URL: "${BACKEND_API_URL}"
 BACKEND_API_KEY: "${BACKEND_API_KEY}"
 META_GRAPH_API_VERSION: "${META_GRAPH_API_VERSION}"
+WHATSAPP_APP_SECRET: "${WHATSAPP_APP_SECRET}"
 EOF
-
-# Add optional WHATSAPP_APP_SECRET if set
-if [ -n "${WHATSAPP_APP_SECRET}" ]; then
-    echo "WHATSAPP_APP_SECRET: \"${WHATSAPP_APP_SECRET}\"" >> "${ENV_YAML_FILE}"
-fi
 
 # Deploy to Cloud Run with environment variables
 echo "Deploying to Cloud Run..."
@@ -144,8 +133,8 @@ echo ""
 echo "=========================================="
 echo ""
 echo "Next steps:"
-echo "1. Test webhook verification:"
-echo "   curl \"${SERVICE_URL}/webhook?hub.mode=subscribe&hub.challenge=test&hub.verify_token=${WHATSAPP_VERIFY_TOKEN}\""
+echo "1. Test webhook verification (avoid pasting real tokens in shared terminals/logs):"
+echo "   curl \"${SERVICE_URL}/webhook?hub.mode=subscribe&hub.challenge=test&hub.verify_token=<YOUR_VERIFY_TOKEN>\""
 echo ""
 echo "2. Test health check:"
 echo "   curl ${SERVICE_URL}/health"
@@ -154,7 +143,7 @@ echo "3. Update Meta Developer Console webhook:"
 echo "   - Navigate to: https://developers.facebook.com/apps"
 echo "   - Go to WhatsApp > Configuration > Webhook"
 echo "   - Update Callback URL to: ${SERVICE_URL}/webhook"
-echo "   - Use Verify Token: ${WHATSAPP_VERIFY_TOKEN}"
+echo "   - Use your WHATSAPP_VERIFY_TOKEN from .env file"
 echo "   - Click 'Verify and Save'"
 echo ""
 echo "4. Monitor logs:"

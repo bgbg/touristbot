@@ -61,6 +61,34 @@ CONV_DIR = Path("conversations")
 LOG_DIR.mkdir(exist_ok=True)
 CONV_DIR.mkdir(exist_ok=True)
 
+# Environment validation (runs at module import, before gunicorn starts serving)
+def _validate_required_env_vars() -> None:
+    """Validate required environment variables at startup (fail fast)."""
+    required_vars = {
+        "WHATSAPP_VERIFY_TOKEN": "Token for Meta webhook verification",
+        "BORIS_GORELIK_WABA_ACCESS_TOKEN": "WhatsApp Business API access token",
+        "BORIS_GORELIK_WABA_PHONE_NUMBER_ID": "WhatsApp phone number ID",
+        "BACKEND_API_KEY": "Backend API authentication key",
+    }
+
+    # In production, WHATSAPP_APP_SECRET is also required for webhook signature validation
+    is_production = os.getenv("K_SERVICE") or os.getenv("GAE_ENV")
+    if is_production:
+        required_vars["WHATSAPP_APP_SECRET"] = "Meta app secret for webhook signature validation (required in production)"
+
+    missing_vars = []
+    for var, description in required_vars.items():
+        if not os.getenv(var):
+            missing_vars.append(f"  - {var}: {description}")
+
+    if missing_vars:
+        error_msg = "Missing required environment variables:\n" + "\n".join(missing_vars)
+        print(error_msg, file=sys.stderr)
+        raise RuntimeError(error_msg)
+
+# Run validation at module import time (before gunicorn starts serving requests)
+_validate_required_env_vars()
+
 
 def eprint(*args: object) -> None:
     """Print to stderr."""
@@ -102,10 +130,18 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     Returns:
         True if signature is valid, False otherwise
     """
+    # Detect production environment (Cloud Run sets K_SERVICE, App Engine sets GAE_ENV)
+    is_production = os.getenv("K_SERVICE") or os.getenv("GAE_ENV")
+
     if not APP_SECRET:
-        # If no app secret configured, skip validation (local dev mode)
-        eprint("[WARNING] WHATSAPP_APP_SECRET not set - skipping signature validation")
-        return True
+        if is_production:
+            # Production: Fail closed - reject all requests without app secret
+            eprint("[SECURITY] WHATSAPP_APP_SECRET not set in production - rejecting request")
+            return False
+        else:
+            # Local dev: Warn but allow (for testing without Meta app secret)
+            eprint("[WARNING] WHATSAPP_APP_SECRET not set - skipping signature validation (local dev mode)")
+            return True
 
     if not signature or not signature.startswith("sha256="):
         return False
