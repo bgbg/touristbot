@@ -604,9 +604,12 @@ if __name__ == "__main__":
     if USE_LOCAL_BACKEND:
         try:
             eprint(f"\n🚀 Starting local backend on port {BACKEND_PORT}...")
+            # Pass environment variables to backend subprocess
+            backend_env = os.environ.copy()
             backend_process = subprocess.Popen(
                 [sys.executable, "-m", "uvicorn", "backend.main:app",
                  "--reload", "--port", str(BACKEND_PORT), "--host", "127.0.0.1"],
+                env=backend_env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
