@@ -5,11 +5,11 @@ from datetime import datetime
 
 from backend.conversation_storage.conversations import ConversationStore
 
-st.title("💬 Conversations")
+st.title("Conversations")
 
 # Check if session state is initialized
 if "config" not in st.session_state:
-    st.error("❌ Session not initialized. Please return to the main page.")
+    st.error("Session not initialized. Please return to the main page.")
     st.stop()
 
 config = st.session_state.config
@@ -63,7 +63,7 @@ try:
     st.markdown(f"### Found {len(conversations)} conversation(s)")
 
     if not conversations:
-        st.info("💬 No conversations found. Try adjusting filters or check back later.")
+        st.info("No conversations found. Try adjusting filters or check back later.")
         st.stop()
 
     # Selection for bulk operations
@@ -104,9 +104,9 @@ try:
 
         with cols[1]:
             if is_whatsapp:
-                st.text("📱 WhatsApp")
+                st.text("WhatsApp")
             else:
-                st.text("🌐 Web")
+                st.text("Web")
 
         with cols[2]:
             if is_whatsapp:
@@ -146,7 +146,7 @@ try:
     selected_count = len(st.session_state.selected_ids)
 
     if selected_count > 0:
-        st.info(f"✅ Selected: {selected_count} conversation(s)")
+        st.info(f"Selected: {selected_count} conversation(s)")
 
         if st.button(f"🗑️ Delete {selected_count} conversation(s)", type="primary"):
             if st.session_state.get("confirm_bulk_delete"):
@@ -196,10 +196,10 @@ try:
                         formatted_phone = f"+{phone[:3]}-{phone[3:5]}-{phone[5:8]}-{phone[8:]}"
                     else:
                         formatted_phone = f"+{phone}"
-                    st.markdown(f"**Source:** 📱 WhatsApp")
+                    st.markdown(f"**Source:** WhatsApp")
                     st.markdown(f"**Phone:** {formatted_phone}")
                 else:
-                    st.markdown(f"**Source:** 🌐 Web")
+                    st.markdown(f"**Source:** Web")
                     st.markdown(f"**ID:** `{conv_id[:40]}{'...' if len(conv_id) > 40 else ''}`")
                 st.markdown(f"**Location:** {conv.area} / {conv.site}")
                 st.markdown(f"**Created:** {conv.created_at}")
@@ -207,7 +207,7 @@ try:
                 st.markdown(f"**Messages:** {len(conv.messages)}")
 
             with col2:
-                if st.button("❌ Close", key="close_conversation"):
+                if st.button("Close", key="close_conversation"):
                     del st.session_state.selected_conversation
                     st.rerun()
 

@@ -170,9 +170,9 @@ admin_ui/
 ├── app.py                           # Main entry point, home page
 ├── upload_helper.py                 # Upload manager (wraps CLI uploader)
 └── pages/
-    ├── 1_📤_Upload_Content.py      # File upload interface
-    ├── 2_📁_View_Content.py        # Content browser
-    └── 3_💬_Conversations.py       # Conversation management
+    ├── 1_Upload_Content.py          # File upload interface
+    ├── 2_View_Content.py            # Content browser
+    └── 3_Conversations.py           # Conversation management
 ```
 
 ### Backend Integration
