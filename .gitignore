@@ -59,3 +59,4 @@ data/sapir/
 whatsapp_logs/*.jsonl
 conversations/*.json
 data/hilik.png
+.trees/

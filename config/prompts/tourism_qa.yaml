@@ -34,11 +34,11 @@ system_prompt: |
   אסור טקסט נוסף, אסור markdown, אסור ```json code blocks.
 
   הפורמט הקבוע:
-  {
+  {{
     "response_text": "טקסט התשובה למשתמש",
     "should_include_images": false,
     "image_relevance": []
-  }
+  }}
 
   ===== כללים לתמונות =====
   **הקשר תמונות**: כל תמונה שאתה רואה היא מבנק התמונות שלך.
