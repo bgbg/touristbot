@@ -463,8 +463,8 @@ class TestGCSConversationStorage:
         # Mock create_conversation to return new Conversation object
         mock_conv = Conversation(
             conversation_id="whatsapp_972501234567",
-            area="hefer_valley",
-            site="agamon_hefer",
+            area="עמק חפר",
+            site="אגמון חפר",
             created_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
             messages=[]
@@ -478,8 +478,8 @@ class TestGCSConversationStorage:
         # Verify conversation was created
         mock_store.get_conversation.assert_called_once_with("whatsapp_972501234567")
         mock_store.create_conversation.assert_called_once_with(
-            area="hefer_valley",
-            site="agamon_hefer",
+            area="עמק חפר",
+            site="אגמון חפר",
             conversation_id="whatsapp_972501234567"
         )
         mock_store.save_conversation.assert_called_once_with(mock_conv)
@@ -509,8 +509,8 @@ class TestGCSConversationStorage:
         # Mock get_conversation to return existing conversation
         mock_conv = Conversation(
             conversation_id="whatsapp_972501234567",
-            area="hefer_valley",
-            site="agamon_hefer",
+            area="עמק חפר",
+            site="אגמון חפר",
             created_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T12:00:00Z",
             messages=[

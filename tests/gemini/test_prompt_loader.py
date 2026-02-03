@@ -113,7 +113,9 @@ def test_prompt_loader_load_empty_yaml(tmp_path):
     with open(yaml_file, "w") as f:
         f.write("")  # Empty file
 
-    with pytest.raises(ValueError, match="empty or does not contain a valid configuration"):
+    with pytest.raises(
+        ValueError, match="empty or does not contain a valid configuration"
+    ):
         PromptLoader.load(str(yaml_file))
 
 
@@ -130,7 +132,9 @@ def test_prompt_loader_load_invalid_temperature_bounds(tmp_path):
     with open(yaml_file_high, "w") as f:
         yaml.dump(yaml_content_high, f)
 
-    with pytest.raises(ValueError, match="Invalid temperature value.*Must be between 0.0 and 2.0"):
+    with pytest.raises(
+        ValueError, match="Invalid temperature value.*Must be between 0.0 and 2.0"
+    ):
         PromptLoader.load(str(yaml_file_high))
 
     # Test temperature too low
@@ -144,7 +148,9 @@ def test_prompt_loader_load_invalid_temperature_bounds(tmp_path):
     with open(yaml_file_low, "w") as f:
         yaml.dump(yaml_content_low, f)
 
-    with pytest.raises(ValueError, match="Invalid temperature value.*Must be between 0.0 and 2.0"):
+    with pytest.raises(
+        ValueError, match="Invalid temperature value.*Must be between 0.0 and 2.0"
+    ):
         PromptLoader.load(str(yaml_file_low))
 
 
@@ -154,7 +160,7 @@ def test_prompt_loader_load_relative_path():
     config = PromptLoader.load("config/prompts/tourism_qa.yaml")
 
     assert config.model_name == "gemini-2.5-flash"
-    assert config.temperature == 0.6
+    assert config.temperature == 0.4
     assert "{area}" in config.system_prompt
     assert "{site}" in config.system_prompt
     # Note: {context} removed for File Search API - context provided automatically
