@@ -49,10 +49,28 @@ WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
 BACKEND_API_URL=https://tourism-rag-backend-347968285860.me-west1.run.app
 BACKEND_API_KEY=your-backend-api-key
 
+# GCS Storage for Conversations (REQUIRED)
+GCS_BUCKET=tarasa_tourist_bot_content
+
 # Optional
 META_GRAPH_API_VERSION=v22.0
 WHATSAPP_LISTENER_PORT=5001
 ```
+
+### Google Cloud Authentication
+
+For local development, authenticate with Google Cloud:
+
+```bash
+# Option 1: Application Default Credentials (Recommended)
+gcloud auth application-default login
+
+# Option 2: Service Account (Alternative)
+# Set path to service account JSON file
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
+```
+
+For Cloud Run production, authentication is automatic via Cloud Run service account (requires `roles/storage.objectAdmin` IAM role on GCS bucket).
 
 ### Getting WhatsApp Credentials
 
@@ -114,10 +132,11 @@ Send a message to your WhatsApp Business number. The bot will:
 
 ### Conversation Management
 
-- **Persistent Storage**: Conversations stored in `conversations/whatsapp_{phone}.json`
-- **Multi-turn Context**: Bot remembers conversation history
+- **Persistent Storage**: Conversations stored in Google Cloud Storage at `gs://{bucket}/conversations/whatsapp_{phone}.json`
+- **Multi-turn Context**: Bot remembers conversation history across deployments
 - **Reset Command**: Send "reset" or "התחל מחדש" to clear history
 - **Default Location**: hefer_valley/agamon_hefer (Agamon Hefer wetlands)
+- **Fail-fast Behavior**: If GCS is unavailable, the bot returns an error message (no local fallback)
 
 ### Error Handling
 
@@ -181,34 +200,39 @@ Health check endpoint.
 }
 ```
 
-## Local Storage
+## Storage
 
 ### Conversations
-Location: `conversations/whatsapp_{phone}.json`
+Location: `gs://{GCS_BUCKET}/conversations/whatsapp_{phone}.json`
 
 Structure:
 ```json
 {
   "conversation_id": "whatsapp_972525974655",
-  "phone": "972525974655",
   "area": "hefer_valley",
   "site": "agamon_hefer",
-  "history": [
+  "messages": [
     {
       "role": "user",
       "content": "מה יש לראות באגמון חפר?",
-      "timestamp": "2026-02-02T14:30:00.000000"
+      "timestamp": "2026-02-02T14:30:00.000000Z",
+      "citations": null,
+      "images": null
     },
     {
       "role": "assistant",
       "content": "באגמון חפר יש...",
-      "timestamp": "2026-02-02T14:30:05.000000"
+      "timestamp": "2026-02-02T14:30:05.000000Z",
+      "citations": [...],
+      "images": [...]
     }
   ],
-  "created_at": "2026-02-02T14:30:00.000000",
-  "updated_at": "2026-02-02T14:30:05.000000"
+  "created_at": "2026-02-02T14:30:00.000000Z",
+  "updated_at": "2026-02-02T14:30:05.000000Z"
 }
 ```
+
+**Note**: Conversations persist across bot restarts and Cloud Run deployments. All conversations are visible in the admin backoffice UI.
 
 ### Logs
 Location: `whatsapp_logs/{YYYY-MM-DD}.jsonl`
@@ -285,8 +309,11 @@ tail -f whatsapp_logs/$(date +%Y-%m-%d).jsonl | jq .
 # View with log reader
 python read_logs.py --date $(date +%Y-%m-%d)
 
-# View conversations
-cat conversations/whatsapp_972525974655.json | jq .
+# View conversations from GCS
+gsutil cat gs://tarasa_tourist_bot_content/conversations/whatsapp_972525974655.json | jq .
+
+# List all conversations
+gsutil ls gs://tarasa_tourist_bot_content/conversations/
 ```
 
 ## Troubleshooting
@@ -310,13 +337,16 @@ cat conversations/whatsapp_972525974655.json | jq .
 - Restart ngrok and update webhook URL in Meta Console
 - Consider ngrok paid plan for reserved domains
 
-### Filesystem Permission Errors
+### GCS Authentication Errors
 ```bash
-# Create directories
-mkdir -p whatsapp_logs conversations
+# Check ADC authentication
+gcloud auth application-default print-access-token
 
-# Check permissions
-ls -la whatsapp_logs/ conversations/
+# Re-authenticate if needed
+gcloud auth application-default login
+
+# Verify bucket access
+gsutil ls gs://tarasa_tourist_bot_content/conversations/
 ```
 
 ### Hebrew Text Displays Incorrectly
@@ -331,46 +361,62 @@ pip install python-bidi
 - Check network connectivity
 - Review backend logs in Cloud Run Console
 
-## Production Migration Path
+## Cloud Run Deployment
 
-Phase 1 uses local storage for fast iteration. For production deployment:
+The bot is production-ready for Cloud Run deployment:
 
-### Conversation Storage
-Migrate from local JSON files to GCS:
-- Use `backend/conversation_storage/conversations.py` (already available)
-- Set `GCS_BUCKET` and `GOOGLE_APPLICATION_CREDENTIALS` env vars
-- Update `load_conversation()` and `save_conversation()` functions
+### Prerequisites
+- Cloud Run service account with IAM role: `roles/storage.objectAdmin` on GCS bucket
+- Environment variables configured in Cloud Run
 
-### Logging
-Migrate from local JSONL to Cloud Logging:
-- Use Cloud Logging API
-- Update `log_event()` function to write to Cloud Logging
-- Enable `read_logs.py --source gcp` flag
+### Deployment Steps
 
-### Deployment
-Deploy to Cloud Run:
-- Create `Dockerfile` for bot
-- Deploy to Cloud Run in `me-west1` region (same as backend)
-- Configure webhook URL to Cloud Run service URL
-- Set environment variables in Cloud Run
+1. **Verify IAM roles**:
+   ```bash
+   gcloud projects get-iam-policy PROJECT_ID \
+     --flatten="bindings[].members" \
+     --filter="bindings.role:roles/storage.objectAdmin"
+   ```
+
+2. **Build and deploy**:
+   ```bash
+   # Build container image
+   gcloud builds submit --tag gcr.io/PROJECT_ID/whatsapp-bot
+
+   # Deploy to Cloud Run
+   gcloud run deploy whatsapp-bot \
+     --image gcr.io/PROJECT_ID/whatsapp-bot \
+     --region me-west1 \
+     --platform managed \
+     --no-allow-unauthenticated \
+     --set-env-vars GCS_BUCKET=tarasa_tourist_bot_content,BACKEND_API_URL=...,BACKEND_API_KEY=...,WHATSAPP_ACCESS_TOKEN=...,WHATSAPP_PHONE_NUMBER_ID=...,WHATSAPP_VERIFY_TOKEN=...,WHATSAPP_APP_SECRET=...
+   ```
+
+3. **Update webhook URL** in Meta Console to Cloud Run service URL
+
+### Logging in Production
+- Local logs: `whatsapp_logs/` (temporary, for development)
+- Future: Migrate to Cloud Logging for production monitoring
 
 ## Development Workflow
 
-1. **Start bot**: `python whatsapp_bot.py`
-2. **Expose with ngrok**: `ngrok http 5001`
-3. **Configure webhook** in Meta Console
-4. **Send test messages** via WhatsApp
-5. **Check logs**: `python read_logs.py --date 2026-02-02`
-6. **Verify conversations**: `cat conversations/whatsapp_*.json | jq .`
-7. **Make changes** and restart bot
+1. **Authenticate with GCS**: `gcloud auth application-default login`
+2. **Start bot**: `python whatsapp_bot.py`
+3. **Expose with ngrok**: `ngrok http 5001`
+4. **Configure webhook** in Meta Console
+5. **Send test messages** via WhatsApp
+6. **Check logs**: `python read_logs.py --date 2026-02-02`
+7. **Verify conversations**: `gsutil cat gs://tarasa_tourist_bot_content/conversations/whatsapp_*.json | jq .`
+8. **Make changes** and restart bot
 
 ## Architecture Decisions
 
-### Why Local Storage (Phase 1)?
-- Faster iteration during development
-- No cloud dependencies (simpler setup)
-- Easier debugging (cat, jq, grep)
-- Clear production migration path
+### Why GCS Storage?
+- Conversations persist across Cloud Run deployments (ephemeral filesystem)
+- All instances share same conversation data (no data divergence)
+- Admin backoffice UI can view/manage WhatsApp conversations
+- Production-ready architecture from day one
+- Uses same storage backend as RAG API
 
 ### Why Unified Bot File?
 - Simpler to understand and maintain
@@ -395,14 +441,13 @@ Deploy to Cloud Run:
 
 ## Next Steps
 
-After successful Phase 1 testing:
 1. Add media message support (images, audio, video)
 2. Implement interactive menus (buttons, lists, quick replies)
 3. Add location switching commands with NLP parsing
-4. Migrate to GCS-backed conversation storage
-5. Integrate Cloud Logging
-6. Deploy to Cloud Run for production
-7. Add monitoring and alerting
+4. Integrate Cloud Logging (replace local JSONL logs)
+5. Deploy to Cloud Run for production
+6. Add monitoring and alerting (Cloud Monitoring integration)
+7. Implement rate limiting and quotas
 
 ## Support
 
