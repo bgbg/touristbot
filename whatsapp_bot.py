@@ -694,9 +694,16 @@ def handle_text_message(phone: str, text: str, correlation_id: str) -> None:
             else:
                 eprint(f"[WARNING] Image has no URI, skipping image send")
 
-    # Add assistant response to history (automatically saves to GCS)
+    # Add assistant response to history with images (automatically saves to GCS)
+    # This is CRITICAL for duplicate prevention - must save images that were sent
     try:
-        conversation_store.add_message(conv, "assistant", response_text)
+        conversation_store.add_message(
+            conv,
+            "assistant",
+            response_text,
+            citations=backend_response.get("citations", []),
+            images=images if (should_include_images and images) else []
+        )
     except Exception as e:
         eprint(f"[ERROR] Failed to save assistant message: {e}")
         # Continue anyway - send response to user even if save fails

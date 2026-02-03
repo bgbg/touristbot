@@ -66,13 +66,33 @@ cd ..
 gcloud builds submit --config=backend/cloudbuild.yaml --project ${PROJECT_ID} .
 cd backend
 
+# Load GCS credentials if available
+GCS_CREDS_PATH="../.secrets/gcs-service-account.json"
+if [ -f "$GCS_CREDS_PATH" ]; then
+    echo "Loading GCS service account credentials..."
+    GCS_CREDENTIALS_JSON=$(cat "$GCS_CREDS_PATH")
+else
+    echo "Warning: GCS service account credentials not found at $GCS_CREDS_PATH"
+    echo "Signed URLs for images will not work. Using Application Default Credentials."
+    GCS_CREDENTIALS_JSON=""
+fi
+
 # Create temporary env vars file for Cloud Run
 echo "Creating environment variables file..."
-cat > .env.yaml <<EOF
+if [ -n "$GCS_CREDENTIALS_JSON" ]; then
+    cat > .env.yaml <<EOF
+GCS_BUCKET: "${GCS_BUCKET}"
+GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
+BACKEND_API_KEYS: "${BACKEND_API_KEYS}"
+GCS_CREDENTIALS_JSON: '${GCS_CREDENTIALS_JSON}'
+EOF
+else
+    cat > .env.yaml <<EOF
 GCS_BUCKET: "${GCS_BUCKET}"
 GOOGLE_API_KEY: "${GOOGLE_API_KEY}"
 BACKEND_API_KEYS: "${BACKEND_API_KEYS}"
 EOF
+fi
 
 # Deploy to Cloud Run with environment variables
 echo "Deploying to Cloud Run with environment variables..."

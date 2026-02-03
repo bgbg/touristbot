@@ -1,0 +1,29 @@
+steps:
+  # Pull previous image for layer caching
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'docker pull gcr.io/$PROJECT_ID/whatsapp-bot:latest || exit 0'
+
+  # Build with cache-from to reuse layers
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--cache-from=gcr.io/$PROJECT_ID/whatsapp-bot:latest'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/whatsapp-bot:latest'
+      - '-f'
+      - 'Dockerfile.whatsapp'
+      - '.'
+
+  # Push the new image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/whatsapp-bot:latest']
+
+images:
+  - 'gcr.io/$PROJECT_ID/whatsapp-bot:latest'
+
+# Optional: Use faster build machine for quicker builds
+# options:
+#   machineType: 'E2_HIGHCPU_8'
