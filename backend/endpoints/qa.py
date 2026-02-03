@@ -392,6 +392,28 @@ async def chat_query(
                         location_images, image_relevance_data, storage, min_score=85
                     )
                     logger.info(f"Filtered to {len(relevant_images)} relevant images (>= 85)")
+
+                    # Filter out images already shown in this conversation
+                    previously_shown_uris = set()
+                    logger.info(f"Checking {len(conversation.messages[:-1])} previous messages for shown images")
+                    for msg in conversation.messages[:-1]:  # Exclude current user query
+                        if msg.role == "assistant":
+                            logger.info(f"Assistant message: has_images={msg.images is not None}, images_count={len(msg.images) if msg.images else 0}")
+                            if msg.images:
+                                for img_dict in msg.images:
+                                    if "file_api_uri" in img_dict:
+                                        uri = img_dict["file_api_uri"]
+                                        previously_shown_uris.add(uri)
+                                        logger.info(f"  Previously shown: {uri[:60]}...")
+
+                    logger.info(f"Found {len(previously_shown_uris)} previously shown image URIs")
+                    if previously_shown_uris:
+                        before_dedup = len(relevant_images)
+                        relevant_images = [img for img in relevant_images
+                                         if img.file_api_uri not in previously_shown_uris]
+                        logger.info(f"Removed {before_dedup - len(relevant_images)} previously shown images, {len(relevant_images)} remaining")
+                    else:
+                        logger.info("No previously shown images to filter")
                 else:
                     # No relevance data from LLM - no images will be shown
                     logger.info(f"No relevance data from LLM, no images will be shown")
