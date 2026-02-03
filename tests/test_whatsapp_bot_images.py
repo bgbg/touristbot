@@ -4,10 +4,8 @@ Unit tests for WhatsApp bot image handling functionality.
 Tests defensive validation, image detection, retry logic, and error handling.
 """
 
-import json
-import tempfile
 import urllib.error
-from unittest.mock import Mock, patch, MagicMock, call
+from unittest.mock import patch, MagicMock, call
 import pytest
 
 
@@ -70,8 +68,6 @@ class TestDefensiveTypeValidation:
     def test_response_text_as_dict(self, mock_whatsapp_env):
         """Test that dict response_text is converted to string."""
         # Import here to ensure env vars are set
-        import sys
-        sys.path.insert(0, "/Users/boris/devel/enterp/tarasa/roy_chat/.trees/59-feature-whatsapp-bot-cannot-send-images-from-backend")
         from whatsapp_bot import normalize_phone
 
         backend_response = {
@@ -230,8 +226,6 @@ class TestImageDownload:
         mock_response.__enter__.return_value = mock_response
         mock_urlopen.return_value = mock_response
 
-        import sys
-        sys.path.insert(0, "/Users/boris/devel/enterp/tarasa/roy_chat/.trees/59-feature-whatsapp-bot-cannot-send-images-from-backend")
         from whatsapp_bot import download_image_from_url
 
         image_bytes = download_image_from_url("https://example.com/image.jpg")
@@ -245,8 +239,6 @@ class TestImageDownload:
         # Mock timeout exception
         mock_urlopen.side_effect = urllib.error.URLError("timeout")
 
-        import sys
-        sys.path.insert(0, "/Users/boris/devel/enterp/tarasa/roy_chat/.trees/59-feature-whatsapp-bot-cannot-send-images-from-backend")
         from whatsapp_bot import download_image_from_url
 
         with pytest.raises(urllib.error.URLError):
@@ -264,8 +256,6 @@ class TestImageDownload:
             None
         )
 
-        import sys
-        sys.path.insert(0, "/Users/boris/devel/enterp/tarasa/roy_chat/.trees/59-feature-whatsapp-bot-cannot-send-images-from-backend")
         from whatsapp_bot import download_image_from_url
 
         with pytest.raises(urllib.error.HTTPError) as exc_info:

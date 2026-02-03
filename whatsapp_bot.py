@@ -379,8 +379,13 @@ def send_image_with_retry(to_phone: str, image_url: str, caption: str, correlati
                 }, correlation_id)
                 return 0, {"error": {"message": f"Image too large: {size_mb:.2f}MB"}}
 
-            # Save to temp file
-            with tempfile.NamedTemporaryFile(mode='wb', suffix='.jpg', delete=False) as f:
+            # Detect image format from magic numbers
+            import imghdr
+            image_format = imghdr.what(None, h=image_bytes[:32])
+            suffix = f'.{image_format}' if image_format else '.jpg'  # Default to .jpg if detection fails
+
+            # Save to temp file with correct extension
+            with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
                 f.write(image_bytes)
                 temp_file = f.name
 
@@ -635,23 +640,43 @@ def handle_text_message(phone: str, text: str, correlation_id: str) -> None:
     if should_include_images and images:
         # Send only the first image (backend sorted by relevance)
         first_image = images[0]
-        image_url = first_image.get("uri")  # GCS signed URL
-        caption = first_image.get("caption", "")
 
-        if image_url:
-            eprint(f"[IMAGE] Sending image: {caption[:50]}...")
-            image_status, image_response = send_image_with_retry(
-                phone,
-                image_url,
-                caption,
-                correlation_id
-            )
-
-            if image_status < 200 or image_status >= 300:
-                eprint(f"[WARNING] Image send failed, continuing with text response")
-                # Don't block text response if image fails
+        # Defensive validation: ensure first_image is a dictionary
+        if not isinstance(first_image, dict):
+            eprint(f"[WARNING] First image entry is not a dict! Type: {type(first_image)}. Skipping image send.")
+            log_event("error", {
+                "type": "invalid_image_entry_type",
+                "actual_type": str(type(first_image)),
+            }, correlation_id)
         else:
-            eprint(f"[WARNING] Image has no URI, skipping image send")
+            image_url = first_image.get("uri")  # GCS signed URL
+            caption_raw = first_image.get("caption", "")
+
+            # Defensive validation: ensure caption is a string
+            if not isinstance(caption_raw, str):
+                eprint(f"[WARNING] Caption field is not a string! Type: {type(caption_raw)}. Using empty caption.")
+                log_event("error", {
+                    "type": "invalid_caption_type",
+                    "actual_type": str(type(caption_raw)),
+                }, correlation_id)
+                caption = ""
+            else:
+                caption = caption_raw
+
+            if image_url:
+                eprint(f"[IMAGE] Sending image: {caption[:50]}...")
+                image_status, image_response = send_image_with_retry(
+                    phone,
+                    image_url,
+                    caption,
+                    correlation_id
+                )
+
+                if image_status < 200 or image_status >= 300:
+                    eprint(f"[WARNING] Image send failed, continuing with text response")
+                    # Don't block text response if image fails
+            else:
+                eprint(f"[WARNING] Image has no URI, skipping image send")
 
     # Add assistant response to history
     add_interaction(conv, "assistant", response_text)

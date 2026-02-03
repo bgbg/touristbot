@@ -90,7 +90,7 @@ def upload_media(token: str, phone_number_id: str, file_path: str) -> tuple[int,
     body_parts.append("whatsapp\r\n")
 
     # Add file field
-    filename = file_path.split("/")[-1]
+    filename = os.path.basename(file_path)
     body_parts.append(f"--{boundary}\r\n")
     body_parts.append(
         f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
