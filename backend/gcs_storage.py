@@ -116,6 +116,30 @@ class GCSStorage(StorageBackend):
                 raise
             raise IOError(f"Error reading from GCS: {e}")
 
+    def read_file_bytes(self, path: str) -> bytes:
+        """
+        Read binary content from GCS blob (for images, etc.)
+
+        Args:
+            path: Blob path
+
+        Returns:
+            File content as bytes
+
+        Raises:
+            FileNotFoundError: If blob doesn't exist
+            IOError: On other GCS errors
+        """
+        try:
+            blob = self.bucket.blob(path)
+            if not blob.exists():
+                raise FileNotFoundError(f"File not found in GCS: {path}")
+            return blob.download_as_bytes()
+        except Exception as e:
+            if isinstance(e, FileNotFoundError):
+                raise
+            raise IOError(f"Error reading from GCS: {e}")
+
     def list_files(self, path: str, pattern: str = "*") -> List[str]:
         """
         List files in GCS matching pattern

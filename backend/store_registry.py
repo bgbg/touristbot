@@ -266,6 +266,28 @@ class StoreRegistry:
 
         return result
 
+    def remove_entry(self, area: str, site: str) -> bool:
+        """
+        Remove a location entry from the registry
+
+        Args:
+            area: Area name
+            site: Site name
+
+        Returns:
+            bool: True if entry was removed, False if not found
+        """
+        key = self._make_key(area, site)
+
+        if key in self.registry:
+            del self.registry[key]
+            self._save_registry()
+            logger.info(f"Removed registry entry for {area}/{site}")
+            return True
+        else:
+            logger.warning(f"No registry entry found for {area}/{site}")
+            return False
+
     def print_registry(self):
         """Print all registered locations in a formatted way"""
         if not self.registry:
