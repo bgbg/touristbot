@@ -164,8 +164,8 @@ def filter_images_by_relevance(
             try:
                 signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=60)
             except Exception as e:
-                logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}")
-                continue
+                logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}. Skipping image.")
+                continue  # Skip this image if we can't generate a signed URL
 
             relevant_images.append(
                 ImageMetadata(
@@ -340,6 +340,7 @@ async def chat_query(
                     f"should_include_images={should_include_images_flag}, "
                     f"image_relevance count={len(image_relevance_data) if image_relevance_data else 0}"
                 )
+
             else:
                 # Not JSON or doesn't have expected structure, use as-is
                 if parsed is None:
@@ -365,34 +366,10 @@ async def chat_query(
                     relevant_images = filter_images_by_relevance(
                         location_images, image_relevance_data, storage, min_score=60
                     )
+                    logger.info(f"Filtered to {len(relevant_images)} relevant images (>= 60)")
                 else:
-                    # Fallback: show all images if no relevance data (backward compatibility)
-                    logger.info(f"No relevance data from LLM, showing all {len(location_images)} images (fallback)")
-                    for img in location_images[:5]:  # Limit to 5 images
-                        context = ""
-                        if img.context_before:
-                            context += img.context_before
-                        if img.context_after:
-                            if context:
-                                context += " "
-                            context += img.context_after
-
-                        # Generate signed URL for GCS path
-                        try:
-                            signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=60)
-                        except Exception as e:
-                            logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}")
-                            continue
-
-                        relevant_images.append(
-                            ImageMetadata(
-                                uri=signed_url,
-                                file_api_uri=img.file_api_uri,
-                                caption=img.caption or "",
-                                context=context,
-                                relevance_score=100,  # Default score
-                            )
-                        )
+                    # No relevance data from LLM - no images will be shown
+                    logger.info(f"No relevance data from LLM, no images will be shown")
 
             # Decide whether images should be included in the QA response
             should_include_images = (

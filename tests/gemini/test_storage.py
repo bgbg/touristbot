@@ -32,9 +32,18 @@ from gemini.storage import (
 @pytest.fixture(scope="module")
 def gcs_config():
     """Load GCS configuration once for all tests in this module"""
+    # Load credentials from .secrets/gcs-service-account.json (new location)
+    gcs_credentials_path = os.getenv("GCS_CREDENTIALS_PATH", ".secrets/gcs-service-account.json")
+
+    if not os.path.exists(gcs_credentials_path):
+        pytest.skip(f"GCS credentials not found at {gcs_credentials_path} - skipping GCS tests")
+
+    with open(gcs_credentials_path, "r") as f:
+        gcs_credentials_json = f.read()
+
     config = GeminiConfig.from_yaml()
-    if config.gcs_credentials_json is None:
-        pytest.skip("GCS credentials not configured - skipping GCS tests")
+    # Override with credentials from file
+    config.gcs_credentials_json = gcs_credentials_json
     return config
 
 

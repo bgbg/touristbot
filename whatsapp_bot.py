@@ -23,6 +23,7 @@ import hmac
 import json
 import os
 import sys
+import tempfile
 import time
 import traceback
 import urllib.parse
@@ -35,6 +36,9 @@ import requests
 import subprocess
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
+
+# Import WhatsApp utility functions for image sending
+from whatsapp_utils import upload_media, send_image_message
 
 load_dotenv()
 
@@ -179,6 +183,26 @@ def normalize_phone(raw: str) -> str:
     return s
 
 
+def download_image_from_url(url: str) -> bytes:
+    """
+    Download image from URL (GCS signed URL).
+
+    Args:
+        url: Image URL to download (GCS signed URL from backend)
+
+    Returns:
+        Raw image bytes
+
+    Raises:
+        Exception: On download failure (timeout, 404, network error)
+    """
+    req = urllib.request.Request(url, method="GET")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        if resp.getcode() != 200:
+            raise Exception(f"Download failed with status {resp.getcode()}")
+        return resp.read()
+
+
 def get_conversation_path(phone: str) -> Path:
     """Get path to conversation JSON file."""
     normalized = normalize_phone(phone)
@@ -317,6 +341,149 @@ def send_text_message(to_phone: str, text: str, correlation_id: str = None) -> t
     return 0, {"error": {"message": "Max retries exceeded"}}
 
 
+def send_image_with_retry(to_phone: str, image_url: str, caption: str, correlation_id: str = None) -> tuple[int, dict]:
+    """
+    Send image to WhatsApp with retry logic.
+
+    Downloads image from URL, uploads to WhatsApp, and sends with caption.
+    Uses exponential backoff retry (3 attempts: 1s, 2s, 4s delays).
+
+    Args:
+        to_phone: Recipient phone number
+        image_url: GCS signed URL to download image from
+        caption: Image caption (will be truncated to 1024 chars)
+        correlation_id: Request correlation ID for logging
+
+    Returns:
+        Tuple of (status_code, response_dict)
+    """
+    normalized_phone = normalize_phone(to_phone)
+
+    # Exponential backoff: 3 attempts with 1s, 2s, 4s delays
+    for attempt in range(3):
+        temp_file = None
+        try:
+            # Download image
+            eprint(f"[IMAGE] Downloading from {image_url[:50]}...")
+            image_bytes = download_image_from_url(image_url)
+
+            # Check size (WhatsApp 5MB limit)
+            size_mb = len(image_bytes) / (1024 * 1024)
+            if size_mb > 5:
+                eprint(f"[WARNING] Image too large: {size_mb:.2f}MB > 5MB limit")
+                log_event("error", {
+                    "type": "image_too_large",
+                    "to": to_phone,
+                    "image_url": image_url[:100],
+                    "size_mb": size_mb,
+                }, correlation_id)
+                return 0, {"error": {"message": f"Image too large: {size_mb:.2f}MB"}}
+
+            # Detect image format from magic numbers
+            import imghdr
+            image_format = imghdr.what(None, h=image_bytes[:32])
+            suffix = f'.{image_format}' if image_format else '.jpg'  # Default to .jpg if detection fails
+
+            # Save to temp file with correct extension
+            with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as f:
+                f.write(image_bytes)
+                temp_file = f.name
+
+            eprint(f"[IMAGE] Uploading to WhatsApp ({size_mb:.2f}MB)...")
+
+            # Upload to WhatsApp
+            status, upload_response = upload_media(
+                WABA_ACCESS_TOKEN,
+                WABA_PHONE_NUMBER_ID,
+                temp_file
+            )
+
+            if status < 200 or status >= 300 or "id" not in upload_response:
+                eprint(f"[ERROR] Upload failed: status={status}, response={upload_response}")
+                if attempt < 2:
+                    delay = 2 ** attempt
+                    eprint(f"[RETRY] Attempt {attempt + 1} failed, retrying in {delay}s...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    log_event("error", {
+                        "type": "image_upload_failure",
+                        "to": to_phone,
+                        "image_url": image_url[:100],
+                        "status": status,
+                        "response": upload_response,
+                        "attempts": 3,
+                    }, correlation_id)
+                    return status, upload_response
+
+            media_id = upload_response["id"]
+            eprint(f"[IMAGE] Upload successful, media_id={media_id}")
+
+            # Send image message
+            eprint(f"[IMAGE] Sending image with caption...")
+            status, send_response = send_image_message(
+                WABA_ACCESS_TOKEN,
+                WABA_PHONE_NUMBER_ID,
+                normalized_phone,
+                media_id,
+                caption[:1024]  # Truncate to WhatsApp limit
+            )
+
+            if 200 <= status < 300:
+                eprint(f"✓ Image sent successfully")
+                log_event("outgoing_image", {
+                    "to": to_phone,
+                    "image_url": image_url[:100],
+                    "caption": caption[:100],
+                    "size_mb": size_mb,
+                    "media_id": media_id,
+                    "status": status,
+                }, correlation_id)
+                return status, send_response
+            else:
+                eprint(f"[ERROR] Send failed: status={status}, response={send_response}")
+                if attempt < 2:
+                    delay = 2 ** attempt
+                    eprint(f"[RETRY] Attempt {attempt + 1} failed, retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    log_event("error", {
+                        "type": "image_send_failure",
+                        "to": to_phone,
+                        "image_url": image_url[:100],
+                        "status": status,
+                        "response": send_response,
+                        "attempts": 3,
+                    }, correlation_id)
+                    return status, send_response
+
+        except Exception as e:
+            eprint(f"[ERROR] Image send exception: {type(e).__name__}: {e}")
+            if attempt < 2:
+                delay = 2 ** attempt
+                eprint(f"[RETRY] Attempt {attempt + 1} failed, retrying in {delay}s...")
+                time.sleep(delay)
+            else:
+                log_event("error", {
+                    "type": "image_send_exception",
+                    "to": to_phone,
+                    "image_url": image_url[:100],
+                    "error": str(e),
+                    "attempts": 3,
+                }, correlation_id)
+                return 0, {"error": {"message": f"{type(e).__name__}: {e}"}}
+        finally:
+            # Clean up temp file
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                except Exception as e:
+                    eprint(f"[WARNING] Failed to delete temp file {temp_file}: {e}")
+
+    # Should never reach here
+    return 0, {"error": {"message": "Max retries exceeded"}}
+
+
 def call_backend_qa(conversation_id: str, area: str, site: str, query: str, correlation_id: str = None) -> dict:
     """Call backend /qa endpoint with retry logic."""
     url = f"{BACKEND_API_URL}/qa"
@@ -446,13 +613,78 @@ def handle_text_message(phone: str, text: str, correlation_id: str) -> None:
 
     response_text = backend_response.get("response_text", "מצטער, לא הצלחתי להבין את השאלה.")
 
+    # Defensive type validation for response_text (follow pattern from PR #58)
+    if not isinstance(response_text, str):
+        eprint(f"[ERROR] response_text is not a string! Type: {type(response_text)}. Converting to string.")
+        log_event("error", {
+            "type": "invalid_response_text_type",
+            "actual_type": str(type(response_text)),
+            "value": str(response_text)[:200],
+        }, correlation_id)
+        response_text = str(response_text)
+
+    # Check if images should be sent
+    should_include_images = backend_response.get("should_include_images", False)
+    images = backend_response.get("images", [])
+
+    # Defensive validation for images field
+    if not isinstance(images, list):
+        eprint(f"[WARNING] images field is not a list! Type: {type(images)}. Ignoring images.")
+        log_event("error", {
+            "type": "invalid_images_type",
+            "actual_type": str(type(images)),
+        }, correlation_id)
+        images = []
+
+    # Send image if available and should be included
+    if should_include_images and images:
+        # Send only the first image (backend sorted by relevance)
+        first_image = images[0]
+
+        # Defensive validation: ensure first_image is a dictionary
+        if not isinstance(first_image, dict):
+            eprint(f"[WARNING] First image entry is not a dict! Type: {type(first_image)}. Skipping image send.")
+            log_event("error", {
+                "type": "invalid_image_entry_type",
+                "actual_type": str(type(first_image)),
+            }, correlation_id)
+        else:
+            image_url = first_image.get("uri")  # GCS signed URL
+            caption_raw = first_image.get("caption", "")
+
+            # Defensive validation: ensure caption is a string
+            if not isinstance(caption_raw, str):
+                eprint(f"[WARNING] Caption field is not a string! Type: {type(caption_raw)}. Using empty caption.")
+                log_event("error", {
+                    "type": "invalid_caption_type",
+                    "actual_type": str(type(caption_raw)),
+                }, correlation_id)
+                caption = ""
+            else:
+                caption = caption_raw
+
+            if image_url:
+                eprint(f"[IMAGE] Sending image: {caption[:50]}...")
+                image_status, image_response = send_image_with_retry(
+                    phone,
+                    image_url,
+                    caption,
+                    correlation_id
+                )
+
+                if image_status < 200 or image_status >= 300:
+                    eprint(f"[WARNING] Image send failed, continuing with text response")
+                    # Don't block text response if image fails
+            else:
+                eprint(f"[WARNING] Image has no URI, skipping image send")
+
     # Add assistant response to history
     add_interaction(conv, "assistant", response_text)
 
     # Save conversation
     save_conversation(conv)
 
-    # Send response
+    # Send text response
     status, send_response = send_text_message(phone, response_text, correlation_id)
 
     if status < 200 or status >= 300:

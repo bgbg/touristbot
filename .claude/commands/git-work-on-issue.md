@@ -35,7 +35,7 @@ Prepare working on a GitHub issue by creating a properly named branch and annota
 5) Create and switch branch
    - If `--tree`:
      - Create git worktree in `.trees/<issue-number>-<type>-<kebab-description>` and work there.
-     - Copy environment files to the new worktree: `.env`, `.env.local`, `.env.*` (if they exist in the main working directory).
+     - Copy environment files and directories to the new worktree: `.secrets`, `.env`, `.env.local`, `.env.*` (if they exist in the main working directory).
      - Log which files were copied (or note if none exist).
    - Otherwise: `git checkout <base>` then `git pull --ff-only`, then `git checkout -b <derived-branch>`.
 

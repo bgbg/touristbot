@@ -24,6 +24,25 @@ def get_storage_backend() -> StorageBackend:
     # Get GCS credentials JSON if provided
     gcs_credentials_json = os.getenv("GCS_CREDENTIALS_JSON")
 
+    # Alternatively, load from file path if GCS_CREDENTIALS_PATH is set
+    gcs_credentials_path = os.getenv("GCS_CREDENTIALS_PATH")
+    if not gcs_credentials_json and gcs_credentials_path:
+        try:
+            with open(gcs_credentials_path, "r", encoding="utf-8") as f:
+                gcs_credentials_json = f.read()
+        except FileNotFoundError as e:
+            raise RuntimeError(
+                f"GCS credentials file not found at path specified by GCS_CREDENTIALS_PATH: {gcs_credentials_path}"
+            ) from e
+        except PermissionError as e:
+            raise RuntimeError(
+                f"Permission denied when reading GCS credentials file: {gcs_credentials_path}"
+            ) from e
+        except OSError as e:
+            raise RuntimeError(
+                f"Error reading GCS credentials file ({gcs_credentials_path}): {e}"
+            ) from e
+
     return GCSStorage(gcs_bucket, credentials_json=gcs_credentials_json)
 
 
