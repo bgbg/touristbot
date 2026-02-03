@@ -3,11 +3,13 @@ Unit tests for conversation storage.
 """
 
 import json
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from backend.conversation_storage.conversations import (
+    CONVERSATION_TIMEOUT_HOURS,
     Conversation,
     ConversationStore,
     Message,
@@ -243,3 +245,267 @@ class TestConversationStore:
 
         result = store.delete_conversation("test-123")
         assert result is False
+
+    def test_list_conversations(self, store, mock_storage):
+        """Test listing all conversations."""
+        # Mock GCS list_files
+        mock_storage.list_files.return_value = [
+            "test-conversations/conv_1.json",
+            "test-conversations/conv_2.json",
+            "test-conversations/whatsapp_123.json",
+        ]
+
+        conversation_ids = store.list_conversations()
+        assert len(conversation_ids) == 3
+        assert "conv_1" in conversation_ids
+        assert "conv_2" in conversation_ids
+        assert "whatsapp_123" in conversation_ids
+
+    def test_list_conversations_with_prefix(self, store, mock_storage):
+        """Test listing conversations with prefix filter."""
+        # Mock GCS list_files
+        mock_storage.list_files.return_value = [
+            "test-conversations/conv_1.json",
+            "test-conversations/whatsapp_123.json",
+            "test-conversations/whatsapp_456.json",
+        ]
+
+        conversation_ids = store.list_conversations(prefix="whatsapp_")
+        assert len(conversation_ids) == 2
+        assert "whatsapp_123" in conversation_ids
+        assert "whatsapp_456" in conversation_ids
+        assert "conv_1" not in conversation_ids
+
+
+class TestConversationExpiration:
+    """Tests for conversation expiration logic."""
+
+    @pytest.fixture
+    def mock_storage(self):
+        """Create a mock storage backend."""
+        storage = MagicMock()
+        return storage
+
+    @pytest.fixture
+    def store(self, mock_storage):
+        """Create a conversation store with mocked storage."""
+        return ConversationStore(mock_storage, gcs_prefix="test-conversations")
+
+    def test_filter_expired_messages_all_recent(self, store):
+        """Test filtering when all messages are recent."""
+        now = datetime.utcnow()
+        conv = Conversation(
+            conversation_id="test-123",
+            area="area1",
+            site="site1",
+            created_at=now.isoformat() + "Z",
+            updated_at=now.isoformat() + "Z",
+            messages=[
+                Message(role="user", content="Hello", timestamp=now.isoformat() + "Z"),
+                Message(
+                    role="assistant",
+                    content="Hi",
+                    timestamp=(now - timedelta(hours=1)).isoformat() + "Z",
+                ),
+            ],
+        )
+
+        filtered_conv, expired_count = store._filter_expired_messages(conv)
+        assert len(filtered_conv.messages) == 2
+        assert expired_count == 0
+
+    def test_filter_expired_messages_all_expired(self, store):
+        """Test filtering when all messages are expired."""
+        now = datetime.utcnow()
+        old_time = now - timedelta(hours=CONVERSATION_TIMEOUT_HOURS + 1)
+        conv = Conversation(
+            conversation_id="test-123",
+            area="area1",
+            site="site1",
+            created_at=old_time.isoformat() + "Z",
+            updated_at=old_time.isoformat() + "Z",
+            messages=[
+                Message(
+                    role="user",
+                    content="Old message 1",
+                    timestamp=old_time.isoformat() + "Z",
+                ),
+                Message(
+                    role="assistant",
+                    content="Old message 2",
+                    timestamp=(old_time - timedelta(hours=1)).isoformat() + "Z",
+                ),
+            ],
+        )
+
+        filtered_conv, expired_count = store._filter_expired_messages(conv)
+        assert len(filtered_conv.messages) == 0
+        assert expired_count == 2
+
+    def test_filter_expired_messages_mixed(self, store):
+        """Test filtering with mixed old and recent messages."""
+        now = datetime.utcnow()
+        old_time = now - timedelta(hours=CONVERSATION_TIMEOUT_HOURS + 1)
+        conv = Conversation(
+            conversation_id="test-123",
+            area="area1",
+            site="site1",
+            created_at=old_time.isoformat() + "Z",
+            updated_at=now.isoformat() + "Z",
+            messages=[
+                Message(
+                    role="user",
+                    content="Old message",
+                    timestamp=old_time.isoformat() + "Z",
+                ),
+                Message(
+                    role="assistant",
+                    content="Recent message",
+                    timestamp=(now - timedelta(hours=1)).isoformat() + "Z",
+                ),
+                Message(
+                    role="user",
+                    content="Very recent",
+                    timestamp=now.isoformat() + "Z",
+                ),
+            ],
+        )
+
+        filtered_conv, expired_count = store._filter_expired_messages(conv)
+        assert len(filtered_conv.messages) == 2
+        assert expired_count == 1
+        assert filtered_conv.messages[0].content == "Recent message"
+        assert filtered_conv.messages[1].content == "Very recent"
+
+    def test_filter_expired_messages_boundary(self, store):
+        """Test filtering near the 3-hour boundary."""
+        now = datetime.utcnow()
+
+        # Clearly within the window (2.5 hours old - should be kept)
+        within_window = now - timedelta(hours=CONVERSATION_TIMEOUT_HOURS - 0.5)
+        # Clearly past the window (4 hours old - should be filtered)
+        past_window = now - timedelta(hours=CONVERSATION_TIMEOUT_HOURS + 1)
+
+        conv = Conversation(
+            conversation_id="test-123",
+            area="area1",
+            site="site1",
+            created_at=past_window.isoformat() + "Z",
+            updated_at=now.isoformat() + "Z",
+            messages=[
+                Message(
+                    role="user",
+                    content="Clearly expired (4 hours old)",
+                    timestamp=past_window.isoformat() + "Z",
+                ),
+                Message(
+                    role="assistant",
+                    content="Within window (2.5 hours old)",
+                    timestamp=within_window.isoformat() + "Z",
+                ),
+                Message(
+                    role="user",
+                    content="Recent",
+                    timestamp=now.isoformat() + "Z",
+                ),
+            ],
+        )
+
+        filtered_conv, expired_count = store._filter_expired_messages(conv)
+        assert len(filtered_conv.messages) == 2
+        assert expired_count == 1
+        assert filtered_conv.messages[0].content == "Within window (2.5 hours old)"
+        assert filtered_conv.messages[1].content == "Recent"
+
+    def test_filter_expired_messages_missing_timestamp(self, store):
+        """Test backward compatibility with missing timestamps."""
+        now = datetime.utcnow()
+        conv = Conversation(
+            conversation_id="test-123",
+            area="area1",
+            site="site1",
+            created_at=now.isoformat() + "Z",
+            updated_at=now.isoformat() + "Z",
+            messages=[
+                Message(
+                    role="user",
+                    content="Old message without timestamp",
+                    timestamp=None,  # Missing timestamp
+                ),
+                Message(
+                    role="assistant",
+                    content="Recent message",
+                    timestamp=now.isoformat() + "Z",
+                ),
+            ],
+        )
+
+        # Should not raise exception, should keep both messages
+        filtered_conv, expired_count = store._filter_expired_messages(conv)
+        assert len(filtered_conv.messages) == 2
+        assert expired_count == 0
+
+    def test_filter_expired_messages_invalid_timestamp(self, store):
+        """Test backward compatibility with invalid timestamp format."""
+        now = datetime.utcnow()
+        conv = Conversation(
+            conversation_id="test-123",
+            area="area1",
+            site="site1",
+            created_at=now.isoformat() + "Z",
+            updated_at=now.isoformat() + "Z",
+            messages=[
+                Message(
+                    role="user",
+                    content="Invalid timestamp",
+                    timestamp="invalid-date",
+                ),
+                Message(
+                    role="assistant",
+                    content="Recent message",
+                    timestamp=now.isoformat() + "Z",
+                ),
+            ],
+        )
+
+        # Should not raise exception, should keep both messages
+        filtered_conv, expired_count = store._filter_expired_messages(conv)
+        assert len(filtered_conv.messages) == 2
+        assert expired_count == 0
+
+    def test_get_conversation_applies_expiration_filter(self, store, mock_storage):
+        """Test that get_conversation applies expiration filter."""
+        now = datetime.utcnow()
+        old_time = now - timedelta(hours=CONVERSATION_TIMEOUT_HOURS + 1)
+
+        # Mock GCS read with conversation containing both old and recent messages
+        conversation_data = {
+            "conversation_id": "test-123",
+            "area": "area1",
+            "site": "site1",
+            "created_at": old_time.isoformat() + "Z",
+            "updated_at": now.isoformat() + "Z",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Old message",
+                    "timestamp": old_time.isoformat() + "Z",
+                    "citations": None,
+                    "images": None,
+                },
+                {
+                    "role": "assistant",
+                    "content": "Recent message",
+                    "timestamp": now.isoformat() + "Z",
+                    "citations": None,
+                    "images": None,
+                },
+            ],
+        }
+        mock_storage.read_file.return_value = json.dumps(conversation_data)
+
+        # Load conversation (should filter expired messages)
+        conv = store.get_conversation("test-123")
+        assert conv is not None
+        assert len(conv.messages) == 1
+        assert conv.messages[0].content == "Recent message"
