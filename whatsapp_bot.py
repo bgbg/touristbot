@@ -48,7 +48,7 @@ load_dotenv()
 
 # Initialize GCS storage backend for conversation persistence
 # Uses Application Default Credentials (ADC) - no explicit credentials needed
-GCS_BUCKET = os.getenv("GCS_BUCKET", "tarasa_tourist_bot_content")
+GCS_BUCKET = os.getenv("GCS_BUCKET")
 try:
     gcs_storage = GCSStorage(GCS_BUCKET, credentials_json=None)  # None enables ADC
     conversation_store = ConversationStore(gcs_storage)
