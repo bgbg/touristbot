@@ -21,7 +21,7 @@ conv_store = ConversationStore(storage, gcs_prefix="conversations")
 # Filters
 st.markdown("### Filters")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     area_filter = st.text_input("Area", placeholder="All areas", help="Filter by area")
@@ -30,6 +30,13 @@ with col2:
     site_filter = st.text_input("Site", placeholder="All sites", help="Filter by site")
 
 with col3:
+    source_filter = st.selectbox(
+        "Source",
+        options=["All", "WhatsApp", "Web"],
+        help="Filter by conversation source"
+    )
+
+with col4:
     limit = st.number_input(
         "Limit",
         min_value=10,
@@ -46,6 +53,13 @@ try:
         site_filter=site_filter if site_filter else None
     )
 
+    # Apply source filter
+    if source_filter != "All":
+        if source_filter == "WhatsApp":
+            conversations = [c for c in conversations if c["conversation_id"].startswith("whatsapp_")]
+        elif source_filter == "Web":
+            conversations = [c for c in conversations if not c["conversation_id"].startswith("whatsapp_")]
+
     st.markdown(f"### Found {len(conversations)} conversation(s)")
 
     if not conversations:
@@ -57,21 +71,23 @@ try:
         st.session_state.selected_ids = set()
 
     # Display table header
-    header_cols = st.columns([0.5, 2, 2, 1, 1.5, 1])
+    header_cols = st.columns([0.5, 1, 1.5, 1.5, 1, 1.5, 1])
     header_cols[0].markdown("**Select**")
-    header_cols[1].markdown("**Conversation ID**")
-    header_cols[2].markdown("**Location**")
-    header_cols[3].markdown("**Messages**")
-    header_cols[4].markdown("**Updated**")
-    header_cols[5].markdown("**Actions**")
+    header_cols[1].markdown("**Source**")
+    header_cols[2].markdown("**ID / Phone**")
+    header_cols[3].markdown("**Location**")
+    header_cols[4].markdown("**Messages**")
+    header_cols[5].markdown("**Updated**")
+    header_cols[6].markdown("**Actions**")
 
     st.markdown("---")
 
     # Display conversations
     for conv in conversations:
         conv_id = conv["conversation_id"]
+        is_whatsapp = conv_id.startswith("whatsapp_")
 
-        cols = st.columns([0.5, 2, 2, 1, 1.5, 1])
+        cols = st.columns([0.5, 1, 1.5, 1.5, 1, 1.5, 1])
 
         with cols[0]:
             checkbox_key = f"check_{conv_id}"
@@ -87,22 +103,38 @@ try:
                 st.session_state.selected_ids.discard(conv_id)
 
         with cols[1]:
-            st.text(conv_id[:30] + ("..." if len(conv_id) > 30 else ""))
+            if is_whatsapp:
+                st.text("📱 WhatsApp")
+            else:
+                st.text("🌐 Web")
 
         with cols[2]:
-            st.text(f"{conv['area']} / {conv['site']}")
+            if is_whatsapp:
+                # Extract and format phone number
+                phone = conv_id.replace("whatsapp_", "")
+                # Format phone: 972501234567 -> +972-50-123-4567
+                if phone.startswith("972") and len(phone) >= 11:
+                    formatted = f"+{phone[:3]}-{phone[3:5]}-{phone[5:8]}-{phone[8:]}"
+                    st.text(formatted)
+                else:
+                    st.text(f"+{phone}")
+            else:
+                st.text(conv_id[:20] + ("..." if len(conv_id) > 20 else ""))
 
         with cols[3]:
-            st.text(f"{conv['message_count']}")
+            st.text(f"{conv['area']} / {conv['site']}")
 
         with cols[4]:
+            st.text(f"{conv['message_count']}")
+
+        with cols[5]:
             try:
                 updated = datetime.fromisoformat(conv['updated_at'].replace("Z", ""))
                 st.text(updated.strftime("%Y-%m-%d %H:%M"))
             except Exception:
                 st.text(conv['updated_at'][:16])
 
-        with cols[5]:
+        with cols[6]:
             if st.button("View", key=f"view_{conv_id}"):
                 st.session_state.selected_conversation = conv_id
                 st.rerun()
@@ -157,7 +189,18 @@ try:
             col1, col2 = st.columns([3, 1])
 
             with col1:
-                st.markdown(f"**ID:** `{conv_id}`")
+                is_whatsapp = conv_id.startswith("whatsapp_")
+                if is_whatsapp:
+                    phone = conv_id.replace("whatsapp_", "")
+                    if phone.startswith("972") and len(phone) >= 11:
+                        formatted_phone = f"+{phone[:3]}-{phone[3:5]}-{phone[5:8]}-{phone[8:]}"
+                    else:
+                        formatted_phone = f"+{phone}"
+                    st.markdown(f"**Source:** 📱 WhatsApp")
+                    st.markdown(f"**Phone:** {formatted_phone}")
+                else:
+                    st.markdown(f"**Source:** 🌐 Web")
+                    st.markdown(f"**ID:** `{conv_id[:40]}{'...' if len(conv_id) > 40 else ''}`")
                 st.markdown(f"**Location:** {conv.area} / {conv.site}")
                 st.markdown(f"**Created:** {conv.created_at}")
                 st.markdown(f"**Updated:** {conv.updated_at}")
