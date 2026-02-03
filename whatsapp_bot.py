@@ -37,8 +37,8 @@ import subprocess
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 
-# Import WhatsApp utility functions for image sending
-from whatsapp_utils import upload_media, send_image_message
+# Import WhatsApp utility functions for image sending and typing indicator
+from whatsapp_utils import upload_media, send_image_message, send_typing_indicator
 
 # Import GCS storage backend for conversation persistence
 from backend.conversation_storage.conversations import ConversationStore
@@ -617,6 +617,17 @@ def handle_text_message(phone: str, text: str, correlation_id: str) -> None:
         eprint(f"[ERROR] Failed to save user message: {e}")
         send_text_message(phone, "מצטער, אירעה שגיאה בשמירת ההודעה. אנא נסה שוב.", correlation_id)
         return
+
+    # Send typing indicator to show bot is processing (fire-and-forget, non-blocking)
+    try:
+        status, resp = send_typing_indicator(WABA_ACCESS_TOKEN, WABA_PHONE_NUMBER_ID, normalize_phone(phone))
+        if status == 200:
+            eprint("[TYPING] Typing indicator sent")
+        else:
+            eprint(f"[WARNING] Typing indicator returned status {status}: {resp}")
+    except Exception as e:
+        # Never block message processing on typing indicator failure
+        eprint(f"[WARNING] Failed to send typing indicator: {e}")
 
     # Call backend API
     backend_response = call_backend_qa(

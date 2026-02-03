@@ -5,6 +5,7 @@ WhatsApp utility functions for sending messages and media via Meta WhatsApp Clou
 This module provides reusable functions for:
 - Sending text messages
 - Uploading and sending images
+- Sending typing indicators
 - Phone number normalization
 
 Used by both whatsapp_bot.py and send_whatsapp_message.py.
@@ -217,6 +218,66 @@ def send_image_message(
     if caption:
         # Truncate caption to WhatsApp limit (1024 chars)
         payload["image"]["caption"] = caption[:1024]
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url=url,
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            status = resp.getcode()
+            body = resp.read().decode("utf-8", errors="replace")
+            return status, json.loads(body) if body else {}
+    except urllib.error.HTTPError as e:
+        status = e.code
+        body = e.read().decode("utf-8", errors="replace")
+        try:
+            return status, (
+                json.loads(body) if body else {"error": {"message": "Empty error body"}}
+            )
+        except json.JSONDecodeError:
+            return status, {"error": {"message": body}}
+    except Exception as e:
+        return 0, {"error": {"message": f"{type(e).__name__}: {e}"}}
+
+
+def send_typing_indicator(
+    token: str, phone_number_id: str, to_msisdn: str
+) -> tuple[int, dict]:
+    """
+    Send a typing indicator (typing bubble) to show bot is processing.
+
+    The typing indicator lasts approximately 5-10 seconds or until the next message
+    is delivered. This provides visual feedback to users during message processing.
+
+    Args:
+        token: WhatsApp access token
+        phone_number_id: WhatsApp phone number ID
+        to_msisdn: Recipient phone number (digits only, international format)
+
+    Returns:
+        Tuple of (status_code, response_dict)
+
+    Example:
+        >>> status, resp = send_typing_indicator(token, phone_id, "972525974655")
+        >>> if status == 200:
+        ...     print("Typing indicator sent successfully")
+    """
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}/messages"
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_msisdn,
+        "sender_action": "typing_on",
+    }
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
