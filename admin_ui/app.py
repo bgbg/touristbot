@@ -36,7 +36,7 @@ def check_auth():
         # Note: file_exists returns False for non-existent files, doesn't raise
         # Try listing files instead to verify permissions
         try:
-            storage.list_files("", "*", max_results=1)
+            storage.list_files("metadata/", "*.json")
         except Exception as list_error:
             raise Exception(f"GCS permission test failed: {list_error}")
 
