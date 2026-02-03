@@ -7,6 +7,8 @@ from datetime import datetime
 
 from backend.store_registry import StoreRegistry
 from backend.image_registry import ImageRegistry
+from gemini.file_search_store import FileSearchStoreManager
+import google.genai as genai
 
 st.title("📁 View Content")
 
@@ -54,12 +56,13 @@ try:
                 st.markdown(f"### 📌 {site}")
 
                 metadata = entry.get("metadata", {}) if entry else {}
+                file_search_store_name = entry.get("file_search_store_name") if entry else None
 
                 # Metrics row
                 col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
-                    file_count = metadata.get("file_count", "?")
+                    file_count = metadata.get("file_count", 0)
                     st.metric("Files", file_count)
 
                 with col2:
@@ -96,9 +99,59 @@ try:
                         last_updated_formatted = "Unknown"
                     st.metric("Last Updated", last_updated_formatted)
 
+                # Show uploaded documents
+                if file_search_store_name and file_count > 0:
+                    with st.expander(f"📄 View {file_count} document(s)", expanded=False):
+                        try:
+                            # Initialize Gemini client and list documents
+                            client = genai.Client(api_key=config.google_api_key)
+                            file_search_manager = FileSearchStoreManager(client)
+                            documents = file_search_manager.list_documents_in_store(file_search_store_name)
+
+                            # Filter documents for this area/site
+                            site_docs = []
+                            for doc in documents:
+                                doc_area = None
+                                doc_site = None
+                                if hasattr(doc, "custom_metadata") and doc.custom_metadata:
+                                    for meta_item in doc.custom_metadata:
+                                        if hasattr(meta_item, "key") and hasattr(meta_item, "string_value"):
+                                            if meta_item.key == "area":
+                                                doc_area = meta_item.string_value
+                                            elif meta_item.key == "site":
+                                                doc_site = meta_item.string_value
+
+                                if doc_area == area and doc_site == site:
+                                    site_docs.append(doc)
+
+                            if site_docs:
+                                for doc in site_docs:
+                                    doc_display_name = getattr(doc, "display_name", "Unknown")
+                                    doc_name = getattr(doc, "name", "")
+
+                                    st.markdown(f"**{doc_display_name}**")
+                                    st.caption(f"Resource: `{doc_name}`")
+
+                                    # Show document metadata
+                                    if hasattr(doc, "custom_metadata") and doc.custom_metadata:
+                                        metadata_text = []
+                                        for meta_item in doc.custom_metadata:
+                                            if hasattr(meta_item, "key") and hasattr(meta_item, "string_value"):
+                                                if meta_item.key == "doc":
+                                                    metadata_text.append(f"Document ID: {meta_item.string_value}")
+                                        if metadata_text:
+                                            st.text(" | ".join(metadata_text))
+
+                                    st.markdown("---")
+                            else:
+                                st.info("No documents found for this location")
+
+                        except Exception as e:
+                            st.error(f"Error loading documents: {str(e)[:100]}")
+
                 # Show sample images
                 if images:
-                    with st.expander(f"🖼️ View {len(images)} image(s)"):
+                    with st.expander(f"🖼️ View {len(images)} image(s)", expanded=False):
                         # Group images by document
                         images_by_doc = defaultdict(list)
                         for img in images:
@@ -113,7 +166,14 @@ try:
                                 caption_text = f"Image {img.image_index}"
                                 if img.caption:
                                     caption_text += f": {img.caption}"
-                                st.caption(caption_text)
+
+                                # Generate signed URL and display image
+                                try:
+                                    signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=15)
+                                    st.image(signed_url, caption=caption_text, width=400)
+                                except Exception as e:
+                                    st.caption(caption_text)
+                                    st.error(f"Could not load image: {str(e)[:50]}")
 
                                 # Show context if available
                                 if img.context_before or img.context_after:
@@ -123,7 +183,8 @@ try:
                                     context_preview += " [IMAGE] "
                                     if img.context_after:
                                         context_preview += f"{img.context_after[:50]}..."
-                                    st.text(context_preview)
+                                    with st.expander("View context"):
+                                        st.text(context_preview)
 
                             if len(doc_images) > 5:
                                 st.caption(f"... and {len(doc_images) - 5} more image(s)")
