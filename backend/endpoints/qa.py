@@ -164,8 +164,8 @@ def filter_images_by_relevance(
             try:
                 signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=60)
             except Exception as e:
-                logger.warning(f"Failed to generate signed URL for {img.gcs_path}: {e}. Using File API URI instead.")
-                signed_url = img.file_api_uri  # DEBUG: Use File API URI as fallback
+                logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}. Skipping image.")
+                continue  # Skip this image if we can't generate a signed URL
 
             relevant_images.append(
                 ImageMetadata(
@@ -341,10 +341,6 @@ async def chat_query(
                     f"image_relevance count={len(image_relevance_data) if image_relevance_data else 0}"
                 )
 
-                # DEBUG: Force should_include_images to True for testing
-                if should_include_images_flag is not None:
-                    logger.warning(f"DEBUG MODE: Overriding should_include_images from {should_include_images_flag} to True")
-                    should_include_images_flag = True
             else:
                 # Not JSON or doesn't have expected structure, use as-is
                 if parsed is None:
@@ -370,62 +366,10 @@ async def chat_query(
                     relevant_images = filter_images_by_relevance(
                         location_images, image_relevance_data, storage, min_score=60
                     )
-
-                    # DEBUG: If filtering resulted in 0 images, force include first image anyway
-                    if len(relevant_images) == 0 and len(location_images) > 0:
-                        logger.warning(f"DEBUG MODE: All images filtered out (< 60 score), forcing first image anyway")
-                        img = location_images[0]
-                        context = ""
-                        if img.context_before:
-                            context += img.context_before
-                        if img.context_after:
-                            if context:
-                                context += " "
-                            context += img.context_after
-
-                        try:
-                            signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=60)
-                        except Exception as e:
-                            logger.warning(f"Failed to generate signed URL for {img.gcs_path}: {e}. Using File API URI instead.")
-                            signed_url = img.file_api_uri  # DEBUG: Use File API URI as fallback
-
-                        relevant_images.append(
-                            ImageMetadata(
-                                uri=signed_url,
-                                file_api_uri=img.file_api_uri,
-                                caption=img.caption or "",
-                                context=context,
-                                relevance_score=50,  # DEBUG: forced inclusion
-                            )
-                        )
+                    logger.info(f"Filtered to {len(relevant_images)} relevant images (>= 60)")
                 else:
-                    # Fallback: show all images if no relevance data (backward compatibility)
-                    logger.info(f"No relevance data from LLM, showing all {len(location_images)} images (fallback)")
-                    for img in location_images[:5]:  # Limit to 5 images
-                        context = ""
-                        if img.context_before:
-                            context += img.context_before
-                        if img.context_after:
-                            if context:
-                                context += " "
-                            context += img.context_after
-
-                        # Generate signed URL for GCS path
-                        try:
-                            signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=60)
-                        except Exception as e:
-                            logger.warning(f"Failed to generate signed URL for {img.gcs_path}: {e}. Using File API URI instead.")
-                            signed_url = img.file_api_uri  # DEBUG: Use File API URI as fallback
-
-                        relevant_images.append(
-                            ImageMetadata(
-                                uri=signed_url,
-                                file_api_uri=img.file_api_uri,
-                                caption=img.caption or "",
-                                context=context,
-                                relevance_score=100,  # Default score
-                            )
-                        )
+                    # No relevance data from LLM - no images will be shown
+                    logger.info(f"No relevance data from LLM, no images will be shown")
 
             # Decide whether images should be included in the QA response
             should_include_images = (
