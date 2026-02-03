@@ -2,11 +2,18 @@
 Integration tests for QA endpoint with signed URLs
 
 NOTE: These tests require GCS credentials and make real API calls.
-Skip by not setting GCS_CREDENTIALS_JSON environment variable.
+Skip by not setting GOOGLE_API_KEY environment variable.
 """
 
 import os
 import pytest
+
+
+# Skip all integration tests if GOOGLE_API_KEY is not set
+pytestmark = pytest.mark.skipif(
+    "GOOGLE_API_KEY" not in os.environ,
+    reason="GOOGLE_API_KEY not set - skipping integration tests"
+)
 
 
 @pytest.fixture(scope="module")
@@ -16,7 +23,7 @@ def setup_env():
     os.environ["GCS_BUCKET"] = "tarasa_tourist_bot_content"
     os.environ["BACKEND_API_KEYS"] = "test-key-123"
 
-    # GOOGLE_API_KEY should already be set externally
+    # GOOGLE_API_KEY should already be set externally (checked by pytestmark skip)
     assert "GOOGLE_API_KEY" in os.environ, "GOOGLE_API_KEY must be set for tests"
 
     yield

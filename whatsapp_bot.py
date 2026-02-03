@@ -227,7 +227,12 @@ def load_conversation(phone: str):
         # Try to load existing conversation from GCS
         conv = conversation_store.get_conversation(conversation_id)
         if conv:
-            eprint(f"[CONV] Loaded existing conversation: {conversation_id}")
+            # Check if all messages were expired (conversation exists but empty after filtering)
+            if len(conv.messages) == 0:
+                eprint(f"[CONV] Loaded conversation with all messages expired: {conversation_id}")
+                eprint(f"[CONV] Starting fresh conversation after expiration")
+            else:
+                eprint(f"[CONV] Loaded existing conversation: {conversation_id} ({len(conv.messages)} messages)")
             return conv
         else:
             # Create new conversation

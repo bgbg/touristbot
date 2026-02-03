@@ -284,6 +284,17 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 **Uploads** (MVP uses CLI):
 - `POST /upload/{area}/{site}`: Placeholder (returns 501 - use CLI uploader instead)
 
+**Conversations** (Administrative):
+- `DELETE /conversations/{conversation_id}`: Delete specific conversation
+  - Requires API key authentication
+  - Returns: `{status, conversation_id, message}`
+  - Returns 404 if conversation not found
+- `DELETE /conversations?older_than_hours=N&prefix=X`: Bulk delete old conversations
+  - `older_than_hours`: Delete conversations where ALL messages are older than N hours (default: 3)
+  - `prefix`: Optional filter (e.g., `whatsapp_` for WhatsApp conversations only)
+  - Returns: `{status, count, older_than_hours, prefix, message}`
+  - Example: `DELETE /conversations?older_than_hours=24&prefix=whatsapp_`
+
 **Health:**
 - `GET /_internal_probe_3f9a2c1b`: Internal health check for Cloud Run (obscured path for security)
 
@@ -302,9 +313,10 @@ backend/
 │   ├── qa.py                  # Chat endpoint with RAG
 │   ├── topics.py              # Topics retrieval
 │   ├── locations.py           # Location management
-│   └── upload.py              # Upload placeholder
+│   ├── upload.py              # Upload placeholder
+│   └── conversations.py       # Conversation deletion endpoints (administrative)
 ├── conversation_storage/      # GCS conversation management
-│   └── conversations.py       # ConversationStore class
+│   └── conversations.py       # ConversationStore class with expiration logic
 ├── query_logging/             # Query logging (renamed to avoid shadowing Python's logging)
 │   └── query_logger.py        # QueryLogger (JSONL to GCS)
 ├── gcs_storage.py             # GCS storage backend
@@ -319,6 +331,34 @@ backend/
 - `metadata/store_registry.json`: Location → Store name mapping
 - `metadata/image_registry.json`: Image metadata
 - `topics/{area}/{site}/topics.json`: Pre-generated topics
+
+### Conversation Expiration
+
+**Automatic Expiration (3-Hour Timeout):**
+- Messages older than 3 hours are automatically filtered from conversation history
+- Expiration occurs at read-time when `ConversationStore.get_conversation()` is called
+- Conversation files remain in GCS with full history intact (no automatic deletion)
+- Configuration: `CONVERSATION_TIMEOUT_HOURS = 3` in `backend/conversation_storage/conversations.py`
+
+**Behavior:**
+1. When loading conversation, old messages are filtered out transparently
+2. User experiences seamless fresh-start after 3-hour timeout
+3. No user notifications (silent filtering)
+4. Full conversation history preserved in GCS for audit purposes
+5. WhatsApp bot logs when all messages are expired: "Starting fresh conversation after expiration"
+
+**Manual Deletion (Administrative):**
+- API endpoints available for administrative cleanup only
+- `DELETE /conversations/{id}`: Delete specific conversation file
+- `DELETE /conversations?older_than_hours=N`: Bulk delete old conversations
+- Manual deletions permanently remove conversation files from GCS
+- Require API key authentication
+
+**Key Design Principles:**
+- **On-demand filtering**: No background jobs or cron tasks needed
+- **Zero data loss**: Expiration only affects what's returned, not what's stored
+- **Serverless-friendly**: Lazy evaluation minimizes performance impact
+- **Backward compatible**: Gracefully handles messages without timestamps
 
 ### Deployment
 

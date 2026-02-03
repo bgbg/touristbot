@@ -1,10 +1,20 @@
 """
 Integration test for QA endpoint with actual backend API.
+
+NOTE: These tests require BACKEND_API_KEY environment variable to be set.
+They make real HTTP requests to the deployed backend.
 """
 
 import os
 import pytest
 import requests
+
+
+# Skip all tests if BACKEND_API_KEY is not set
+pytestmark = pytest.mark.skipif(
+    "BACKEND_API_KEY" not in os.environ,
+    reason="BACKEND_API_KEY not set - skipping API integration tests"
+)
 
 
 @pytest.fixture

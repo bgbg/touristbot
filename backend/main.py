@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.auth import ApiKeyDep
-from backend.endpoints import locations, qa, topics, upload
+from backend.endpoints import conversations, locations, qa, topics, upload
 
 # Load environment variables from .env file (for local development only)
 # In Cloud Run, environment variables are set by the platform
@@ -137,6 +137,7 @@ app.include_router(qa.router)
 app.include_router(topics.router)
 app.include_router(locations.router)
 app.include_router(upload.router)
+app.include_router(conversations.router)
 
 
 @app.get("/_internal_probe_3f9a2c1b")
@@ -163,6 +164,10 @@ async def root(api_key: ApiKeyDep):
             "topics": "/topics/{area}/{site}",
             "locations": "/locations",
             "upload": "/upload/{area}/{site}",
+            "conversations": {
+                "delete_one": "/conversations/{conversation_id}",
+                "delete_bulk": "/conversations?older_than_hours={hours}&prefix={prefix}",
+            },
         },
         "documentation": "/docs",
     }
