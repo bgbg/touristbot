@@ -128,6 +128,7 @@ try:
                                 for doc in site_docs:
                                     doc_display_name = getattr(doc, "display_name", "Unknown")
                                     doc_name = getattr(doc, "name", "")
+                                    doc_uri = getattr(doc, "uri", None)
 
                                     st.markdown(f"**{doc_display_name}**")
                                     st.caption(f"Resource: `{doc_name}`")
@@ -141,6 +142,35 @@ try:
                                                     metadata_text.append(f"Document ID: {meta_item.string_value}")
                                         if metadata_text:
                                             st.text(" | ".join(metadata_text))
+
+                                    # Try to download and display document content
+                                    if doc_uri:
+                                        with st.expander("View document content"):
+                                            try:
+                                                import requests
+                                                import google.generativeai as genai
+
+                                                # Get file via Gemini Files API
+                                                genai.configure(api_key=config.google_api_key)
+                                                file_obj = genai.get_file(name=doc_name)
+
+                                                # Try to get text content
+                                                if hasattr(file_obj, 'text') and file_obj.text:
+                                                    st.text_area("Content", file_obj.text, height=300)
+                                                elif doc_uri and doc_uri.startswith('http'):
+                                                    # Try downloading via URI
+                                                    response = requests.get(doc_uri, timeout=10)
+                                                    if response.status_code == 200:
+                                                        content = response.text
+                                                        st.text_area("Content", content[:10000], height=300)
+                                                        if len(content) > 10000:
+                                                            st.caption(f"Showing first 10,000 characters of {len(content)}")
+                                                    else:
+                                                        st.warning(f"Could not download file (status {response.status_code})")
+                                                else:
+                                                    st.info("Document content not available for preview")
+                                            except Exception as e:
+                                                st.error(f"Error loading document: {str(e)[:100]}")
 
                                     st.markdown("---")
                             else:
@@ -173,7 +203,10 @@ try:
                                     st.image(signed_url, caption=caption_text, width=400)
                                 except Exception as e:
                                     st.caption(caption_text)
-                                    st.error(f"Could not load image: {str(e)[:50]}")
+                                    st.error(f"Could not load image")
+                                    with st.expander("Error details"):
+                                        st.text(f"GCS Path: {img.gcs_path}")
+                                        st.text(f"Error: {str(e)}")
 
                                 # Show context if available
                                 if img.context_before or img.context_after:
