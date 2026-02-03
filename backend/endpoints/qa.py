@@ -341,10 +341,6 @@ async def chat_query(
                     f"image_relevance count={len(image_relevance_data) if image_relevance_data else 0}"
                 )
 
-                # DEBUG: Force should_include_images to True for testing
-                if should_include_images_flag is not None:
-                    logger.warning(f"DEBUG MODE: Overriding should_include_images from {should_include_images_flag} to True")
-                    should_include_images_flag = True
             else:
                 # Not JSON or doesn't have expected structure, use as-is
                 if parsed is None:
@@ -371,9 +367,9 @@ async def chat_query(
                         location_images, image_relevance_data, storage, min_score=60
                     )
 
-                    # DEBUG: If filtering resulted in 0 images, force include first image anyway
+                    # Fallback: If filtering resulted in 0 images, include first image anyway
                     if len(relevant_images) == 0 and len(location_images) > 0:
-                        logger.warning(f"DEBUG MODE: All images filtered out (< 60 score), forcing first image anyway")
+                        logger.info(f"All images filtered out (< 60 score), including first image as fallback")
                         img = location_images[0]
                         context = ""
                         if img.context_before:
@@ -387,7 +383,7 @@ async def chat_query(
                             signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=60)
                         except Exception as e:
                             logger.warning(f"Failed to generate signed URL for {img.gcs_path}: {e}. Using File API URI instead.")
-                            signed_url = img.file_api_uri  # DEBUG: Use File API URI as fallback
+                            signed_url = img.file_api_uri  # Use File API URI as fallback
 
                         relevant_images.append(
                             ImageMetadata(
@@ -395,7 +391,7 @@ async def chat_query(
                                 file_api_uri=img.file_api_uri,
                                 caption=img.caption or "",
                                 context=context,
-                                relevance_score=50,  # DEBUG: forced inclusion
+                                relevance_score=50,  # Fallback: forced inclusion when all filtered out
                             )
                         )
                 else:

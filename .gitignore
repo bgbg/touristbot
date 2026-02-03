@@ -1,6 +1,7 @@
 # Environment and secrets
 .env
 .streamlit/secrets.toml
+.secrets/
 
 # Query logs and runtime tracking files
 gemini/query_log.jsonl

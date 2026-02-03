@@ -24,6 +24,12 @@ def get_storage_backend() -> StorageBackend:
     # Get GCS credentials JSON if provided
     gcs_credentials_json = os.getenv("GCS_CREDENTIALS_JSON")
 
+    # Alternatively, load from file path if GCS_CREDENTIALS_PATH is set
+    gcs_credentials_path = os.getenv("GCS_CREDENTIALS_PATH")
+    if not gcs_credentials_json and gcs_credentials_path:
+        with open(gcs_credentials_path, "r") as f:
+            gcs_credentials_json = f.read()
+
     return GCSStorage(gcs_bucket, credentials_json=gcs_credentials_json)
 
 
