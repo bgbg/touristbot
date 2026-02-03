@@ -9,12 +9,16 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from backend.gcs_storage import StorageBackend
 
 logger = logging.getLogger(__name__)
+
+# Conversation expiration timeout in hours
+# Messages older than this will be filtered from conversation history
+CONVERSATION_TIMEOUT_HOURS = 3
 
 
 @dataclass
@@ -88,6 +92,52 @@ class ConversationStore:
         """Get GCS path for a conversation."""
         return f"{self.gcs_prefix}/{conversation_id}.json"
 
+    def _filter_expired_messages(
+        self, conversation: Conversation
+    ) -> tuple[Conversation, int]:
+        """
+        Filter out messages older than CONVERSATION_TIMEOUT_HOURS.
+
+        Args:
+            conversation: Conversation to filter
+
+        Returns:
+            Tuple of (filtered_conversation, expired_count)
+            - filtered_conversation: Conversation with only recent messages
+            - expired_count: Number of messages that were filtered out
+        """
+        cutoff_time = datetime.utcnow() - timedelta(hours=CONVERSATION_TIMEOUT_HOURS)
+        original_count = len(conversation.messages)
+
+        # Filter messages, keeping only those newer than cutoff
+        recent_messages = []
+        for msg in conversation.messages:
+            try:
+                # Parse timestamp (format: "2024-01-01T00:00:00Z")
+                msg_time = datetime.fromisoformat(msg.timestamp.rstrip("Z"))
+
+                if msg_time >= cutoff_time:
+                    recent_messages.append(msg)
+            except (ValueError, AttributeError) as e:
+                # Backward compatibility: if timestamp is missing or invalid, keep the message
+                logger.warning(
+                    f"Message has invalid/missing timestamp in {conversation.conversation_id}, "
+                    f"keeping message: {e}"
+                )
+                recent_messages.append(msg)
+
+        # Update conversation with filtered messages
+        conversation.messages = recent_messages
+        expired_count = original_count - len(recent_messages)
+
+        if expired_count > 0:
+            logger.info(
+                f"Filtered {expired_count} expired message(s) from {conversation.conversation_id} "
+                f"(cutoff: {cutoff_time.isoformat()}Z, kept: {len(recent_messages)})"
+            )
+
+        return conversation, expired_count
+
     def create_conversation(
         self, area: str, site: str, conversation_id: Optional[str] = None
     ) -> Conversation:
@@ -120,13 +170,16 @@ class ConversationStore:
 
     def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
         """
-        Load conversation from GCS.
+        Load conversation from GCS and filter expired messages.
+
+        Messages older than CONVERSATION_TIMEOUT_HOURS are automatically filtered out.
+        The conversation file in GCS remains unchanged (read-time filtering only).
 
         Args:
             conversation_id: Conversation ID
 
         Returns:
-            Conversation object if found, None otherwise
+            Conversation object with filtered messages if found, None otherwise
         """
         gcs_path = self._get_gcs_path(conversation_id)
 
@@ -141,9 +194,12 @@ class ConversationStore:
             data = json.loads(content)
             conversation = Conversation.from_dict(data)
 
+            # Apply expiration filter (read-time filtering)
+            conversation, expired_count = self._filter_expired_messages(conversation)
+
             logger.info(
                 f"Loaded conversation: {conversation_id} "
-                f"({len(conversation.messages)} messages)"
+                f"({len(conversation.messages)} messages, {expired_count} expired)"
             )
             return conversation
 
@@ -245,3 +301,119 @@ class ConversationStore:
         except Exception as e:
             logger.error(f"Failed to delete conversation: {conversation_id} - {e}")
             return False
+
+    def list_conversations(self, prefix: str = "") -> List[str]:
+        """
+        List all conversation IDs from GCS.
+
+        Args:
+            prefix: Optional prefix filter for conversation IDs (e.g., "whatsapp_")
+
+        Returns:
+            List of conversation IDs (without .json extension)
+        """
+        try:
+            # List all files in conversations prefix
+            files = self.storage.list_files(self.gcs_prefix)
+
+            # Extract conversation IDs from file paths
+            conversation_ids = []
+            for file_path in files:
+                # Extract filename from path (e.g., "conversations/conv_123.json" -> "conv_123.json")
+                filename = file_path.split("/")[-1]
+
+                # Remove .json extension
+                if filename.endswith(".json"):
+                    conversation_id = filename[:-5]  # Remove ".json"
+
+                    # Apply prefix filter if provided
+                    if not prefix or conversation_id.startswith(prefix):
+                        conversation_ids.append(conversation_id)
+
+            logger.info(
+                f"Listed {len(conversation_ids)} conversation(s) "
+                f"(prefix: '{prefix}' if prefix else 'all')"
+            )
+            return conversation_ids
+
+        except Exception as e:
+            logger.error(f"Failed to list conversations: {e}")
+            return []
+
+    def delete_conversations_older_than(self, hours: int, prefix: str = "") -> int:
+        """
+        Delete conversations where ALL messages are older than specified hours.
+
+        This is an administrative cleanup operation. Conversations are only deleted
+        if every message in the conversation is older than the threshold.
+
+        Args:
+            hours: Age threshold in hours
+            prefix: Optional prefix filter (e.g., "whatsapp_")
+
+        Returns:
+            Number of conversations deleted
+        """
+        cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+        deleted_count = 0
+
+        try:
+            # List all conversations
+            conversation_ids = self.list_conversations(prefix=prefix)
+
+            logger.info(
+                f"Bulk deletion: checking {len(conversation_ids)} conversation(s) "
+                f"for deletion (cutoff: {cutoff_time.isoformat()}Z, prefix: '{prefix}')"
+            )
+
+            # Check each conversation
+            for conversation_id in conversation_ids:
+                try:
+                    # Load conversation (without expiration filtering to check all messages)
+                    gcs_path = self._get_gcs_path(conversation_id)
+                    content = self.storage.read_file(gcs_path)
+                    if not content:
+                        continue
+
+                    data = json.loads(content)
+                    conversation = Conversation.from_dict(data)
+
+                    # Check if ALL messages are older than cutoff
+                    if not conversation.messages:
+                        # Empty conversation - skip (keep it)
+                        continue
+
+                    all_messages_old = True
+                    for msg in conversation.messages:
+                        try:
+                            msg_time = datetime.fromisoformat(msg.timestamp.rstrip("Z"))
+                            if msg_time >= cutoff_time:
+                                # Found a recent message - don't delete
+                                all_messages_old = False
+                                break
+                        except (ValueError, AttributeError):
+                            # Invalid timestamp - keep conversation
+                            all_messages_old = False
+                            break
+
+                    # Delete if all messages are old
+                    if all_messages_old:
+                        if self.delete_conversation(conversation_id):
+                            deleted_count += 1
+                            logger.info(
+                                f"Bulk deletion: deleted {conversation_id} "
+                                f"(all {len(conversation.messages)} messages older than cutoff)"
+                            )
+
+                except Exception as e:
+                    logger.error(f"Error checking conversation {conversation_id}: {e}")
+                    continue
+
+            logger.info(
+                f"Bulk deletion complete: deleted {deleted_count} of {len(conversation_ids)} conversations"
+            )
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Bulk deletion failed: {e}")
+            return deleted_count
