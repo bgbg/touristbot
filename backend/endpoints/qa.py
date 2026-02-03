@@ -277,7 +277,20 @@ async def chat_query(
         )
 
         # Build user message with images
-        user_parts = [{"text": user_prompt}]
+        # Add image URI list to prompt so LLM knows what URIs to return
+        image_uri_list = []
+        if location_images:
+            for img in location_images[:5]:
+                if img.file_api_uri:
+                    image_uri_list.append(img.file_api_uri)
+
+        # Enhance user prompt with image URI information
+        if image_uri_list:
+            user_prompt_with_images = f"{user_prompt}\n\n[Image URIs for reference in image_relevance: {', '.join(image_uri_list)}]"
+        else:
+            user_prompt_with_images = user_prompt
+
+        user_parts = [{"text": user_prompt_with_images}]
 
         # Add image URIs to user message (up to 5 images for context)
         if location_images:

@@ -76,9 +76,12 @@ system_prompt: |
   - Do not give a positive score to an image already shown earlier in the conversation.
 
   image_relevance:
-    - Use only URIs explicitly provided in the user's question.
-    - If no URIs were provided, leave the list empty [].
-    - Never invent, modify, or duplicate URIs.
+    - CRITICAL: You will receive images via file_data with file_uri fields in the multimodal context.
+    - For each image, return an object with TWO fields: {{"image_uri": "the exact file_uri from file_data", "relevance_score": 0-100}}
+    - The image_uri MUST be the complete https://generativelanguage.googleapis.com/... URI from the file_data, copied exactly.
+    - DO NOT use relative paths like "images/0.jpg" - use the full URI from the multimodal context.
+    - DO NOT invent, modify, or duplicate URIs - copy them exactly from file_data.
+    - If no images in multimodal context, leave the list empty [].
 
   Referring to images in the text:
     - The system will show at most one image.
