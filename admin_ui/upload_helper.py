@@ -79,20 +79,26 @@ class UploadManager:
                 "errors": errors,
             }
 
-        # Create temp directory in data/locations structure
-        temp_content_root = tempfile.mkdtemp(prefix="admin_upload_")
-        temp_area_site_path = Path(temp_content_root) / area / site
-        temp_area_site_path.mkdir(parents=True, exist_ok=True)
+        # Copy files directly to data/locations directory
+        # This avoids needing a temp directory since the CLI uploader
+        # reads from config.content_root (data/locations)
+        from pathlib import Path
+        import shutil
 
+        project_root = Path(__file__).parent.parent
+        target_dir = project_root / self.config.content_root / area / site
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        copied_files = []
         try:
-            # Copy files to temp structure
+            # Copy files to target location
             for file_path in valid_files:
                 file_name = os.path.basename(file_path)
-                temp_file_path = temp_area_site_path / file_name
+                target_file = target_dir / file_name
 
                 # Copy file
-                import shutil
-                shutil.copy2(file_path, temp_file_path)
+                shutil.copy2(file_path, target_file)
+                copied_files.append(str(target_file))
 
             if progress_callback:
                 progress_callback(1, 4, f"Files staged: {len(valid_files)} file(s)")
@@ -109,17 +115,14 @@ class UploadManager:
             if force:
                 cmd.append("--force")
 
-            # Set environment to use temp content root
+            # Set environment
             env = os.environ.copy()
-            # Note: The CLI will use the config.yaml content_root, so we need a workaround
-            # For MVP, we'll just run the upload and parse output
 
             if progress_callback:
                 progress_callback(2, 4, f"Uploading to File Search Store...")
 
             # Run upload subprocess
             # Change to project root for proper imports
-            project_root = Path(__file__).parent.parent
             result = subprocess.run(
                 cmd,
                 cwd=str(project_root),
@@ -141,7 +144,13 @@ class UploadManager:
                 image_count = output.count("Uploaded image to GCS")
                 topics_count = 1 if "topics generated" in output.lower() else 0
             else:
-                errors.append(f"Upload failed: {result.stderr}")
+                # Show both stdout and stderr for debugging
+                error_msg = f"Upload subprocess failed (return code {result.returncode})"
+                if result.stderr:
+                    error_msg += f"\nError output: {result.stderr}"
+                if result.stdout:
+                    error_msg += f"\nStandard output: {result.stdout}"
+                errors.append(error_msg)
                 skipped_count = len(valid_files)
 
             if progress_callback:
@@ -157,6 +166,12 @@ class UploadManager:
 
         except subprocess.TimeoutExpired:
             errors.append("Upload timed out after 5 minutes")
+            # Clean up copied files on timeout
+            for file in copied_files:
+                try:
+                    os.remove(file)
+                except Exception:
+                    pass
             return {
                 "uploaded_count": 0,
                 "skipped_count": len(valid_files),
@@ -166,6 +181,12 @@ class UploadManager:
             }
         except Exception as e:
             errors.append(f"Upload error: {str(e)}")
+            # Clean up copied files on error
+            for file in copied_files:
+                try:
+                    os.remove(file)
+                except Exception:
+                    pass
             return {
                 "uploaded_count": 0,
                 "skipped_count": len(valid_files),
@@ -173,13 +194,6 @@ class UploadManager:
                 "topics_count": 0,
                 "errors": errors,
             }
-        finally:
-            # Cleanup temp directory
-            import shutil
-            try:
-                shutil.rmtree(temp_content_root, ignore_errors=True)
-            except Exception as e:
-                errors.append(f"Cleanup warning: {str(e)}")
 
     def validate_files(self, file_paths: List[str]) -> Tuple[List[str], List[str]]:
         """

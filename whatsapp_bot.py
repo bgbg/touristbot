@@ -81,9 +81,9 @@ APP_SECRET = os.getenv("WHATSAPP_APP_SECRET")  # Optional: for signature validat
 # Backend process (will be started if USE_LOCAL_BACKEND=true)
 backend_process = None
 
-# Default location context
-DEFAULT_AREA = "hefer_valley"
-DEFAULT_SITE = "agamon_hefer"
+# Default location context (Hebrew names)
+DEFAULT_AREA = "עמק חפר"
+DEFAULT_SITE = "אגמון חפר"
 
 # Directories
 LOG_DIR = Path("whatsapp_logs")
