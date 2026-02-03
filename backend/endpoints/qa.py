@@ -110,7 +110,7 @@ def query_images_for_location(
 
 
 def filter_images_by_relevance(
-    images: List[dict], image_relevance: List, storage, min_score: int = 60
+    images: List[dict], image_relevance: List, storage, min_score: int = 85
 ) -> List[ImageMetadata]:
     """
     Filter images by relevance scores from LLM.
@@ -119,7 +119,7 @@ def filter_images_by_relevance(
         images: List of image records from registry
         image_relevance: List of dicts with 'image_uri' and 'relevance_score' from LLM JSON
         storage: Storage backend for generating signed URLs
-        min_score: Minimum relevance score (default: 60)
+        min_score: Minimum relevance score (default: 85, strict threshold for high quality)
 
     Returns:
         List of ImageMetadata objects for relevant images
@@ -376,10 +376,22 @@ async def chat_query(
                 # If we have relevance data from LLM, use it to filter images
                 if image_relevance_data and len(image_relevance_data) > 0:
                     logger.info(f"Filtering {len(location_images)} images using LLM relevance scores")
+
+                    # Log detailed image relevance scores for debugging
+                    logger.info("=== Image Relevance Scores ===")
+                    # Build URI to score mapping
+                    uri_to_score = {item.get("image_uri"): item.get("relevance_score", 0)
+                                   for item in image_relevance_data if isinstance(item, dict)}
+                    for img in location_images:
+                        score = uri_to_score.get(img.file_api_uri, 0)
+                        caption_preview = (img.caption[:50] + "...") if img.caption and len(img.caption) > 50 else (img.caption or "no caption")
+                        logger.info(f"  [{score:3d}] {caption_preview}")
+                    logger.info("=============================")
+
                     relevant_images = filter_images_by_relevance(
-                        location_images, image_relevance_data, storage, min_score=60
+                        location_images, image_relevance_data, storage, min_score=85
                     )
-                    logger.info(f"Filtered to {len(relevant_images)} relevant images (>= 60)")
+                    logger.info(f"Filtered to {len(relevant_images)} relevant images (>= 85)")
                 else:
                     # No relevance data from LLM - no images will be shown
                     logger.info(f"No relevance data from LLM, no images will be shown")

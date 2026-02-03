@@ -64,7 +64,7 @@ class ImageAwareResponse(BaseModel):
     )
     image_relevance: List["ImageRelevanceScore"] = Field(
         default_factory=list,
-        description="List of image URIs with relevance scores (0-100). Only images with score >= 60 should be displayed.",
+        description="List of image URIs with relevance scores (0-100). Only images with score >= 85 should be displayed (strict threshold).",
     )
 
     @classmethod

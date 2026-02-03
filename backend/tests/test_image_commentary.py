@@ -59,63 +59,63 @@ def test_no_image_references_when_should_include_images_false():
 
 def test_no_image_references_when_all_scores_below_threshold():
     """
-    Test that response doesn't reference images when all relevance scores < 60.
+    Test that response doesn't reference images when all relevance scores < 85.
 
     This is the core bug fix for issue #44: even if should_include_images=true,
-    if no images score >= 60, the response must not reference images.
+    if no images score >= 85, the response must not reference images.
     """
-    # Simulate LLM response where should_include_images=true but all scores < 60
+    # Simulate LLM response where should_include_images=true but all scores < 85
     mock_response = {
         "response_text": "באגמון חפר יש מגוון רחב של ציפורים נודדות. בעונת ההגירה אפשר לראות אלפי שקנאים, אנפות ועגורים.",
         "should_include_images": True,
         "image_relevance": [
-            {"image_uri": "https://example.com/image1.jpg", "relevance_score": 45},
-            {"image_uri": "https://example.com/image2.jpg", "relevance_score": 30},
-            {"image_uri": "https://example.com/image3.jpg", "relevance_score": 55}
+            {"image_uri": "https://example.com/image1.jpg", "relevance_score": 70},
+            {"image_uri": "https://example.com/image2.jpg", "relevance_score": 65},
+            {"image_uri": "https://example.com/image3.jpg", "relevance_score": 80}
         ]
     }
 
     # Verify no image references in text
     assert not contains_image_references(mock_response["response_text"]), \
-        f"Response should not contain image references when all scores < 60: {mock_response['response_text']}"
+        f"Response should not contain image references when all scores < 85: {mock_response['response_text']}"
 
     # Verify should_include_images is true (LLM detected visual query)
     assert mock_response["should_include_images"] is True
 
     # Verify all scores are below threshold
     max_score = max(item["relevance_score"] for item in mock_response["image_relevance"])
-    assert max_score < 60, f"Max score should be < 60, got {max_score}"
+    assert max_score < 85, f"Max score should be < 85, got {max_score}"
 
 
 def test_image_references_allowed_when_scores_above_threshold():
     """
-    Test that response MAY contain image references when scores >= 60.
+    Test that response MAY contain image references when scores >= 85.
 
     This verifies the positive case: when should_include_images=true AND
-    at least one image has score >= 60, image commentary is permitted.
+    at least one image has score >= 85, image commentary is permitted.
     """
     # Simulate LLM response with high relevance scores
     mock_response_with_commentary = {
         "response_text": "שימו לב כמה יפים השקנאים האלה! הם מגיעים לאגמון בעונת החורף.",
         "should_include_images": True,
         "image_relevance": [
-            {"image_uri": "https://example.com/pelican1.jpg", "relevance_score": 85},
-            {"image_uri": "https://example.com/pelican2.jpg", "relevance_score": 72},
-            {"image_uri": "https://example.com/bird3.jpg", "relevance_score": 45}
+            {"image_uri": "https://example.com/pelican1.jpg", "relevance_score": 90},
+            {"image_uri": "https://example.com/pelican2.jpg", "relevance_score": 88},
+            {"image_uri": "https://example.com/bird3.jpg", "relevance_score": 70}
         ]
     }
 
     # Verify should_include_images is true
     assert mock_response_with_commentary["should_include_images"] is True
 
-    # Verify at least one score is >= 60
+    # Verify at least one score is >= 85
     max_score = max(item["relevance_score"] for item in mock_response_with_commentary["image_relevance"])
-    assert max_score >= 60, f"Max score should be >= 60, got {max_score}"
+    assert max_score >= 85, f"Max score should be >= 85, got {max_score}"
 
     # Image commentary IS allowed in this case
     # (We're just verifying the conditions, not enforcing absence of references)
     assert contains_image_references(mock_response_with_commentary["response_text"]), \
-        "Example response should contain image references when scores >= 60"
+        "Example response should contain image references when scores >= 85"
 
 
 def test_no_image_references_when_should_include_images_false_with_high_scores():
