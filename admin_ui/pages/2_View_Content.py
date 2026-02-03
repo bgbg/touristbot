@@ -101,7 +101,7 @@ try:
 
                 # Show uploaded documents
                 if file_search_store_name and file_count > 0:
-                    with st.expander(f"📄 View {file_count} document(s)", expanded=False):
+                    with st.expander(f"📄 View {file_count} document(s)", expanded=True):
                         try:
                             # Initialize Gemini client and list documents
                             client = genai.Client(api_key=config.google_api_key)
@@ -143,34 +143,40 @@ try:
                                         if metadata_text:
                                             st.text(" | ".join(metadata_text))
 
-                                    # Try to download and display document content
-                                    if doc_uri:
-                                        with st.expander("View document content"):
+                                    # Download and display document content
+                                    try:
+                                        import requests
+                                        import google.generativeai as genai
+
+                                        # Get file via Gemini Files API
+                                        genai.configure(api_key=config.google_api_key)
+                                        file_obj = genai.get_file(name=doc_name)
+
+                                        # Try to get text content
+                                        content = None
+                                        if doc_uri and doc_uri.startswith('http'):
+                                            # Try downloading via URI
                                             try:
-                                                import requests
-                                                import google.generativeai as genai
+                                                response = requests.get(doc_uri, timeout=10)
+                                                if response.status_code == 200:
+                                                    content = response.text
+                                            except:
+                                                pass
 
-                                                # Get file via Gemini Files API
-                                                genai.configure(api_key=config.google_api_key)
-                                                file_obj = genai.get_file(name=doc_name)
+                                        if content:
+                                            # Show preview (first 500 chars)
+                                            preview = content[:500]
+                                            st.text(preview)
+                                            if len(content) > 500:
+                                                st.caption(f"... ({len(content) - 500} more characters)")
 
-                                                # Try to get text content
-                                                if hasattr(file_obj, 'text') and file_obj.text:
-                                                    st.text_area("Content", file_obj.text, height=300)
-                                                elif doc_uri and doc_uri.startswith('http'):
-                                                    # Try downloading via URI
-                                                    response = requests.get(doc_uri, timeout=10)
-                                                    if response.status_code == 200:
-                                                        content = response.text
-                                                        st.text_area("Content", content[:10000], height=300)
-                                                        if len(content) > 10000:
-                                                            st.caption(f"Showing first 10,000 characters of {len(content)}")
-                                                    else:
-                                                        st.warning(f"Could not download file (status {response.status_code})")
-                                                else:
-                                                    st.info("Document content not available for preview")
-                                            except Exception as e:
-                                                st.error(f"Error loading document: {str(e)[:100]}")
+                                            # Full content in expander
+                                            with st.expander("View full content"):
+                                                st.text_area("Full content", content, height=400, label_visibility="collapsed")
+                                        else:
+                                            st.info("📄 Document uploaded (preview not available)")
+                                    except Exception as e:
+                                        st.warning(f"Could not load preview: {str(e)[:50]}")
 
                                     st.markdown("---")
                             else:
