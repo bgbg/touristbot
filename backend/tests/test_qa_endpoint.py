@@ -76,88 +76,235 @@ def test_pydantic_schema_structure():
 # Tests for Issue #43 fix - ensure response_text is always a string
 # ============================================================================
 
+@pytest.fixture
+def test_client_with_mocks():
+    """Create test client with mocked environment and dependencies."""
+    import os
 
-def test_type_validation_logic_with_string():
-    """Test validation logic: response_text is a string (normal case)."""
-    # Simulate the validation logic from qa.py
-    extracted_text = "This is a proper string response"
+    # Set required environment variables
+    os.environ["GCS_BUCKET"] = "test-bucket"
+    os.environ["BACKEND_API_KEYS"] = "test-key"
+    os.environ["GOOGLE_API_KEY"] = "test-google-key"
 
-    # Validation logic: check if string
-    if not isinstance(extracted_text, str):
-        extracted_text = str(extracted_text)
+    from backend.main import app
+    client = TestClient(app)
 
-    # Should remain unchanged
-    assert isinstance(extracted_text, str)
-    assert extracted_text == "This is a proper string response"
+    yield client
+
+    # Cleanup
+    os.environ.pop("GCS_BUCKET", None)
+    os.environ.pop("BACKEND_API_KEYS", None)
+    os.environ.pop("GOOGLE_API_KEY", None)
 
 
-def test_type_validation_logic_with_dict():
-    """Test validation logic: response_text is a dict (bug case) - should convert to string."""
-    # Simulate the validation logic from qa.py
-    extracted_text = {"nested": "value", "key": "data"}
+def create_mock_gemini_response(response_text_value, response_text_type="string"):
+    """
+    Helper to create a mock Gemini API response.
 
-    # Validation logic: check if string, convert if not
-    if not isinstance(extracted_text, str):
-        extracted_text = str(extracted_text)
+    Args:
+        response_text_value: The value to use for response_text
+        response_text_type: "string", "dict", "list", "int" to control the type
+    """
+    mock_response = MagicMock()
+    mock_response.text = ""
+    mock_response.grounding_metadata = None
+
+    # Create structured JSON response based on type
+    if response_text_type == "string":
+        # Normal case: response_text is a string
+        json_response = {
+            "response_text": response_text_value,
+            "should_include_images": True,
+            "image_relevance": []
+        }
+    elif response_text_type == "dict":
+        # Bug case: response_text is a dict instead of string
+        json_response = {
+            "response_text": {"nested": response_text_value},
+            "should_include_images": True,
+            "image_relevance": []
+        }
+    elif response_text_type == "list":
+        # Bug case: response_text is a list
+        json_response = {
+            "response_text": [response_text_value],
+            "should_include_images": True,
+            "image_relevance": []
+        }
+    elif response_text_type == "int":
+        # Bug case: response_text is an integer
+        json_response = {
+            "response_text": 12345,
+            "should_include_images": True,
+            "image_relevance": []
+        }
+
+    mock_response.text = json.dumps(json_response)
+    return mock_response
+
+
+@patch("backend.endpoints.qa.get_image_registry")
+@patch("backend.endpoints.qa.get_conversation_store")
+@patch("backend.endpoints.qa.get_store_registry")
+@patch("backend.endpoints.qa.get_storage_backend")
+@patch("backend.endpoints.qa.genai.GenerativeModel")
+def test_type_validation_with_string_response(
+    mock_model, mock_storage, mock_store_reg, mock_conv_store, mock_img_reg, test_client_with_mocks
+):
+    """Test normal case: response_text is a string (no validation needed)."""
+    # Setup mocks
+    mock_store_reg.return_value.get_store_name.return_value = "test-store"
+    mock_img_reg.return_value.get_images.return_value = []
+    mock_conv_store.return_value.load_conversation.return_value = []
+
+    # Mock Gemini API to return proper string response
+    mock_instance = MagicMock()
+    mock_model.return_value = mock_instance
+    mock_instance.generate_content.return_value = create_mock_gemini_response(
+        "This is a proper string response", response_text_type="string"
+    )
+
+    # Make request
+    response = test_client_with_mocks.post(
+        "/qa",
+        headers={"Authorization": "Bearer test-key"},
+        json={"area": "test_area", "site": "test_site", "query": "test query"}
+    )
+
+    # Should succeed with 200
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data["response_text"], str)
+    assert data["response_text"] == "This is a proper string response"
+
+
+@patch("backend.endpoints.qa.get_image_registry")
+@patch("backend.endpoints.qa.get_conversation_store")
+@patch("backend.endpoints.qa.get_store_registry")
+@patch("backend.endpoints.qa.get_storage_backend")
+@patch("backend.endpoints.qa.genai.GenerativeModel")
+@patch("backend.endpoints.qa.logger")
+def test_type_validation_with_dict_response(
+    mock_logger, mock_model, mock_storage, mock_store_reg, mock_conv_store, mock_img_reg, test_client_with_mocks
+):
+    """Test validation when response_text is a dict - should convert to string and log error."""
+    # Setup mocks
+    mock_store_reg.return_value.get_store_name.return_value = "test-store"
+    mock_img_reg.return_value.get_images.return_value = []
+    mock_conv_store.return_value.load_conversation.return_value = []
+
+    # Mock Gemini API to return dict instead of string
+    mock_instance = MagicMock()
+    mock_model.return_value = mock_instance
+    mock_instance.generate_content.return_value = create_mock_gemini_response(
+        "test response", response_text_type="dict"
+    )
+
+    # Make request
+    response = test_client_with_mocks.post(
+        "/qa",
+        headers={"Authorization": "Bearer test-key"},
+        json={"area": "test_area", "site": "test_site", "query": "test query"}
+    )
+
+    # Should succeed (graceful handling)
+    assert response.status_code == 200
+    data = response.json()
 
     # Should be converted to string
-    assert isinstance(extracted_text, str)
-    assert "nested" in extracted_text
-    assert "value" in extracted_text
+    assert isinstance(data["response_text"], str)
+    assert "nested" in data["response_text"]  # String representation of dict
+
+    # Should have logged an error
+    mock_logger.error.assert_called_once()
+    error_call = mock_logger.error.call_args[0][0]
+    assert "not a string" in error_call
+    assert "dict" in error_call
 
 
-def test_type_validation_logic_with_list():
-    """Test validation logic: response_text is a list (bug case) - should convert to string."""
-    # Simulate the validation logic from qa.py
-    extracted_text = ["item1", "item2", "item3"]
+@patch("backend.endpoints.qa.get_image_registry")
+@patch("backend.endpoints.qa.get_conversation_store")
+@patch("backend.endpoints.qa.get_store_registry")
+@patch("backend.endpoints.qa.get_storage_backend")
+@patch("backend.endpoints.qa.genai.GenerativeModel")
+@patch("backend.endpoints.qa.logger")
+def test_type_validation_with_list_response(
+    mock_logger, mock_model, mock_storage, mock_store_reg, mock_conv_store, mock_img_reg, test_client_with_mocks
+):
+    """Test validation when response_text is a list - should convert to string and log error."""
+    # Setup mocks
+    mock_store_reg.return_value.get_store_name.return_value = "test-store"
+    mock_img_reg.return_value.get_images.return_value = []
+    mock_conv_store.return_value.load_conversation.return_value = []
 
-    # Validation logic: check if string, convert if not
-    if not isinstance(extracted_text, str):
-        extracted_text = str(extracted_text)
+    # Mock Gemini API to return list instead of string
+    mock_instance = MagicMock()
+    mock_model.return_value = mock_instance
+    mock_instance.generate_content.return_value = create_mock_gemini_response(
+        "test response", response_text_type="list"
+    )
 
-    # Should be converted to string
-    assert isinstance(extracted_text, str)
-    assert "item1" in extracted_text
-    assert "item2" in extracted_text
+    # Make request
+    response = test_client_with_mocks.post(
+        "/qa",
+        headers={"Authorization": "Bearer test-key"},
+        json={"area": "test_area", "site": "test_site", "query": "test query"}
+    )
 
-
-def test_type_validation_logic_with_int():
-    """Test validation logic: response_text is an integer (bug case) - should convert to string."""
-    # Simulate the validation logic from qa.py
-    extracted_text = 12345
-
-    # Validation logic: check if string, convert if not
-    if not isinstance(extracted_text, str):
-        extracted_text = str(extracted_text)
-
-    # Should be converted to string
-    assert isinstance(extracted_text, str)
-    assert extracted_text == "12345"
-
-
-def test_type_validation_logic_with_none():
-    """Test validation logic: response_text is None (edge case) - should convert to string."""
-    # Simulate the validation logic from qa.py
-    extracted_text = None
-
-    # Validation logic: check if string, convert if not
-    if not isinstance(extracted_text, str):
-        extracted_text = str(extracted_text)
-
-    # Should be converted to string
-    assert isinstance(extracted_text, str)
-    assert extracted_text == "None"
-
-
-def test_type_validation_logic_with_bool():
-    """Test validation logic: response_text is a boolean (edge case) - should convert to string."""
-    # Simulate the validation logic from qa.py
-    extracted_text = True
-
-    # Validation logic: check if string, convert if not
-    if not isinstance(extracted_text, str):
-        extracted_text = str(extracted_text)
+    # Should succeed (graceful handling)
+    assert response.status_code == 200
+    data = response.json()
 
     # Should be converted to string
-    assert isinstance(extracted_text, str)
-    assert extracted_text == "True"
+    assert isinstance(data["response_text"], str)
+    assert "test response" in data["response_text"]  # String representation of list
+
+    # Should have logged an error
+    mock_logger.error.assert_called_once()
+    error_call = mock_logger.error.call_args[0][0]
+    assert "not a string" in error_call
+    assert "list" in error_call
+
+
+@patch("backend.endpoints.qa.get_image_registry")
+@patch("backend.endpoints.qa.get_conversation_store")
+@patch("backend.endpoints.qa.get_store_registry")
+@patch("backend.endpoints.qa.get_storage_backend")
+@patch("backend.endpoints.qa.genai.GenerativeModel")
+@patch("backend.endpoints.qa.logger")
+def test_type_validation_with_int_response(
+    mock_logger, mock_model, mock_storage, mock_store_reg, mock_conv_store, mock_img_reg, test_client_with_mocks
+):
+    """Test validation when response_text is an integer - should convert to string and log error."""
+    # Setup mocks
+    mock_store_reg.return_value.get_store_name.return_value = "test-store"
+    mock_img_reg.return_value.get_images.return_value = []
+    mock_conv_store.return_value.load_conversation.return_value = []
+
+    # Mock Gemini API to return int instead of string
+    mock_instance = MagicMock()
+    mock_model.return_value = mock_instance
+    mock_instance.generate_content.return_value = create_mock_gemini_response(
+        None, response_text_type="int"
+    )
+
+    # Make request
+    response = test_client_with_mocks.post(
+        "/qa",
+        headers={"Authorization": "Bearer test-key"},
+        json={"area": "test_area", "site": "test_site", "query": "test query"}
+    )
+
+    # Should succeed (graceful handling)
+    assert response.status_code == 200
+    data = response.json()
+
+    # Should be converted to string
+    assert isinstance(data["response_text"], str)
+    assert data["response_text"] == "12345"  # Integer converted to string
+
+    # Should have logged an error
+    mock_logger.error.assert_called_once()
+    error_call = mock_logger.error.call_args[0][0]
+    assert "not a string" in error_call
+    assert "int" in error_call
