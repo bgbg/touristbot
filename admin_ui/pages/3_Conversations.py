@@ -231,14 +231,34 @@ try:
 
                     # Images
                     if msg.images:
-                        with st.expander(f"🖼️ Images ({len(msg.images)})"):
-                            for img in msg.images:
+                        with st.expander(f"🖼️ Images ({len(msg.images)})", expanded=True):
+                            for idx, img in enumerate(msg.images, 1):
+                                st.markdown(f"**Image {idx}**")
+
+                                # Caption
                                 caption = img.get('caption', '')
                                 if caption:
-                                    st.caption(caption)
-                                uri = img.get('uri', '')
-                                if uri:
-                                    st.text(f"URI: {uri[:60]}...")
+                                    st.markdown(f"**Caption:** {caption}")
+
+                                # Context (surrounding text from document)
+                                context = img.get('context', '')
+                                if context:
+                                    st.markdown(f"**Context:** {context[:200]}{'...' if len(context) > 200 else ''}")
+
+                                # Relevance score (if available)
+                                relevance = img.get('relevance_score')
+                                if relevance is not None:
+                                    st.markdown(f"**Relevance Score:** {relevance}/100")
+
+                                # File identifiers (for debugging)
+                                file_api_uri = img.get('file_api_uri', '')
+                                if file_api_uri:
+                                    # Show last part of URI for identification
+                                    uri_id = file_api_uri.split('/')[-1][:20]
+                                    st.caption(f"File ID: {uri_id}...")
+
+                                if idx < len(msg.images):
+                                    st.markdown("---")
 
             # Delete conversation button
             st.markdown("---")
