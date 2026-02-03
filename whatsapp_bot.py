@@ -40,7 +40,23 @@ from flask import Flask, request, jsonify
 # Import WhatsApp utility functions for image sending
 from whatsapp_utils import upload_media, send_image_message
 
+# Import GCS storage backend for conversation persistence
+from backend.conversation_storage.conversations import ConversationStore
+from backend.gcs_storage import GCSStorage
+
 load_dotenv()
+
+# Initialize GCS storage backend for conversation persistence
+# Uses Application Default Credentials (ADC) - no explicit credentials needed
+GCS_BUCKET = os.getenv("GCS_BUCKET", "tarasa_tourist_bot_content")
+try:
+    gcs_storage = GCSStorage(GCS_BUCKET, credentials_json=None)  # None enables ADC
+    conversation_store = ConversationStore(gcs_storage)
+except Exception as e:
+    # Fail-fast if GCS initialization fails
+    print(f"[ERROR] Failed to initialize GCS storage: {e}", file=sys.stderr)
+    print("[ERROR] Ensure GCS_BUCKET is set and ADC is configured", file=sys.stderr)
+    raise
 
 app = Flask(__name__)
 
@@ -71,9 +87,7 @@ DEFAULT_SITE = "agamon_hefer"
 
 # Directories
 LOG_DIR = Path("whatsapp_logs")
-CONV_DIR = Path("conversations")
 LOG_DIR.mkdir(exist_ok=True)
-CONV_DIR.mkdir(exist_ok=True)
 
 # Environment validation (runs at module import, before gunicorn starts serving)
 def _validate_required_env_vars() -> None:
@@ -83,6 +97,7 @@ def _validate_required_env_vars() -> None:
         "WHATSAPP_ACCESS_TOKEN": "WhatsApp Business API access token",
         "WHATSAPP_PHONE_NUMBER_ID": "WhatsApp phone number ID",
         "BACKEND_API_KEY": "Backend API authentication key",
+        "GCS_BUCKET": "Google Cloud Storage bucket for conversation persistence (use Application Default Credentials for auth)",
     }
 
     # In production, WHATSAPP_APP_SECRET is also required for webhook signature validation
@@ -203,63 +218,35 @@ def download_image_from_url(url: str) -> bytes:
         return resp.read()
 
 
-def get_conversation_path(phone: str) -> Path:
-    """Get path to conversation JSON file."""
+def load_conversation(phone: str):
+    """Load conversation from GCS or create new one."""
     normalized = normalize_phone(phone)
-    return CONV_DIR / f"whatsapp_{normalized}.json"
+    conversation_id = f"whatsapp_{normalized}"
 
-
-def load_conversation(phone: str) -> dict:
-    """Load conversation from local JSON file."""
-    conv_path = get_conversation_path(phone)
-    if conv_path.exists():
-        try:
-            with open(conv_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            eprint(f"[WARNING] Failed to load conversation for {phone}: {e}")
-            return create_new_conversation(phone)
-    else:
-        return create_new_conversation(phone)
-
-
-def create_new_conversation(phone: str) -> dict:
-    """Create new conversation structure."""
-    normalized = normalize_phone(phone)
-    return {
-        "conversation_id": f"whatsapp_{normalized}",
-        "phone": normalized,  # Store normalized phone for consistency
-        "area": DEFAULT_AREA,
-        "site": DEFAULT_SITE,
-        "history": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-def save_conversation(conv: dict) -> None:
-    """Save conversation to local JSON file.
-
-    Note: Local storage is for Phase 1 development/debugging only.
-    Backend maintains authoritative conversation state in GCS.
-    Local and backend histories may diverge on errors - this is acceptable for Phase 1.
-    """
-    conv["updated_at"] = datetime.now(timezone.utc).isoformat()
-    conv_path = get_conversation_path(conv["phone"])
     try:
-        with open(conv_path, "w", encoding="utf-8") as f:
-            json.dump(conv, f, ensure_ascii=False, indent=2)
+        # Try to load existing conversation from GCS
+        conv = conversation_store.get_conversation(conversation_id)
+        if conv:
+            eprint(f"[CONV] Loaded existing conversation: {conversation_id}")
+            return conv
+        else:
+            # Create new conversation
+            eprint(f"[CONV] Creating new conversation: {conversation_id}")
+            conv = conversation_store.create_conversation(
+                area=DEFAULT_AREA,
+                site=DEFAULT_SITE,
+                conversation_id=conversation_id
+            )
+            # Save immediately to GCS
+            conversation_store.save_conversation(conv)
+            return conv
     except Exception as e:
-        eprint(f"[ERROR] Failed to save conversation: {e}")
+        eprint(f"[ERROR] Failed to load/create conversation: {e}")
+        # Fail-fast: re-raise exception to trigger error response
+        raise
 
 
-def add_interaction(conv: dict, role: str, content: str) -> None:
-    """Add interaction to conversation history."""
-    conv["history"].append({
-        "role": role,
-        "content": content,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+# Removed: add_interaction() - replaced by ConversationStore.add_message()
 
 
 def send_text_message(to_phone: str, text: str, correlation_id: str = None) -> tuple[int, dict]:
@@ -585,28 +572,52 @@ def handle_text_message(phone: str, text: str, correlation_id: str) -> None:
     eprint(f"\n📱 Processing message from {phone}: {text[:50]}...")
 
     # Load conversation
-    conv = load_conversation(phone)
+    try:
+        conv = load_conversation(phone)
+    except Exception as e:
+        eprint(f"[ERROR] Failed to load conversation: {e}")
+        send_text_message(phone, "מצטער, אירעה שגיאה בטעינת השיחה. אנא נסה שוב מאוחר יותר.", correlation_id)
+        return
 
     # Check for special commands
     if text.lower() in ("reset", "התחל מחדש"):
-        conv["history"] = []
-        save_conversation(conv)
-        send_text_message(phone, "השיחה אופסה. אפשר להתחיל מחדש!", correlation_id)
-        eprint("✓ Conversation reset")
-        return
+        # Clear conversation history by recreating conversation
+        normalized = normalize_phone(phone)
+        conversation_id = f"whatsapp_{normalized}"
+        try:
+            # Delete old conversation and create new one
+            conversation_store.delete_conversation(conversation_id)
+            conv = conversation_store.create_conversation(
+                area=DEFAULT_AREA,
+                site=DEFAULT_SITE,
+                conversation_id=conversation_id
+            )
+            conversation_store.save_conversation(conv)
+            send_text_message(phone, "השיחה אופסה. אפשר להתחיל מחדש!", correlation_id)
+            eprint("✓ Conversation reset")
+            return
+        except Exception as e:
+            eprint(f"[ERROR] Failed to reset conversation: {e}")
+            send_text_message(phone, "מצטער, לא הצלחתי לאפס את השיחה. אנא נסה שוב.", correlation_id)
+            return
 
     # TODO: Handle location switch command (future)
     # if text.lower().startswith("switch to") or text.startswith("עבור ל"):
     #     ...
 
-    # Add user message to history
-    add_interaction(conv, "user", text)
+    # Add user message to history (automatically saves to GCS)
+    try:
+        conversation_store.add_message(conv, "user", text)
+    except Exception as e:
+        eprint(f"[ERROR] Failed to save user message: {e}")
+        send_text_message(phone, "מצטער, אירעה שגיאה בשמירת ההודעה. אנא נסה שוב.", correlation_id)
+        return
 
     # Call backend API
     backend_response = call_backend_qa(
-        conversation_id=conv["conversation_id"],
-        area=conv["area"],
-        site=conv["site"],
+        conversation_id=conv.conversation_id,
+        area=conv.area,
+        site=conv.site,
         query=text,
         correlation_id=correlation_id
     )
@@ -678,11 +689,12 @@ def handle_text_message(phone: str, text: str, correlation_id: str) -> None:
             else:
                 eprint(f"[WARNING] Image has no URI, skipping image send")
 
-    # Add assistant response to history
-    add_interaction(conv, "assistant", response_text)
-
-    # Save conversation
-    save_conversation(conv)
+    # Add assistant response to history (automatically saves to GCS)
+    try:
+        conversation_store.add_message(conv, "assistant", response_text)
+    except Exception as e:
+        eprint(f"[ERROR] Failed to save assistant message: {e}")
+        # Continue anyway - send response to user even if save fails
 
     # Send text response
     status, send_response = send_text_message(phone, response_text, correlation_id)
@@ -828,7 +840,7 @@ if __name__ == "__main__":
     eprint(f"Verify Token: {VERIFY_TOKEN}")
     eprint(f"Backend API: {BACKEND_API_URL}")
     eprint(f"Log Directory: {LOG_DIR.absolute()}")
-    eprint(f"Conversations Directory: {CONV_DIR.absolute()}")
+    eprint(f"GCS Bucket: {GCS_BUCKET} (using ADC for authentication)")
     eprint(f"Default Location: {DEFAULT_AREA}/{DEFAULT_SITE}")
     eprint("=" * 60)
 
