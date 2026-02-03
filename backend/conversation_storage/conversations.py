@@ -245,3 +245,174 @@ class ConversationStore:
         except Exception as e:
             logger.error(f"Failed to delete conversation: {conversation_id} - {e}")
             return False
+
+    def list_all_conversations(
+        self,
+        limit: Optional[int] = None,
+        area_filter: Optional[str] = None,
+        site_filter: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> List[dict]:
+        """
+        List all conversations with metadata (without loading full message history).
+
+        Args:
+            limit: Maximum number of conversations to return
+            area_filter: Filter by area
+            site_filter: Filter by site
+            start_date: Filter by created_at >= start_date (ISO format)
+            end_date: Filter by created_at <= end_date (ISO format)
+
+        Returns:
+            List of dicts with conversation_id, area, site, created_at, updated_at,
+            message_count, last_query (first 100 chars of last user message)
+        """
+        try:
+            # List all conversation files
+            files = self.storage.list_files(self.gcs_prefix, "*.json")
+            logger.info(f"Found {len(files)} conversation files")
+
+            conversations = []
+
+            for file_path in files:
+                try:
+                    # Read conversation metadata
+                    content = self.storage.read_file(file_path)
+                    data = json.loads(content)
+
+                    # Apply filters
+                    if area_filter and data.get("area") != area_filter:
+                        continue
+                    if site_filter and data.get("site") != site_filter:
+                        continue
+
+                    # Date filters
+                    if start_date:
+                        created_at = data.get("created_at", "")
+                        if created_at < start_date:
+                            continue
+                    if end_date:
+                        created_at = data.get("created_at", "")
+                        if created_at > end_date:
+                            continue
+
+                    # Extract metadata
+                    messages = data.get("messages", [])
+                    message_count = len(messages)
+
+                    # Get last user message preview
+                    last_query = ""
+                    for msg in reversed(messages):
+                        if msg.get("role") == "user":
+                            last_query = msg.get("content", "")[:100]
+                            break
+
+                    conversations.append({
+                        "conversation_id": data.get("conversation_id", ""),
+                        "area": data.get("area", ""),
+                        "site": data.get("site", ""),
+                        "created_at": data.get("created_at", ""),
+                        "updated_at": data.get("updated_at", ""),
+                        "message_count": message_count,
+                        "last_query": last_query,
+                    })
+
+                except Exception as e:
+                    logger.warning(f"Error processing conversation file {file_path}: {e}")
+                    continue
+
+            # Sort by updated_at DESC
+            conversations.sort(key=lambda x: x["updated_at"], reverse=True)
+
+            # Apply limit
+            if limit and limit > 0:
+                conversations = conversations[:limit]
+
+            logger.info(f"Returning {len(conversations)} conversations after filtering")
+            return conversations
+
+        except Exception as e:
+            logger.error(f"Error listing conversations: {e}")
+            return []
+
+    def delete_conversations_bulk(self, conversation_ids: List[str]) -> dict:
+        """
+        Delete multiple conversations.
+
+        Args:
+            conversation_ids: List of conversation IDs to delete
+
+        Returns:
+            Dict with success_count, failed_count, failed_ids
+        """
+        success_count = 0
+        failed_count = 0
+        failed_ids = []
+
+        for conversation_id in conversation_ids:
+            if self.delete_conversation(conversation_id):
+                success_count += 1
+            else:
+                failed_count += 1
+                failed_ids.append(conversation_id)
+
+        logger.info(
+            f"Bulk delete completed: {success_count} succeeded, {failed_count} failed"
+        )
+
+        return {
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "failed_ids": failed_ids,
+        }
+
+    def get_conversations_stats(self) -> dict:
+        """
+        Get aggregate statistics about conversations.
+
+        Returns:
+            Dict with total_conversations, by_area, by_site, date_range
+        """
+        try:
+            conversations = self.list_all_conversations()
+
+            if not conversations:
+                return {
+                    "total_conversations": 0,
+                    "by_area": {},
+                    "by_site": {},
+                    "date_range": {"earliest": None, "latest": None},
+                }
+
+            # Aggregate by area and site
+            by_area = {}
+            by_site = {}
+
+            for conv in conversations:
+                area = conv["area"]
+                site = conv["site"]
+
+                by_area[area] = by_area.get(area, 0) + 1
+                by_site[f"{area}/{site}"] = by_site.get(f"{area}/{site}", 0) + 1
+
+            # Find date range
+            dates = [conv["created_at"] for conv in conversations if conv["created_at"]]
+            earliest = min(dates) if dates else None
+            latest = max(dates) if dates else None
+
+            return {
+                "total_conversations": len(conversations),
+                "by_area": by_area,
+                "by_site": by_site,
+                "date_range": {"earliest": earliest, "latest": latest},
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting conversation stats: {e}")
+            return {
+                "total_conversations": 0,
+                "by_area": {},
+                "by_site": {},
+                "date_range": {"earliest": None, "latest": None},
+            }
