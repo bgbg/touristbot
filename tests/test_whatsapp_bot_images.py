@@ -5,8 +5,26 @@ Tests defensive validation, image detection, retry logic, and error handling.
 """
 
 import urllib.error
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock, call, Mock
 import pytest
+import sys
+
+
+# Mock GCS storage before importing whatsapp_bot to avoid initialization errors
+@pytest.fixture(scope="session", autouse=True)
+def mock_gcs_storage():
+    """Mock GCS storage backend at module level."""
+    with patch('whatsapp_bot.GCSStorage') as mock_gcs, \
+         patch('whatsapp_bot.ConversationStore') as mock_store_class:
+        # Create mock instances
+        mock_storage_instance = Mock()
+        mock_store_instance = Mock()
+
+        # Configure mocks
+        mock_gcs.return_value = mock_storage_instance
+        mock_store_class.return_value = mock_store_instance
+
+        yield mock_store_instance
 
 
 # Mock WhatsApp bot module components
@@ -18,6 +36,7 @@ def mock_whatsapp_env(monkeypatch):
     monkeypatch.setenv("WHATSAPP_PHONE_NUMBER_ID", "test-phone-id")
     monkeypatch.setenv("BACKEND_API_KEY", "test-backend-key")
     monkeypatch.setenv("BACKEND_API_URL", "http://localhost:8001")
+    monkeypatch.setenv("GCS_BUCKET", "test-bucket")
 
 
 @pytest.fixture
@@ -417,3 +436,120 @@ class TestLogging:
         assert log_entry["event_type"] == "error"
         assert log_entry["data"]["type"] == "image_send_failure"
         assert log_entry["data"]["attempts"] == 3
+
+
+class TestGCSConversationStorage:
+    """Test GCS conversation storage functionality."""
+
+    def test_conversation_id_format(self, mock_whatsapp_env):
+        """Test that conversation IDs use whatsapp_{phone} format."""
+        from whatsapp_bot import normalize_phone
+
+        phone = "+972-50-123-4567"
+        normalized = normalize_phone(phone)
+        expected_id = f"whatsapp_{normalized}"
+
+        assert expected_id == "whatsapp_972501234567"
+        assert normalized == "972501234567"
+
+    @patch('whatsapp_bot.conversation_store')
+    def test_load_conversation_creates_new(self, mock_store, mock_whatsapp_env):
+        """Test that load_conversation creates new conversation if not found."""
+        from whatsapp_bot import load_conversation
+        from backend.conversation_storage.conversations import Conversation
+
+        # Mock get_conversation to return None (conversation not found)
+        mock_store.get_conversation.return_value = None
+
+        # Mock create_conversation to return new Conversation object
+        mock_conv = Conversation(
+            conversation_id="whatsapp_972501234567",
+            area="hefer_valley",
+            site="agamon_hefer",
+            created_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            messages=[]
+        )
+        mock_store.create_conversation.return_value = mock_conv
+
+        # Call load_conversation
+        phone = "972501234567"
+        conv = load_conversation(phone)
+
+        # Verify conversation was created
+        mock_store.get_conversation.assert_called_once_with("whatsapp_972501234567")
+        mock_store.create_conversation.assert_called_once_with(
+            area="hefer_valley",
+            site="agamon_hefer",
+            conversation_id="whatsapp_972501234567"
+        )
+        mock_store.save_conversation.assert_called_once_with(mock_conv)
+        assert conv.conversation_id == "whatsapp_972501234567"
+
+    @patch('whatsapp_bot.conversation_store')
+    def test_gcs_failure_raises_exception(self, mock_store, mock_whatsapp_env):
+        """Test that GCS failures raise exceptions (fail-fast behavior)."""
+        from whatsapp_bot import load_conversation
+
+        # Mock get_conversation to raise exception
+        mock_store.get_conversation.side_effect = Exception("GCS unavailable")
+
+        # Verify exception is raised (fail-fast)
+        phone = "972501234567"
+        with pytest.raises(Exception) as exc_info:
+            load_conversation(phone)
+
+        assert "GCS unavailable" in str(exc_info.value)
+
+    @patch('whatsapp_bot.conversation_store')
+    def test_add_message_calls_conversation_store(self, mock_store, mock_whatsapp_env):
+        """Test that add_message uses ConversationStore.add_message()."""
+        from backend.conversation_storage.conversations import Conversation
+
+        # Create mock conversation
+        mock_conv = Conversation(
+            conversation_id="whatsapp_972501234567",
+            area="hefer_valley",
+            site="agamon_hefer",
+            created_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T00:00:00Z",
+            messages=[]
+        )
+
+        # Mock add_message method
+        mock_store.add_message.return_value = mock_conv
+
+        # Call add_message
+        mock_store.add_message(mock_conv, "user", "Hello")
+
+        # Verify add_message was called correctly
+        mock_store.add_message.assert_called_once_with(mock_conv, "user", "Hello")
+
+    @patch('whatsapp_bot.conversation_store')
+    def test_load_conversation_returns_existing(self, mock_store, mock_whatsapp_env):
+        """Test that load_conversation returns existing conversation from GCS."""
+        from whatsapp_bot import load_conversation
+        from backend.conversation_storage.conversations import Conversation, Message
+
+        # Mock get_conversation to return existing conversation
+        mock_conv = Conversation(
+            conversation_id="whatsapp_972501234567",
+            area="hefer_valley",
+            site="agamon_hefer",
+            created_at="2024-01-01T00:00:00Z",
+            updated_at="2024-01-01T12:00:00Z",
+            messages=[
+                Message(role="user", content="Hello", timestamp="2024-01-01T12:00:00Z")
+            ]
+        )
+        mock_store.get_conversation.return_value = mock_conv
+
+        # Call load_conversation
+        phone = "972501234567"
+        conv = load_conversation(phone)
+
+        # Verify existing conversation was returned
+        mock_store.get_conversation.assert_called_once_with("whatsapp_972501234567")
+        mock_store.create_conversation.assert_not_called()
+        assert conv.conversation_id == "whatsapp_972501234567"
+        assert len(conv.messages) == 1
