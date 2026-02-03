@@ -76,15 +76,20 @@ def test_pydantic_schema_structure():
 # Tests for Issue #43 fix - ensure response_text is always a string
 # ============================================================================
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def test_client_with_mocks():
     """Create test client with mocked environment and dependencies."""
     import os
 
-    # Set required environment variables
+    # Set required environment variables BEFORE importing app
     os.environ["GCS_BUCKET"] = "test-bucket"
     os.environ["BACKEND_API_KEYS"] = "test-key"
     os.environ["GOOGLE_API_KEY"] = "test-google-key"
+
+    # Reload auth module to pick up new environment variables
+    import backend.auth
+    import importlib
+    importlib.reload(backend.auth)
 
     from backend.main import app
     client = TestClient(app)
@@ -95,6 +100,9 @@ def test_client_with_mocks():
     os.environ.pop("GCS_BUCKET", None)
     os.environ.pop("BACKEND_API_KEYS", None)
     os.environ.pop("GOOGLE_API_KEY", None)
+
+    # Reload auth again to restore original state
+    importlib.reload(backend.auth)
 
 
 def create_mock_gemini_response(response_text_value, response_text_type="string"):
@@ -143,168 +151,276 @@ def create_mock_gemini_response(response_text_value, response_text_type="string"
     return mock_response
 
 
-@patch("backend.endpoints.qa.get_image_registry")
-@patch("backend.endpoints.qa.get_conversation_store")
-@patch("backend.endpoints.qa.get_store_registry")
-@patch("backend.endpoints.qa.get_storage_backend")
-@patch("backend.endpoints.qa.genai.GenerativeModel")
+@patch("backend.endpoints.qa.genai.Client")
 def test_type_validation_with_string_response(
-    mock_model, mock_storage, mock_store_reg, mock_conv_store, mock_img_reg, test_client_with_mocks
+    mock_client_class, test_client_with_mocks
 ):
     """Test normal case: response_text is a string (no validation needed)."""
-    # Setup mocks
-    mock_store_reg.return_value.get_store_name.return_value = "test-store"
-    mock_img_reg.return_value.get_images.return_value = []
-    mock_conv_store.return_value.load_conversation.return_value = []
+    # Create mock dependencies
+    mock_storage = MagicMock()
+    mock_store_reg = MagicMock()
+    mock_store_reg.get_store.return_value = "test-store"
+    mock_img_reg = MagicMock()
+    mock_img_reg.get_images_for_location.return_value = []
+    mock_conv_store = MagicMock()
+
+    # Create mock conversation
+    from backend.conversation_storage.conversations import Conversation
+    mock_conversation = Conversation(
+        conversation_id="test-123",
+        area="test_area",
+        site="test_site",
+        created_at="2024-01-01T00:00:00Z",
+        updated_at="2024-01-01T00:00:00Z",
+        messages=[]
+    )
+    mock_conv_store.create_conversation.return_value = mock_conversation
+    mock_conv_store.add_message.return_value = mock_conversation
+
+    mock_query_logger = MagicMock()
+
+    # Override dependencies
+    from backend.main import app
+    from backend.dependencies import get_storage_backend, get_store_registry, get_image_registry, get_conversation_store, get_query_logger
+    app.dependency_overrides[get_storage_backend] = lambda: mock_storage
+    app.dependency_overrides[get_store_registry] = lambda: mock_store_reg
+    app.dependency_overrides[get_image_registry] = lambda: mock_img_reg
+    app.dependency_overrides[get_conversation_store] = lambda: mock_conv_store
+    app.dependency_overrides[get_query_logger] = lambda: mock_query_logger
 
     # Mock Gemini API to return proper string response
-    mock_instance = MagicMock()
-    mock_model.return_value = mock_instance
-    mock_instance.generate_content.return_value = create_mock_gemini_response(
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    mock_client.models.generate_content.return_value = create_mock_gemini_response(
         "This is a proper string response", response_text_type="string"
     )
 
-    # Make request
-    response = test_client_with_mocks.post(
-        "/qa",
-        headers={"Authorization": "Bearer test-key"},
-        json={"area": "test_area", "site": "test_site", "query": "test query"}
-    )
+    try:
+        # Make request
+        response = test_client_with_mocks.post(
+            "/qa",
+            headers={"Authorization": "Bearer test-key"},
+            json={"area": "test_area", "site": "test_site", "query": "test query"}
+        )
 
-    # Should succeed with 200
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data["response_text"], str)
-    assert data["response_text"] == "This is a proper string response"
+        # Should succeed with 200
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data["response_text"], str)
+        assert data["response_text"] == "This is a proper string response"
+    finally:
+        # Clean up dependency overrides
+        app.dependency_overrides.clear()
 
 
-@patch("backend.endpoints.qa.get_image_registry")
-@patch("backend.endpoints.qa.get_conversation_store")
-@patch("backend.endpoints.qa.get_store_registry")
-@patch("backend.endpoints.qa.get_storage_backend")
-@patch("backend.endpoints.qa.genai.GenerativeModel")
 @patch("backend.endpoints.qa.logger")
+@patch("backend.endpoints.qa.genai.Client")
 def test_type_validation_with_dict_response(
-    mock_logger, mock_model, mock_storage, mock_store_reg, mock_conv_store, mock_img_reg, test_client_with_mocks
+    mock_client_class, mock_logger, test_client_with_mocks
 ):
     """Test validation when response_text is a dict - should convert to string and log error."""
-    # Setup mocks
-    mock_store_reg.return_value.get_store_name.return_value = "test-store"
-    mock_img_reg.return_value.get_images.return_value = []
-    mock_conv_store.return_value.load_conversation.return_value = []
+    # Create mock dependencies
+    mock_storage = MagicMock()
+    mock_store_reg = MagicMock()
+    mock_store_reg.get_store.return_value = "test-store"
+    mock_img_reg = MagicMock()
+    mock_img_reg.get_images_for_location.return_value = []
+    mock_conv_store = MagicMock()
+
+    # Create mock conversation
+    from backend.conversation_storage.conversations import Conversation
+    mock_conversation = Conversation(
+        conversation_id="test-123",
+        area="test_area",
+        site="test_site",
+        created_at="2024-01-01T00:00:00Z",
+        updated_at="2024-01-01T00:00:00Z",
+        messages=[]
+    )
+    mock_conv_store.create_conversation.return_value = mock_conversation
+    mock_conv_store.add_message.return_value = mock_conversation
+
+    mock_query_logger = MagicMock()
+
+    # Override dependencies
+    from backend.main import app
+    from backend.dependencies import get_storage_backend, get_store_registry, get_image_registry, get_conversation_store, get_query_logger
+    app.dependency_overrides[get_storage_backend] = lambda: mock_storage
+    app.dependency_overrides[get_store_registry] = lambda: mock_store_reg
+    app.dependency_overrides[get_image_registry] = lambda: mock_img_reg
+    app.dependency_overrides[get_conversation_store] = lambda: mock_conv_store
+    app.dependency_overrides[get_query_logger] = lambda: mock_query_logger
 
     # Mock Gemini API to return dict instead of string
-    mock_instance = MagicMock()
-    mock_model.return_value = mock_instance
-    mock_instance.generate_content.return_value = create_mock_gemini_response(
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    mock_client.models.generate_content.return_value = create_mock_gemini_response(
         "test response", response_text_type="dict"
     )
 
-    # Make request
-    response = test_client_with_mocks.post(
-        "/qa",
-        headers={"Authorization": "Bearer test-key"},
-        json={"area": "test_area", "site": "test_site", "query": "test query"}
-    )
+    try:
+        # Make request
+        response = test_client_with_mocks.post(
+            "/qa",
+            headers={"Authorization": "Bearer test-key"},
+            json={"area": "test_area", "site": "test_site", "query": "test query"}
+        )
 
-    # Should succeed (graceful handling)
-    assert response.status_code == 200
-    data = response.json()
+        # Should succeed (graceful handling)
+        assert response.status_code == 200
+        data = response.json()
 
-    # Should be converted to string
-    assert isinstance(data["response_text"], str)
-    assert "nested" in data["response_text"]  # String representation of dict
+        # Should be converted to string
+        assert isinstance(data["response_text"], str)
+        assert "nested" in data["response_text"]  # String representation of dict
 
-    # Should have logged an error
-    mock_logger.error.assert_called_once()
-    error_call = mock_logger.error.call_args[0][0]
-    assert "not a string" in error_call
-    assert "dict" in error_call
+        # Should have logged an error
+        mock_logger.error.assert_called_once()
+        error_call = mock_logger.error.call_args[0][0]
+        assert "not a string" in error_call
+        assert "dict" in error_call
+    finally:
+        # Clean up dependency overrides
+        app.dependency_overrides.clear()
 
 
-@patch("backend.endpoints.qa.get_image_registry")
-@patch("backend.endpoints.qa.get_conversation_store")
-@patch("backend.endpoints.qa.get_store_registry")
-@patch("backend.endpoints.qa.get_storage_backend")
-@patch("backend.endpoints.qa.genai.GenerativeModel")
 @patch("backend.endpoints.qa.logger")
+@patch("backend.endpoints.qa.genai.Client")
 def test_type_validation_with_list_response(
-    mock_logger, mock_model, mock_storage, mock_store_reg, mock_conv_store, mock_img_reg, test_client_with_mocks
+    mock_client_class, mock_logger, test_client_with_mocks
 ):
     """Test validation when response_text is a list - should convert to string and log error."""
-    # Setup mocks
-    mock_store_reg.return_value.get_store_name.return_value = "test-store"
-    mock_img_reg.return_value.get_images.return_value = []
-    mock_conv_store.return_value.load_conversation.return_value = []
+    # Create mock dependencies
+    mock_storage = MagicMock()
+    mock_store_reg = MagicMock()
+    mock_store_reg.get_store.return_value = "test-store"
+    mock_img_reg = MagicMock()
+    mock_img_reg.get_images_for_location.return_value = []
+    mock_conv_store = MagicMock()
+
+    # Create mock conversation
+    from backend.conversation_storage.conversations import Conversation
+    mock_conversation = Conversation(
+        conversation_id="test-123",
+        area="test_area",
+        site="test_site",
+        created_at="2024-01-01T00:00:00Z",
+        updated_at="2024-01-01T00:00:00Z",
+        messages=[]
+    )
+    mock_conv_store.create_conversation.return_value = mock_conversation
+    mock_conv_store.add_message.return_value = mock_conversation
+
+    mock_query_logger = MagicMock()
+
+    # Override dependencies
+    from backend.main import app
+    from backend.dependencies import get_storage_backend, get_store_registry, get_image_registry, get_conversation_store, get_query_logger
+    app.dependency_overrides[get_storage_backend] = lambda: mock_storage
+    app.dependency_overrides[get_store_registry] = lambda: mock_store_reg
+    app.dependency_overrides[get_image_registry] = lambda: mock_img_reg
+    app.dependency_overrides[get_conversation_store] = lambda: mock_conv_store
+    app.dependency_overrides[get_query_logger] = lambda: mock_query_logger
 
     # Mock Gemini API to return list instead of string
-    mock_instance = MagicMock()
-    mock_model.return_value = mock_instance
-    mock_instance.generate_content.return_value = create_mock_gemini_response(
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    mock_client.models.generate_content.return_value = create_mock_gemini_response(
         "test response", response_text_type="list"
     )
 
-    # Make request
-    response = test_client_with_mocks.post(
-        "/qa",
-        headers={"Authorization": "Bearer test-key"},
-        json={"area": "test_area", "site": "test_site", "query": "test query"}
-    )
+    try:
+        # Make request
+        response = test_client_with_mocks.post(
+            "/qa",
+            headers={"Authorization": "Bearer test-key"},
+            json={"area": "test_area", "site": "test_site", "query": "test query"}
+        )
 
-    # Should succeed (graceful handling)
-    assert response.status_code == 200
-    data = response.json()
+        # Should succeed (graceful handling)
+        assert response.status_code == 200
+        data = response.json()
 
-    # Should be converted to string
-    assert isinstance(data["response_text"], str)
-    assert "test response" in data["response_text"]  # String representation of list
+        # Should be converted to string
+        assert isinstance(data["response_text"], str)
+        assert "test response" in data["response_text"]  # String representation of list
 
-    # Should have logged an error
-    mock_logger.error.assert_called_once()
-    error_call = mock_logger.error.call_args[0][0]
-    assert "not a string" in error_call
-    assert "list" in error_call
+        # Should have logged an error
+        mock_logger.error.assert_called_once()
+        error_call = mock_logger.error.call_args[0][0]
+        assert "not a string" in error_call
+        assert "list" in error_call
+    finally:
+        # Clean up dependency overrides
+        app.dependency_overrides.clear()
 
 
-@patch("backend.endpoints.qa.get_image_registry")
-@patch("backend.endpoints.qa.get_conversation_store")
-@patch("backend.endpoints.qa.get_store_registry")
-@patch("backend.endpoints.qa.get_storage_backend")
-@patch("backend.endpoints.qa.genai.GenerativeModel")
 @patch("backend.endpoints.qa.logger")
+@patch("backend.endpoints.qa.genai.Client")
 def test_type_validation_with_int_response(
-    mock_logger, mock_model, mock_storage, mock_store_reg, mock_conv_store, mock_img_reg, test_client_with_mocks
+    mock_client_class, mock_logger, test_client_with_mocks
 ):
     """Test validation when response_text is an integer - should convert to string and log error."""
-    # Setup mocks
-    mock_store_reg.return_value.get_store_name.return_value = "test-store"
-    mock_img_reg.return_value.get_images.return_value = []
-    mock_conv_store.return_value.load_conversation.return_value = []
+    # Create mock dependencies
+    mock_storage = MagicMock()
+    mock_store_reg = MagicMock()
+    mock_store_reg.get_store.return_value = "test-store"
+    mock_img_reg = MagicMock()
+    mock_img_reg.get_images_for_location.return_value = []
+    mock_conv_store = MagicMock()
+
+    # Create mock conversation
+    from backend.conversation_storage.conversations import Conversation
+    mock_conversation = Conversation(
+        conversation_id="test-123",
+        area="test_area",
+        site="test_site",
+        created_at="2024-01-01T00:00:00Z",
+        updated_at="2024-01-01T00:00:00Z",
+        messages=[]
+    )
+    mock_conv_store.create_conversation.return_value = mock_conversation
+    mock_conv_store.add_message.return_value = mock_conversation
+
+    mock_query_logger = MagicMock()
+
+    # Override dependencies
+    from backend.main import app
+    from backend.dependencies import get_storage_backend, get_store_registry, get_image_registry, get_conversation_store, get_query_logger
+    app.dependency_overrides[get_storage_backend] = lambda: mock_storage
+    app.dependency_overrides[get_store_registry] = lambda: mock_store_reg
+    app.dependency_overrides[get_image_registry] = lambda: mock_img_reg
+    app.dependency_overrides[get_conversation_store] = lambda: mock_conv_store
+    app.dependency_overrides[get_query_logger] = lambda: mock_query_logger
 
     # Mock Gemini API to return int instead of string
-    mock_instance = MagicMock()
-    mock_model.return_value = mock_instance
-    mock_instance.generate_content.return_value = create_mock_gemini_response(
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    mock_client.models.generate_content.return_value = create_mock_gemini_response(
         None, response_text_type="int"
     )
 
-    # Make request
-    response = test_client_with_mocks.post(
-        "/qa",
-        headers={"Authorization": "Bearer test-key"},
-        json={"area": "test_area", "site": "test_site", "query": "test query"}
-    )
+    try:
+        # Make request
+        response = test_client_with_mocks.post(
+            "/qa",
+            headers={"Authorization": "Bearer test-key"},
+            json={"area": "test_area", "site": "test_site", "query": "test query"}
+        )
 
-    # Should succeed (graceful handling)
-    assert response.status_code == 200
-    data = response.json()
+        # Should succeed (graceful handling)
+        assert response.status_code == 200
+        data = response.json()
 
-    # Should be converted to string
-    assert isinstance(data["response_text"], str)
-    assert data["response_text"] == "12345"  # Integer converted to string
+        # Should be converted to string
+        assert isinstance(data["response_text"], str)
+        assert data["response_text"] == "12345"  # Integer converted to string
 
-    # Should have logged an error
-    mock_logger.error.assert_called_once()
-    error_call = mock_logger.error.call_args[0][0]
-    assert "not a string" in error_call
-    assert "int" in error_call
+        # Should have logged an error
+        mock_logger.error.assert_called_once()
+        error_call = mock_logger.error.call_args[0][0]
+        assert "not a string" in error_call
+        assert "int" in error_call
+    finally:
+        # Clean up dependency overrides
+        app.dependency_overrides.clear()
