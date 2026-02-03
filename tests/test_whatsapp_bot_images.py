@@ -7,7 +7,6 @@ Tests defensive validation, image detection, retry logic, and error handling.
 import urllib.error
 from unittest.mock import patch, MagicMock, call, Mock
 import pytest
-import sys
 
 
 # Mock GCS storage before importing whatsapp_bot to avoid initialization errors
@@ -500,30 +499,6 @@ class TestGCSConversationStorage:
             load_conversation(phone)
 
         assert "GCS unavailable" in str(exc_info.value)
-
-    @patch('whatsapp_bot.conversation_store')
-    def test_add_message_calls_conversation_store(self, mock_store, mock_whatsapp_env):
-        """Test that add_message uses ConversationStore.add_message()."""
-        from backend.conversation_storage.conversations import Conversation
-
-        # Create mock conversation
-        mock_conv = Conversation(
-            conversation_id="whatsapp_972501234567",
-            area="hefer_valley",
-            site="agamon_hefer",
-            created_at="2024-01-01T00:00:00Z",
-            updated_at="2024-01-01T00:00:00Z",
-            messages=[]
-        )
-
-        # Mock add_message method
-        mock_store.add_message.return_value = mock_conv
-
-        # Call add_message
-        mock_store.add_message(mock_conv, "user", "Hello")
-
-        # Verify add_message was called correctly
-        mock_store.add_message.assert_called_once_with(mock_conv, "user", "Hello")
 
     @patch('whatsapp_bot.conversation_store')
     def test_load_conversation_returns_existing(self, mock_store, mock_whatsapp_env):
