@@ -197,10 +197,11 @@ try:
                                 if img.caption:
                                     caption_text += f": {img.caption}"
 
-                                # Generate signed URL and display image
+                                # Download and display image (ADC doesn't support signed URLs)
                                 try:
-                                    signed_url = storage.generate_signed_url(img.gcs_path, expiration_minutes=15)
-                                    st.image(signed_url, caption=caption_text, width=400)
+                                    # Download image data directly from GCS
+                                    image_data = storage.read_file_bytes(img.gcs_path)
+                                    st.image(image_data, caption=caption_text, width=400)
                                 except Exception as e:
                                     st.caption(caption_text)
                                     st.error(f"Could not load image")
