@@ -375,6 +375,19 @@ class ImageRegistry:
 
         return len(to_remove)
 
+    def remove_images_for_location(self, area: str, site: str) -> int:
+        """
+        Alias for clear_location() - removes all images for an area/site
+
+        Args:
+            area: Area identifier
+            site: Site identifier
+
+        Returns:
+            Number of images removed
+        """
+        return self.clear_location(area, site)
+
     def list_all_images(self) -> List[ImageRecord]:
         """
         List all images in registry
