@@ -15,21 +15,6 @@ from .conversation import ConversationLoader
 from .logging_utils import EventLogger, eprint
 from .whatsapp_client import WhatsAppClient
 
-# 10 random messages to show before sending image (picked randomly for variety)
-IMAGE_WAITING_MESSAGES = [
-    "רק רגע, יש לי גם תמונה. היא כבר מגיעה 📸",
-    "רגע, אני שולח לך תמונה 📷",
-    "יש לי תמונה מעניינת, רק שניה... 🖼️",
-    "אה, יש לי גם משהו לראות לך! רגע... 📸",
-    "שניה, אני מביא תמונה 🌅",
-    "יש לי תמונה שכדאי לראות, רק רגע... 📷",
-    "אני מעלה תמונה, שניה... 🖼️",
-    "רגע קטן, שולח תמונה 📸",
-    "יש לי תמונה יפה להראות לך, רק רגע... 🏞️",
-    "חכה, זו תמונה שווה! היא מגיעה... 📷",
-]
-
-
 def process_message(
     phone: str,
     text: str,
@@ -48,9 +33,10 @@ def process_message(
     2. Handle special commands (reset)
     3. Add user message to history
     4. Call backend QA endpoint
-    5. Send text response FIRST (fast, within typing indicator window)
-    6. Save assistant message to history
-    7. Send images AFTER as follow-up (no timeout pressure)
+    5. Send images FIRST (if available, with captions)
+    6. Trigger typing indicator before text response
+    7. Send text response AFTER images
+    8. Save assistant message to history
 
     All errors are caught and logged - this function never raises exceptions to
     prevent crashing the background thread.
@@ -164,8 +150,29 @@ def process_message(
             )
             images = []
 
-        # Send text response FIRST (fast! within typing indicator window)
-        eprint(f"[TEXT] Sending text response immediately...")
+        # Send images FIRST (if available)
+        # Images are sent before text to provide visual context immediately
+        send_images_if_needed(
+            images=images,
+            should_include=should_include_images,
+            phone=phone,
+            message_id=message_id,  # Need original message_id to re-trigger typing
+            whatsapp_client=whatsapp_client,
+            correlation_id=correlation_id,
+            logger=logger,
+        )
+
+        # If images were sent, trigger typing indicator before text response
+        if should_include_images and images:
+            try:
+                eprint("[TYPING] Re-triggering typing indicator before text response...")
+                whatsapp_client.send_read_receipt(message_id, typing_indicator=True)
+            except Exception as e:
+                eprint(f"[WARNING] Failed to send typing indicator: {e}")
+                # Continue anyway - non-critical operation
+
+        # Send text response AFTER images
+        eprint(f"[TEXT] Sending text response...")
         status, send_response = whatsapp_client.send_text_message(phone, response_text)
 
         if status < 200 or status >= 300:
@@ -189,19 +196,7 @@ def process_message(
             )
         except Exception as e:
             eprint(f"[ERROR] Failed to save assistant message: {e}")
-            # Continue anyway - send images even if save fails
-
-        # Send images AFTER text (as follow-up messages, no timeout pressure)
-        # User already has the answer, images are just supplementary
-        send_images_if_needed(
-            images=images,
-            should_include=should_include_images,
-            phone=phone,
-            message_id=message_id,  # Need original message_id to re-trigger typing
-            whatsapp_client=whatsapp_client,
-            correlation_id=correlation_id,
-            logger=logger,
-        )
+            # Continue anyway - response already sent
 
     except Exception as e:
         # Catch all errors in background thread to prevent crashes
@@ -274,6 +269,7 @@ def send_images_if_needed(
     images: List[Dict[str, Any]],
     should_include: bool,
     phone: str,
+    message_id: str,
     whatsapp_client: WhatsAppClient,
     correlation_id: str,
     logger: EventLogger,
@@ -288,6 +284,7 @@ def send_images_if_needed(
         images: List of image objects from backend
         should_include: Boolean flag from LLM (should images be shown?)
         phone: User phone number
+        message_id: Original WhatsApp message ID (for re-triggering typing indicator)
         whatsapp_client: WhatsApp API client
         correlation_id: Request correlation ID for logging
         logger: Event logger
@@ -297,6 +294,7 @@ def send_images_if_needed(
             images=[{"uri": "https://...", "caption": "שקנאים"}],
             should_include=True,
             phone="972501234567",
+            message_id="wamid.123",
             whatsapp_client=client,
             correlation_id="uuid-123",
             logger=event_logger
