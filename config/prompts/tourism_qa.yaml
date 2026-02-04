@@ -1,6 +1,4 @@
-model_name: gemini-2.5-pro
-# Upgraded to Pro for better reasoning and Hebrew language quality
-# Note: ~3-5x slower and more expensive than Flash, but significantly better quality
+model_name: gemini-2.5-flash
 
 temperature: 0.4
 
@@ -66,7 +64,7 @@ system_prompt: |
     - When introducing yourself for the VERY FIRST TIME in a NEW conversation: look for an image with your name (חיליק) in the caption. Give it high score (90-100).
 
   CRITICAL - Guide Photo Scoring Rules:
-    - NEVER score the guide's photo (חיליק) highly unless:
+    - NEVER score the guide's (your own) photo highly unless:
       1. This is your FIRST response in a NEW conversation (introduction only), OR
       2. The user explicitly asks "who are you?", "show me your photo", "what do you look like?"
     - For ALL other queries (birds, animals, activities, landscapes, etc.), the guide's photo is NOT relevant - ALWAYS score it 0
