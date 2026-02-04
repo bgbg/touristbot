@@ -249,34 +249,34 @@ def send_image_message(
 
 
 def send_typing_indicator(
-    token: str, phone_number_id: str, to_msisdn: str
+    token: str, phone_number_id: str, message_id: str
 ) -> tuple[int, dict]:
     """
-    Send a typing indicator (typing bubble) to show bot is processing.
+    Mark message as read and send typing indicator to show bot is processing.
 
-    The typing indicator lasts approximately 5-10 seconds or until the next message
-    is delivered. This provides visual feedback to users during message processing.
+    WhatsApp Cloud API combines read receipts and typing indicators in a single
+    request. The typing indicator lasts approximately 25 seconds or until the
+    next message is delivered, whichever comes first.
 
     Args:
         token: WhatsApp access token
         phone_number_id: WhatsApp phone number ID
-        to_msisdn: Recipient phone number (digits only, international format)
+        message_id: Message ID from incoming webhook (required to mark as read)
 
     Returns:
         Tuple of (status_code, response_dict)
 
     Example:
-        >>> status, resp = send_typing_indicator(token, phone_id, "972525974655")
+        >>> status, resp = send_typing_indicator(token, phone_id, "wamid.XXX...")
         >>> if status == 200:
-        ...     print("Typing indicator sent successfully")
+        ...     print("Message marked as read, typing indicator sent")
     """
     url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}/messages"
 
     payload = {
         "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_msisdn,
-        "sender_action": "typing_on",
+        "status": "read",
+        "message_id": message_id,
     }
 
     data = json.dumps(payload).encode("utf-8")

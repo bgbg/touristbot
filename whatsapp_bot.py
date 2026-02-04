@@ -24,6 +24,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import traceback
 import urllib.parse
@@ -88,6 +89,45 @@ DEFAULT_SITE = "אגמון חפר"
 # Directories
 LOG_DIR = Path("whatsapp_logs")
 LOG_DIR.mkdir(exist_ok=True)
+
+# Message deduplication infrastructure (prevent duplicate processing on webhook retries)
+# Thread-safe in-memory cache with TTL (5 minutes)
+_message_dedup_lock = threading.Lock()
+_message_dedup_cache: dict[str, float] = {}  # {message_id: timestamp}
+_MESSAGE_DEDUP_TTL_SECONDS = 300  # 5 minutes
+
+def is_duplicate_message(msg_id: str) -> bool:
+    """
+    Check if message ID has been processed recently (within TTL window).
+
+    Thread-safe atomic check-and-set operation. If message is new, marks it as
+    processed and returns False. If message was recently processed (within TTL),
+    returns True.
+
+    Also performs cleanup of expired entries (TTL > 5 minutes).
+
+    Args:
+        msg_id: WhatsApp message ID from webhook
+
+    Returns:
+        True if message is duplicate (already processed), False if new
+    """
+    with _message_dedup_lock:
+        now = time.time()
+
+        # Cleanup expired entries (TTL expiration)
+        expired_ids = [mid for mid, ts in _message_dedup_cache.items()
+                      if now - ts > _MESSAGE_DEDUP_TTL_SECONDS]
+        for mid in expired_ids:
+            del _message_dedup_cache[mid]
+
+        # Check if message already processed
+        if msg_id in _message_dedup_cache:
+            return True  # Duplicate
+
+        # Mark as processed
+        _message_dedup_cache[msg_id] = now
+        return False  # New message
 
 # Environment validation (runs at module import, before gunicorn starts serving)
 def _validate_required_env_vars() -> None:
@@ -572,162 +612,194 @@ def call_backend_qa(conversation_id: str, area: str, site: str, query: str, corr
     }
 
 
-def handle_text_message(phone: str, text: str, correlation_id: str) -> None:
-    """Process incoming text message and send response."""
-    eprint(f"\n📱 Processing message from {phone}: {text[:50]}...")
+def process_message_async(phone: str, text: str, message_id: str, correlation_id: str) -> None:
+    """
+    Process incoming message asynchronously in background thread.
 
-    # Load conversation
+    This function contains all message processing logic and runs in a separate thread
+    to prevent blocking the webhook handler. Designed to be called from webhook_handler
+    via threading.Thread().
+
+    All errors are caught and logged - this function never raises exceptions to
+    prevent crashing the background thread.
+
+    Args:
+        phone: User phone number (international format, digits only)
+        text: Message text from user
+        message_id: WhatsApp message ID (for typing indicator)
+        correlation_id: Request correlation ID for logging
+    """
     try:
-        conv = load_conversation(phone)
-    except Exception as e:
-        eprint(f"[ERROR] Failed to load conversation: {e}")
-        send_text_message(phone, "מצטער, אירעה שגיאה בטעינת השיחה. אנא נסה שוב מאוחר יותר.", correlation_id)
-        return
+        log_event("background_task_started", {
+            "phone": phone,
+            "text": text[:50],
+            "message_id": message_id,
+        }, correlation_id)
 
-    # Check for special commands
-    if text.lower() in ("reset", "התחל מחדש"):
-        # Clear conversation history by recreating conversation
-        normalized = normalize_phone(phone)
-        conversation_id = f"whatsapp_{normalized}"
+        eprint(f"\n📱 [ASYNC] Processing message from {phone}: {text[:50]}...")
+
+        # Load conversation
         try:
-            # Delete old conversation and create new one
-            conversation_store.delete_conversation(conversation_id)
-            conv = conversation_store.create_conversation(
-                area=DEFAULT_AREA,
-                site=DEFAULT_SITE,
-                conversation_id=conversation_id
-            )
-            conversation_store.save_conversation(conv)
-            send_text_message(phone, "השיחה אופסה. אפשר להתחיל מחדש!", correlation_id)
-            eprint("✓ Conversation reset")
-            return
+            conv = load_conversation(phone)
         except Exception as e:
-            eprint(f"[ERROR] Failed to reset conversation: {e}")
-            send_text_message(phone, "מצטער, לא הצלחתי לאפס את השיחה. אנא נסה שוב.", correlation_id)
+            eprint(f"[ERROR] Failed to load conversation: {e}")
+            send_text_message(phone, "מצטער, אירעה שגיאה בטעינת השיחה. אנא נסה שוב מאוחר יותר.", correlation_id)
             return
 
-    # TODO: Handle location switch command (future)
-    # if text.lower().startswith("switch to") or text.startswith("עבור ל"):
-    #     ...
-
-    # Add user message to history (automatically saves to GCS)
-    try:
-        conversation_store.add_message(conv, "user", text)
-    except Exception as e:
-        eprint(f"[ERROR] Failed to save user message: {e}")
-        send_text_message(phone, "מצטער, אירעה שגיאה בשמירת ההודעה. אנא נסה שוב.", correlation_id)
-        return
-
-    # Send typing indicator to show bot is processing (fire-and-forget, non-blocking)
-    try:
-        status, resp = send_typing_indicator(WABA_ACCESS_TOKEN, WABA_PHONE_NUMBER_ID, normalize_phone(phone))
-        if status == 200:
-            eprint("[TYPING] Typing indicator sent")
-        else:
-            eprint(f"[WARNING] Typing indicator returned status {status}: {resp}")
-    except Exception as e:
-        # Never block message processing on typing indicator failure
-        eprint(f"[WARNING] Failed to send typing indicator: {e}")
-
-    # Call backend API
-    backend_response = call_backend_qa(
-        conversation_id=conv.conversation_id,
-        area=conv.area,
-        site=conv.site,
-        query=text,
-        correlation_id=correlation_id
-    )
-
-    response_text = backend_response.get("response_text", "מצטער, לא הצלחתי להבין את השאלה.")
-
-    # Defensive type validation for response_text (follow pattern from PR #58)
-    if not isinstance(response_text, str):
-        eprint(f"[ERROR] response_text is not a string! Type: {type(response_text)}. Converting to string.")
-        log_event("error", {
-            "type": "invalid_response_text_type",
-            "actual_type": str(type(response_text)),
-            "value": str(response_text)[:200],
-        }, correlation_id)
-        response_text = str(response_text)
-
-    # Check if images should be sent
-    should_include_images = backend_response.get("should_include_images", False)
-    images = backend_response.get("images", [])
-
-    # Defensive validation for images field
-    if not isinstance(images, list):
-        eprint(f"[WARNING] images field is not a list! Type: {type(images)}. Ignoring images.")
-        log_event("error", {
-            "type": "invalid_images_type",
-            "actual_type": str(type(images)),
-        }, correlation_id)
-        images = []
-
-    # Send image if available and should be included
-    if should_include_images and images:
-        # Send only the first image (backend sorted by relevance)
-        first_image = images[0]
-
-        # Defensive validation: ensure first_image is a dictionary
-        if not isinstance(first_image, dict):
-            eprint(f"[WARNING] First image entry is not a dict! Type: {type(first_image)}. Skipping image send.")
-            log_event("error", {
-                "type": "invalid_image_entry_type",
-                "actual_type": str(type(first_image)),
-            }, correlation_id)
-        else:
-            image_url = first_image.get("uri")  # GCS signed URL
-            caption_raw = first_image.get("caption", "")
-
-            # Defensive validation: ensure caption is a string
-            if not isinstance(caption_raw, str):
-                eprint(f"[WARNING] Caption field is not a string! Type: {type(caption_raw)}. Using empty caption.")
-                log_event("error", {
-                    "type": "invalid_caption_type",
-                    "actual_type": str(type(caption_raw)),
-                }, correlation_id)
-                caption = ""
-            else:
-                caption = caption_raw
-
-            if image_url:
-                eprint(f"[IMAGE] Sending image: {caption[:50]}...")
-                image_status, image_response = send_image_with_retry(
-                    phone,
-                    image_url,
-                    caption,
-                    correlation_id
+        # Check for special commands
+        if text.lower() in ("reset", "התחל מחדש"):
+            # Clear conversation history by recreating conversation
+            normalized = normalize_phone(phone)
+            conversation_id = f"whatsapp_{normalized}"
+            try:
+                # Delete old conversation and create new one
+                conversation_store.delete_conversation(conversation_id)
+                conv = conversation_store.create_conversation(
+                    area=DEFAULT_AREA,
+                    site=DEFAULT_SITE,
+                    conversation_id=conversation_id
                 )
+                conversation_store.save_conversation(conv)
+                send_text_message(phone, "השיחה אופסה. אפשר להתחיל מחדש!", correlation_id)
+                eprint("✓ Conversation reset")
+                return
+            except Exception as e:
+                eprint(f"[ERROR] Failed to reset conversation: {e}")
+                send_text_message(phone, "מצטער, לא הצלחתי לאפס את השיחה. אנא נסה שוב.", correlation_id)
+                return
 
-                if image_status < 200 or image_status >= 300:
-                    eprint(f"[WARNING] Image send failed, continuing with text response")
-                    # Don't block text response if image fails
-            else:
-                eprint(f"[WARNING] Image has no URI, skipping image send")
+        # TODO: Handle location switch command (future)
+        # if text.lower().startswith("switch to") or text.startswith("עבור ל"):
+        #     ...
 
-    # Add assistant response to history with images (automatically saves to GCS)
-    # This is CRITICAL for duplicate prevention - must save images that were sent
-    try:
-        conversation_store.add_message(
-            conv,
-            "assistant",
-            response_text,
-            citations=backend_response.get("citations", []),
-            images=images if (should_include_images and images) else []
+        # Add user message to history (automatically saves to GCS)
+        try:
+            conversation_store.add_message(conv, "user", text)
+        except Exception as e:
+            eprint(f"[ERROR] Failed to save user message: {e}")
+            send_text_message(phone, "מצטער, אירעה שגיאה בשמירת ההודעה. אנא נסה שוב.", correlation_id)
+            return
+
+        # Call backend API
+        backend_response = call_backend_qa(
+            conversation_id=conv.conversation_id,
+            area=conv.area,
+            site=conv.site,
+            query=text,
+            correlation_id=correlation_id
         )
+
+        response_text = backend_response.get("response_text", "מצטער, לא הצלחתי להבין את השאלה.")
+
+        # Defensive type validation for response_text (follow pattern from PR #58)
+        if not isinstance(response_text, str):
+            eprint(f"[ERROR] response_text is not a string! Type: {type(response_text)}. Converting to string.")
+            log_event("error", {
+                "type": "invalid_response_text_type",
+                "actual_type": str(type(response_text)),
+                "value": str(response_text)[:200],
+            }, correlation_id)
+            response_text = str(response_text)
+
+        # Check if images should be sent
+        should_include_images = backend_response.get("should_include_images", False)
+        images = backend_response.get("images", [])
+
+        # Defensive validation for images field
+        if not isinstance(images, list):
+            eprint(f"[WARNING] images field is not a list! Type: {type(images)}. Ignoring images.")
+            log_event("error", {
+                "type": "invalid_images_type",
+                "actual_type": str(type(images)),
+            }, correlation_id)
+            images = []
+
+        # Send image if available and should be included
+        if should_include_images and images:
+            # Send only the first image (backend sorted by relevance)
+            first_image = images[0]
+
+            # Defensive validation: ensure first_image is a dictionary
+            if not isinstance(first_image, dict):
+                eprint(f"[WARNING] First image entry is not a dict! Type: {type(first_image)}. Skipping image send.")
+                log_event("error", {
+                    "type": "invalid_image_entry_type",
+                    "actual_type": str(type(first_image)),
+                }, correlation_id)
+            else:
+                image_url = first_image.get("uri")  # GCS signed URL
+                caption_raw = first_image.get("caption", "")
+
+                # Defensive validation: ensure caption is a string
+                if not isinstance(caption_raw, str):
+                    eprint(f"[WARNING] Caption field is not a string! Type: {type(caption_raw)}. Using empty caption.")
+                    log_event("error", {
+                        "type": "invalid_caption_type",
+                        "actual_type": str(type(caption_raw)),
+                    }, correlation_id)
+                    caption = ""
+                else:
+                    caption = caption_raw
+
+                if image_url:
+                    eprint(f"[IMAGE] Sending image: {caption[:50]}...")
+                    image_status, image_response = send_image_with_retry(
+                        phone,
+                        image_url,
+                        caption,
+                        correlation_id
+                    )
+
+                    if image_status < 200 or image_status >= 300:
+                        eprint(f"[WARNING] Image send failed, continuing with text response")
+                        # Don't block text response if image fails
+                else:
+                    eprint(f"[WARNING] Image has no URI, skipping image send")
+
+        # Add assistant response to history with images (automatically saves to GCS)
+        # This is CRITICAL for duplicate prevention - must save images that were sent
+        try:
+            conversation_store.add_message(
+                conv,
+                "assistant",
+                response_text,
+                citations=backend_response.get("citations", []),
+                images=images if (should_include_images and images) else []
+            )
+        except Exception as e:
+            eprint(f"[ERROR] Failed to save assistant message: {e}")
+            # Continue anyway - send response to user even if save fails
+
+        # Send text response
+        status, send_response = send_text_message(phone, response_text, correlation_id)
+
+        if status < 200 or status >= 300:
+            # Send failed, try fallback error message
+            eprint(f"[ERROR] Failed to send response, status: {status}")
+            send_text_message(phone, "מצטער, לא הצלחתי לשלוח את התשובה. אנא נסה שוב.", correlation_id)
+        else:
+            eprint(f"✓ [ASYNC] Response sent successfully")
+
+        log_event("background_task_completed", {
+            "phone": phone,
+            "message_id": message_id,
+        }, correlation_id)
+
     except Exception as e:
-        eprint(f"[ERROR] Failed to save assistant message: {e}")
-        # Continue anyway - send response to user even if save fails
-
-    # Send text response
-    status, send_response = send_text_message(phone, response_text, correlation_id)
-
-    if status < 200 or status >= 300:
-        # Send failed, try fallback error message
-        eprint(f"[ERROR] Failed to send response, status: {status}")
-        send_text_message(phone, "מצטער, לא הצלחתי לשלוח את התשובה. אנא נסה שוב.", correlation_id)
-    else:
-        eprint(f"✓ Response sent successfully")
+        # Catch all errors in background thread to prevent crashes
+        eprint(f"[ERROR] Background task failed: {type(e).__name__}: {e}")
+        log_event("error", {
+            "type": "background_task_exception",
+            "phone": phone,
+            "message_id": message_id,
+            "error": str(e),
+            "traceback": traceback.format_exc()[:500],
+        }, correlation_id)
+        # Try to send error message to user
+        try:
+            send_text_message(phone, "מצטער, אירעה שגיאה בעיבוד ההודעה. אנא נסה שוב.", correlation_id)
+        except Exception:
+            pass  # Failed to send error message, nothing more we can do
 
 
 @app.route("/webhook", methods=["GET"])
@@ -785,16 +857,45 @@ def webhook_handler():
                     for message in value["messages"]:
                         msg_type = message.get("type")
                         msg_from = message.get("from")
+                        msg_id = message.get("id")
 
                         log_event("incoming_message", {
                             "from": msg_from,
                             "type": msg_type,
-                            "message_id": message.get("id"),
+                            "message_id": msg_id,
                         }, correlation_id)
 
                         if msg_type == "text":
                             text_body = message.get("text", {}).get("body")
-                            handle_text_message(msg_from, text_body, correlation_id)
+
+                            # Check for duplicate message (webhook retry)
+                            if is_duplicate_message(msg_id):
+                                eprint(f"[DEDUP] Ignoring duplicate message: {msg_id}")
+                                log_event("message_deduplicated", {
+                                    "message_id": msg_id,
+                                    "from": msg_from,
+                                }, correlation_id)
+                                continue  # Skip duplicate, don't process
+
+                            # Send typing indicator immediately (mark as read)
+                            try:
+                                status, resp = send_typing_indicator(WABA_ACCESS_TOKEN, WABA_PHONE_NUMBER_ID, msg_id)
+                                if status == 200:
+                                    eprint("[TYPING] Message marked as read, typing indicator active")
+                                else:
+                                    eprint(f"[WARNING] Read/typing indicator returned status {status}: {resp}")
+                            except Exception as e:
+                                # Never block on typing indicator failure
+                                eprint(f"[WARNING] Failed to send read/typing indicator: {e}")
+
+                            # Launch background thread to process message
+                            thread = threading.Thread(
+                                target=process_message_async,
+                                args=(msg_from, text_body, msg_id, correlation_id),
+                                daemon=True  # Daemon thread won't prevent shutdown
+                            )
+                            thread.start()
+                            eprint(f"[WEBHOOK] Background thread started for message {msg_id}")
                         else:
                             # Unsupported message type
                             eprint(f"\n📱 Unsupported message type: {msg_type} from {msg_from}")
