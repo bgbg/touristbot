@@ -101,6 +101,8 @@ _MESSAGE_DEDUP_TTL_SECONDS = 300  # 5 minutes
 _BACKGROUND_TASK_TIMEOUT_SECONDS = 60  # 60-second timeout for background threads
 _active_threads_lock = threading.Lock()
 _active_threads: set[threading.Thread] = set()  # Track active background threads
+_message_counter = 0  # Counter for periodic monitoring
+_message_counter_lock = threading.Lock()
 
 def is_duplicate_message(msg_id: str) -> bool:
     """
@@ -947,6 +949,19 @@ def webhook_handler():
 
                             thread.start()
                             eprint(f"[WEBHOOK] Background thread started for message {msg_id}")
+
+                            # Periodic monitoring (every 10 messages)
+                            with _message_counter_lock:
+                                _message_counter += 1
+                                if _message_counter % 10 == 0:
+                                    with _active_threads_lock:
+                                        active_count = len(_active_threads)
+                                    eprint(f"[MONITOR] Processed {_message_counter} messages, {active_count} active threads")
+                                    log_event("periodic_monitor", {
+                                        "total_messages": _message_counter,
+                                        "active_threads": active_count,
+                                        "dedup_cache_size": len(_message_dedup_cache),
+                                    }, correlation_id)
                         else:
                             # Unsupported message type
                             eprint(f"\n📱 Unsupported message type: {msg_type} from {msg_from}")
