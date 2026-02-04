@@ -50,7 +50,8 @@ def clear_state():
 @pytest.fixture(autouse=True)
 def mock_signature_validation():
     """Mock signature validation for all tests."""
-    with patch('whatsapp_bot.verify_webhook_signature', return_value=True):
+    # Patch in the location where it's actually used (whatsapp.app module)
+    with patch('whatsapp.app.verify_webhook_signature', return_value=True):
         yield
 
 
