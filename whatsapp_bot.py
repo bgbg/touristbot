@@ -871,6 +871,8 @@ def webhook_verification():
 @app.route("/webhook", methods=["POST"])
 def webhook_handler():
     """Webhook handler for incoming messages and status updates."""
+    global _message_counter
+
     try:
         # Verify webhook signature (Meta X-Hub-Signature-256)
         signature = request.headers.get("X-Hub-Signature-256", "")
