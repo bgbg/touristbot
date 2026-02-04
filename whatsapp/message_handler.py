@@ -15,14 +15,13 @@ from .conversation import ConversationLoader
 from .logging_utils import EventLogger, eprint
 from .whatsapp_client import WhatsAppClient
 
-
 # 10 random messages to show before sending image (picked randomly for variety)
 IMAGE_WAITING_MESSAGES = [
-    "חכה רגע, יש לי גם תמונה. היא כבר מגיעה 📸",
+    "רק רגע, יש לי גם תמונה. היא כבר מגיעה 📸",
     "רגע, אני שולח לך תמונה 📷",
     "יש לי תמונה מעניינת, רק שניה... 🖼️",
     "אה, יש לי גם משהו לראות לך! רגע... 📸",
-    "חכה, אני מביא תמונה 🌅",
+    "שניה, אני מביא תמונה 🌅",
     "יש לי תמונה שכדאי לראות, רק רגע... 📷",
     "אני מעלה תמונה, שניה... 🖼️",
     "רגע קטן, שולח תמונה 📸",
@@ -39,7 +38,7 @@ def process_message(
     conversation_loader: ConversationLoader,
     backend_client: BackendClient,
     whatsapp_client: WhatsAppClient,
-    logger: EventLogger
+    logger: EventLogger,
 ) -> None:
     """
     Process incoming WhatsApp message.
@@ -87,19 +86,24 @@ def process_message(
         except Exception as e:
             eprint(f"[ERROR] Failed to load conversation: {e}")
             whatsapp_client.send_text_message(
-                phone,
-                "מצטער, אירעה שגיאה בטעינת השיחה. אנא נסה שוב מאוחר יותר."
+                phone, "מצטער, אירעה שגיאה בטעינת השיחה. אנא נסה שוב מאוחר יותר."
             )
             return
 
         # Handle special commands
-        response_text = handle_special_command(text, phone, conversation_loader, whatsapp_client)
+        response_text = handle_special_command(
+            text, phone, conversation_loader, whatsapp_client
+        )
         if response_text:
             # Command handled, response already sent
-            logger.log_event("special_command_handled", {
-                "phone": phone,
-                "command": text[:20],
-            }, correlation_id)
+            logger.log_event(
+                "special_command_handled",
+                {
+                    "phone": phone,
+                    "command": text[:20],
+                },
+                correlation_id,
+            )
             return
 
         # Add user message to history (automatically saves to GCS)
@@ -108,8 +112,7 @@ def process_message(
         except Exception as e:
             eprint(f"[ERROR] Failed to save user message: {e}")
             whatsapp_client.send_text_message(
-                phone,
-                "מצטער, אירעה שגיאה בשמירת ההודעה. אנא נסה שוב."
+                phone, "מצטער, אירעה שגיאה בשמירת ההודעה. אנא נסה שוב."
             )
             return
 
@@ -118,20 +121,28 @@ def process_message(
             conversation_id=conv.conversation_id,
             area=conv.area,
             site=conv.site,
-            query=text
+            query=text,
         )
 
         # Validate and extract response
-        response_text = backend_response.get("response_text", "מצטער, לא הצלחתי להבין את השאלה.")
+        response_text = backend_response.get(
+            "response_text", "מצטער, לא הצלחתי להבין את השאלה."
+        )
 
         # Defensive type validation for response_text (follow pattern from PR #58)
         if not isinstance(response_text, str):
-            eprint(f"[ERROR] response_text is not a string! Type: {type(response_text)}. Converting to string.")
-            logger.log_event("error", {
-                "type": "invalid_response_text_type",
-                "actual_type": str(type(response_text)),
-                "value": str(response_text)[:200],
-            }, correlation_id)
+            eprint(
+                f"[ERROR] response_text is not a string! Type: {type(response_text)}. Converting to string."
+            )
+            logger.log_event(
+                "error",
+                {
+                    "type": "invalid_response_text_type",
+                    "actual_type": str(type(response_text)),
+                    "value": str(response_text)[:200],
+                },
+                correlation_id,
+            )
             response_text = str(response_text)
 
         # Extract image data
@@ -140,11 +151,17 @@ def process_message(
 
         # Defensive validation for images field
         if not isinstance(images, list):
-            eprint(f"[WARNING] images field is not a list! Type: {type(images)}. Ignoring images.")
-            logger.log_event("error", {
-                "type": "invalid_images_type",
-                "actual_type": str(type(images)),
-            }, correlation_id)
+            eprint(
+                f"[WARNING] images field is not a list! Type: {type(images)}. Ignoring images."
+            )
+            logger.log_event(
+                "error",
+                {
+                    "type": "invalid_images_type",
+                    "actual_type": str(type(images)),
+                },
+                correlation_id,
+            )
             images = []
 
         # Send text response FIRST (fast! within typing indicator window)
@@ -155,8 +172,7 @@ def process_message(
             # Send failed, try fallback error message
             eprint(f"[ERROR] Failed to send response, status: {status}")
             whatsapp_client.send_text_message(
-                phone,
-                "מצטער, לא הצלחתי לשלוח את התשובה. אנא נסה שוב."
+                phone, "מצטער, לא הצלחתי לשלוח את התשובה. אנא נסה שוב."
             )
         else:
             eprint(f"✓ [TEXT] Text response sent successfully")
@@ -169,7 +185,7 @@ def process_message(
                 "assistant",
                 response_text,
                 citations=backend_response.get("citations", []),
-                images=images if (should_include_images and images) else []
+                images=images if (should_include_images and images) else [],
             )
         except Exception as e:
             eprint(f"[ERROR] Failed to save assistant message: {e}")
@@ -184,24 +200,27 @@ def process_message(
             message_id=message_id,  # Need original message_id to re-trigger typing
             whatsapp_client=whatsapp_client,
             correlation_id=correlation_id,
-            logger=logger
+            logger=logger,
         )
 
     except Exception as e:
         # Catch all errors in background thread to prevent crashes
         eprint(f"[ERROR] Background task failed: {type(e).__name__}: {e}")
-        logger.log_event("error", {
-            "type": "background_task_exception",
-            "phone": phone,
-            "message_id": message_id,
-            "error": str(e),
-        }, correlation_id)
+        logger.log_event(
+            "error",
+            {
+                "type": "background_task_exception",
+                "phone": phone,
+                "message_id": message_id,
+                "error": str(e),
+            },
+            correlation_id,
+        )
 
         # Try to send error message to user
         try:
             whatsapp_client.send_text_message(
-                phone,
-                "מצטער, אירעה שגיאה בעיבוד ההודעה. אנא נסה שוב."
+                phone, "מצטער, אירעה שגיאה בעיבוד ההודעה. אנא נסה שוב."
             )
         except Exception:
             pass  # Failed to send error message, nothing more we can do
@@ -211,7 +230,7 @@ def handle_special_command(
     text: str,
     phone: str,
     conversation_loader: ConversationLoader,
-    whatsapp_client: WhatsAppClient
+    whatsapp_client: WhatsAppClient,
 ) -> Optional[str]:
     """
     Handle special commands (reset, switch location).
@@ -240,8 +259,7 @@ def handle_special_command(
         except Exception as e:
             eprint(f"[ERROR] Failed to reset conversation: {e}")
             whatsapp_client.send_text_message(
-                phone,
-                "מצטער, לא הצלחתי לאפס את השיחה. אנא נסה שוב."
+                phone, "מצטער, לא הצלחתי לאפס את השיחה. אנא נסה שוב."
             )
             return "מצטער, לא הצלחתי לאפס את השיחה."
 
@@ -256,18 +274,12 @@ def send_images_if_needed(
     images: List[Dict[str, Any]],
     should_include: bool,
     phone: str,
-    message_id: str,
     whatsapp_client: WhatsAppClient,
     correlation_id: str,
-    logger: EventLogger
+    logger: EventLogger,
 ) -> None:
     """
     Send images if available and flagged by LLM.
-
-    Before sending image:
-    1. Sends random "wait for image" message (1 of 10 variations)
-    2. Re-triggers typing indicator (gives 25s more of typing animation)
-    3. Sends the image
 
     Sends only the first image (backend sorted by relevance).
     Performs defensive validation on image data structure.
@@ -276,7 +288,6 @@ def send_images_if_needed(
         images: List of image objects from backend
         should_include: Boolean flag from LLM (should images be shown?)
         phone: User phone number
-        message_id: Original message ID (for re-triggering typing indicator)
         whatsapp_client: WhatsApp API client
         correlation_id: Request correlation ID for logging
         logger: Event logger
@@ -286,7 +297,6 @@ def send_images_if_needed(
             images=[{"uri": "https://...", "caption": "שקנאים"}],
             should_include=True,
             phone="972501234567",
-            message_id="wamid.XXX...",
             whatsapp_client=client,
             correlation_id="uuid-123",
             logger=event_logger
@@ -295,30 +305,22 @@ def send_images_if_needed(
     if not should_include or not images:
         return
 
-    # Send random "wait for image" message (1 of 10 variations)
-    wait_message = random.choice(IMAGE_WAITING_MESSAGES)
-    eprint(f"[IMAGE] Sending wait message: {wait_message[:30]}...")
-    whatsapp_client.send_text_message(phone, wait_message)
-
-    # Re-trigger typing indicator (gives another 25s of typing animation while image loads)
-    # This covers the time it takes to download image from GCS and upload to WhatsApp
-    try:
-        eprint(f"[TYPING] Re-triggering typing indicator for image wait...")
-        whatsapp_client.send_read_receipt(message_id, typing_indicator=True)
-    except Exception as e:
-        eprint(f"[WARNING] Failed to re-trigger typing indicator: {e}")
-        # Continue anyway - not critical if typing indicator fails
-
     # Send only the first image (backend sorted by relevance)
     first_image = images[0]
 
     # Defensive validation: ensure first_image is a dictionary
     if not isinstance(first_image, dict):
-        eprint(f"[WARNING] First image entry is not a dict! Type: {type(first_image)}. Skipping image send.")
-        logger.log_event("error", {
-            "type": "invalid_image_entry_type",
-            "actual_type": str(type(first_image)),
-        }, correlation_id)
+        eprint(
+            f"[WARNING] First image entry is not a dict! Type: {type(first_image)}. Skipping image send."
+        )
+        logger.log_event(
+            "error",
+            {
+                "type": "invalid_image_entry_type",
+                "actual_type": str(type(first_image)),
+            },
+            correlation_id,
+        )
         return
 
     image_url = first_image.get("uri")  # GCS signed URL
@@ -326,11 +328,17 @@ def send_images_if_needed(
 
     # Defensive validation: ensure caption is a string
     if not isinstance(caption_raw, str):
-        eprint(f"[WARNING] Caption field is not a string! Type: {type(caption_raw)}. Using empty caption.")
-        logger.log_event("error", {
-            "type": "invalid_caption_type",
-            "actual_type": str(type(caption_raw)),
-        }, correlation_id)
+        eprint(
+            f"[WARNING] Caption field is not a string! Type: {type(caption_raw)}. Using empty caption."
+        )
+        logger.log_event(
+            "error",
+            {
+                "type": "invalid_caption_type",
+                "actual_type": str(type(caption_raw)),
+            },
+            correlation_id,
+        )
         caption = ""
     else:
         caption = caption_raw
@@ -338,9 +346,7 @@ def send_images_if_needed(
     if image_url:
         eprint(f"[IMAGE] Sending image: {caption[:50]}...")
         image_status, image_response = whatsapp_client.send_image(
-            phone,
-            image_url,
-            caption
+            phone, image_url, caption
         )
 
         if image_status < 200 or image_status >= 300:
