@@ -326,7 +326,20 @@ try:
                                 try:
                                     # Download image data directly from GCS
                                     image_data = storage.read_file_bytes(img.gcs_path)
-                                    st.image(image_data, caption=caption_text, width=400)
+
+                                    # Calculate image size
+                                    size_bytes = len(image_data)
+                                    if size_bytes < 1024:
+                                        size_str = f"{size_bytes} B"
+                                    elif size_bytes < 1024 * 1024:
+                                        size_str = f"{size_bytes / 1024:.1f} KB"
+                                    else:
+                                        size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+
+                                    # Add size to caption
+                                    caption_with_size = f"{caption_text} ({size_str})"
+
+                                    st.image(image_data, caption=caption_with_size, width=400)
                                 except Exception as e:
                                     st.caption(caption_text)
                                     st.error(f"Could not load image")

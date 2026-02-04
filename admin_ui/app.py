@@ -73,6 +73,7 @@ st.title("🔧 Tourism RAG - Admin Backoffice")
 st.markdown("""
 ### Available Features
 
+- **📊 Query Logs**: Explore query logs with filtering and analytics
 - **📤 Upload Content**: Add documents to locations
 - **📁 View Content**: Browse uploaded files
 - **💬 Conversations**: Monitor and manage chats
@@ -125,5 +126,5 @@ with col3:
 st.markdown("---")
 st.caption("Tourism RAG Admin Backoffice • Built with Streamlit")
 
-# Auto-redirect to View Content page (make it the default landing page)
-st.switch_page("pages/2_View_Content.py")
+# Auto-redirect to Query Logs page (make it the default landing page)
+st.switch_page("pages/1_Query_Logs.py")
