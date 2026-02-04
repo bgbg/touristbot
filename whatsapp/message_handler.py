@@ -7,12 +7,28 @@ sends images, and delivers responses.
 
 from __future__ import annotations
 
+import random
 from typing import List, Dict, Any, Optional
 
 from .backend_client import BackendClient
 from .conversation import ConversationLoader
 from .logging_utils import EventLogger, eprint
 from .whatsapp_client import WhatsAppClient
+
+
+# 10 random messages to show before sending image (picked randomly for variety)
+IMAGE_WAITING_MESSAGES = [
+    "חכה רגע, יש לי גם תמונה. היא כבר מגיעה 📸",
+    "רגע, אני שולח לך תמונה 📷",
+    "יש לי תמונה מעניינת, רק שניה... 🖼️",
+    "אה, יש לי גם משהו לראות לך! רגע... 📸",
+    "חכה, אני מביא תמונה 🌅",
+    "יש לי תמונה שכדאי לראות, רק רגע... 📷",
+    "אני מעלה תמונה, שניה... 🖼️",
+    "רגע קטן, שולח תמונה 📸",
+    "יש לי תמונה יפה להראות לך, רק רגע... 🏞️",
+    "חכה, זו תמונה שווה! היא מגיעה... 📷",
+]
 
 
 def process_message(
@@ -165,6 +181,7 @@ def process_message(
             images=images,
             should_include=should_include_images,
             phone=phone,
+            message_id=message_id,  # Need original message_id to re-trigger typing
             whatsapp_client=whatsapp_client,
             correlation_id=correlation_id,
             logger=logger
@@ -239,12 +256,18 @@ def send_images_if_needed(
     images: List[Dict[str, Any]],
     should_include: bool,
     phone: str,
+    message_id: str,
     whatsapp_client: WhatsAppClient,
     correlation_id: str,
     logger: EventLogger
 ) -> None:
     """
     Send images if available and flagged by LLM.
+
+    Before sending image:
+    1. Sends random "wait for image" message (1 of 10 variations)
+    2. Re-triggers typing indicator (gives 25s more of typing animation)
+    3. Sends the image
 
     Sends only the first image (backend sorted by relevance).
     Performs defensive validation on image data structure.
@@ -253,6 +276,7 @@ def send_images_if_needed(
         images: List of image objects from backend
         should_include: Boolean flag from LLM (should images be shown?)
         phone: User phone number
+        message_id: Original message ID (for re-triggering typing indicator)
         whatsapp_client: WhatsApp API client
         correlation_id: Request correlation ID for logging
         logger: Event logger
@@ -262,6 +286,7 @@ def send_images_if_needed(
             images=[{"uri": "https://...", "caption": "שקנאים"}],
             should_include=True,
             phone="972501234567",
+            message_id="wamid.XXX...",
             whatsapp_client=client,
             correlation_id="uuid-123",
             logger=event_logger
@@ -269,6 +294,20 @@ def send_images_if_needed(
     """
     if not should_include or not images:
         return
+
+    # Send random "wait for image" message (1 of 10 variations)
+    wait_message = random.choice(IMAGE_WAITING_MESSAGES)
+    eprint(f"[IMAGE] Sending wait message: {wait_message[:30]}...")
+    whatsapp_client.send_text_message(phone, wait_message)
+
+    # Re-trigger typing indicator (gives another 25s of typing animation while image loads)
+    # This covers the time it takes to download image from GCS and upload to WhatsApp
+    try:
+        eprint(f"[TYPING] Re-triggering typing indicator for image wait...")
+        whatsapp_client.send_read_receipt(message_id, typing_indicator=True)
+    except Exception as e:
+        eprint(f"[WARNING] Failed to re-trigger typing indicator: {e}")
+        # Continue anyway - not critical if typing indicator fails
 
     # Send only the first image (backend sorted by relevance)
     first_image = images[0]
