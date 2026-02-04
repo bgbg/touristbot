@@ -33,9 +33,9 @@ def process_message(
     2. Handle special commands (reset)
     3. Add user message to history
     4. Call backend QA endpoint
-    5. Send images if relevant
-    6. Send text response
-    7. Save assistant message to history
+    5. Send text response FIRST (fast, within typing indicator window)
+    6. Save assistant message to history
+    7. Send images AFTER as follow-up (no timeout pressure)
 
     All errors are caught and logged - this function never raises exceptions to
     prevent crashing the background thread.
@@ -131,15 +131,19 @@ def process_message(
             }, correlation_id)
             images = []
 
-        # Send images if available and flagged
-        send_images_if_needed(
-            images=images,
-            should_include=should_include_images,
-            phone=phone,
-            whatsapp_client=whatsapp_client,
-            correlation_id=correlation_id,
-            logger=logger
-        )
+        # Send text response FIRST (fast! within typing indicator window)
+        eprint(f"[TEXT] Sending text response immediately...")
+        status, send_response = whatsapp_client.send_text_message(phone, response_text)
+
+        if status < 200 or status >= 300:
+            # Send failed, try fallback error message
+            eprint(f"[ERROR] Failed to send response, status: {status}")
+            whatsapp_client.send_text_message(
+                phone,
+                "מצטער, לא הצלחתי לשלוח את התשובה. אנא נסה שוב."
+            )
+        else:
+            eprint(f"✓ [TEXT] Text response sent successfully")
 
         # Add assistant response to history with images (automatically saves to GCS)
         # This is CRITICAL for duplicate prevention - must save images that were sent
@@ -153,20 +157,18 @@ def process_message(
             )
         except Exception as e:
             eprint(f"[ERROR] Failed to save assistant message: {e}")
-            # Continue anyway - send response to user even if save fails
+            # Continue anyway - send images even if save fails
 
-        # Send text response
-        status, send_response = whatsapp_client.send_text_message(phone, response_text)
-
-        if status < 200 or status >= 300:
-            # Send failed, try fallback error message
-            eprint(f"[ERROR] Failed to send response, status: {status}")
-            whatsapp_client.send_text_message(
-                phone,
-                "מצטער, לא הצלחתי לשלוח את התשובה. אנא נסה שוב."
-            )
-        else:
-            eprint(f"✓ [ASYNC] Response sent successfully")
+        # Send images AFTER text (as follow-up messages, no timeout pressure)
+        # User already has the answer, images are just supplementary
+        send_images_if_needed(
+            images=images,
+            should_include=should_include_images,
+            phone=phone,
+            whatsapp_client=whatsapp_client,
+            correlation_id=correlation_id,
+            logger=logger
+        )
 
     except Exception as e:
         # Catch all errors in background thread to prevent crashes
