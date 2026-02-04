@@ -93,7 +93,7 @@ class WhatsAppConfig:
             default_area="עמק חפר",  # Hefer Valley
             default_site="אגמון חפר",  # Agamon Hefer
             log_dir=Path("whatsapp_logs"),
-            background_task_timeout_seconds=60,
+            background_task_timeout_seconds=180,  # 3 minutes (handles large image uploads)
             message_dedup_ttl_seconds=300,  # 5 minutes
         )
 
