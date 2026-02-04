@@ -84,8 +84,42 @@ def process_message_async(phone: str, text: str, message_id: str, correlation_id
 
 
 def load_conversation(phone: str):
-    """Backward compatibility wrapper for load_conversation."""
-    return _conversation_loader.load_conversation(phone)
+    """
+    Backward compatibility wrapper for load_conversation.
+
+    Uses module-level conversation_store for test compatibility.
+    """
+    # For test compatibility, use the module-level conversation_store
+    # which can be patched by tests
+    conversation_id = f"whatsapp_{phone}"
+
+    try:
+        # Try to load existing conversation from GCS
+        conv = conversation_store.get_conversation(conversation_id)
+        if conv:
+            # Check if all messages were expired
+            if len(conv.messages) == 0:
+                eprint(f"[CONV] Loaded conversation with all messages expired: {conversation_id}")
+                eprint(f"[CONV] Starting fresh conversation after expiration")
+            else:
+                eprint(f"[CONV] Loaded existing conversation: {conversation_id} ({len(conv.messages)} messages)")
+            return conv
+        else:
+            # Create new conversation
+            eprint(f"[CONV] Creating new conversation: {conversation_id}")
+            config = get_config()
+            conv = conversation_store.create_conversation(
+                area=config.default_area,
+                site=config.default_site,
+                conversation_id=conversation_id
+            )
+            # Save immediately to GCS
+            conversation_store.save_conversation(conv)
+            return conv
+    except Exception as e:
+        eprint(f"[ERROR] Failed to load/create conversation: {e}")
+        # Fail-fast: re-raise exception to trigger error response
+        raise
 
 
 def call_backend_qa(conversation_id: str, area: str, site: str, query: str, correlation_id: str = None):
@@ -96,6 +130,22 @@ def call_backend_qa(conversation_id: str, area: str, site: str, query: str, corr
 def send_text_message(to_phone: str, text: str, correlation_id: str = None):
     """Backward compatibility wrapper for send_text_message."""
     return _whatsapp_client.send_text_message(to_phone, text)
+
+
+def normalize_phone(raw: str) -> str:
+    """Backward compatibility wrapper for normalize_phone."""
+    return WhatsAppClient.normalize_phone(raw)
+
+
+def download_image_from_url(url: str) -> bytes:
+    """Backward compatibility wrapper for download_image_from_url."""
+    return WhatsAppClient.download_image_from_url(url)
+
+
+def send_image_with_retry(to_phone: str, image_url: str, caption: str, correlation_id: str = None):
+    """Backward compatibility wrapper for send_image."""
+    return _whatsapp_client.send_image(to_phone, image_url, caption)
+
 
 # Backend process (will be started if USE_LOCAL_BACKEND=true)
 backend_process = None

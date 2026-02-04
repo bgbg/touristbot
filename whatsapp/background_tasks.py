@@ -110,7 +110,11 @@ class BackgroundTaskManager:
                     }, correlation_id)
 
                 # Run the actual target function
-                target(*args, **kwargs)
+                # Include correlation_id in kwargs if it was provided
+                target_kwargs = kwargs.copy()
+                if correlation_id is not None:
+                    target_kwargs['correlation_id'] = correlation_id
+                target(*args, **target_kwargs)
 
                 # Log completion
                 if self._logger:
