@@ -29,6 +29,8 @@ WORKDIR /app
 # Note: Build context should be project root, not whatsapp_bot/
 COPY whatsapp_bot.py /app/
 COPY send_whatsapp_message.py /app/
+COPY whatsapp_utils.py /app/
+COPY whatsapp/ /app/whatsapp/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
