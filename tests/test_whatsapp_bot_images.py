@@ -9,23 +9,6 @@ from unittest.mock import patch, MagicMock, call, Mock
 import pytest
 
 
-# Mock GCS storage before importing whatsapp_bot to avoid initialization errors
-@pytest.fixture(scope="session", autouse=True)
-def mock_gcs_storage():
-    """Mock GCS storage backend at module level."""
-    with patch('whatsapp_bot.GCSStorage') as mock_gcs, \
-         patch('whatsapp_bot.ConversationStore') as mock_store_class:
-        # Create mock instances
-        mock_storage_instance = Mock()
-        mock_store_instance = Mock()
-
-        # Configure mocks
-        mock_gcs.return_value = mock_storage_instance
-        mock_store_class.return_value = mock_store_instance
-
-        yield mock_store_instance
-
-
 # Mock WhatsApp bot module components
 @pytest.fixture
 def mock_whatsapp_env(monkeypatch):
@@ -83,11 +66,8 @@ def mock_backend_response_no_images():
 class TestDefensiveTypeValidation:
     """Test defensive type validation for response_text and images fields."""
 
-    def test_response_text_as_dict(self, mock_whatsapp_env):
+    def test_response_text_as_dict(self):
         """Test that dict response_text is converted to string."""
-        # Import here to ensure env vars are set
-        from whatsapp_bot import normalize_phone
-
         backend_response = {
             "response_text": {"message": "Hello", "code": 200},  # Dict instead of string
             "should_include_images": False,

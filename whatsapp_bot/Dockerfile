@@ -31,6 +31,7 @@ COPY whatsapp_bot.py /app/
 COPY send_whatsapp_message.py /app/
 COPY whatsapp_utils.py /app/
 COPY whatsapp/ /app/whatsapp/
+COPY backend/ /app/backend/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
