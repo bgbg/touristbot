@@ -22,6 +22,7 @@ import hashlib
 import hmac
 import json
 import os
+import signal
 import sys
 import tempfile
 import threading
@@ -95,6 +96,11 @@ LOG_DIR.mkdir(exist_ok=True)
 _message_dedup_lock = threading.Lock()
 _message_dedup_cache: dict[str, float] = {}  # {message_id: timestamp}
 _MESSAGE_DEDUP_TTL_SECONDS = 300  # 5 minutes
+
+# Background task management
+_BACKGROUND_TASK_TIMEOUT_SECONDS = 60  # 60-second timeout for background threads
+_active_threads_lock = threading.Lock()
+_active_threads: set[threading.Thread] = set()  # Track active background threads
 
 def is_duplicate_message(msg_id: str) -> bool:
     """
@@ -612,6 +618,47 @@ def call_backend_qa(conversation_id: str, area: str, site: str, query: str, corr
     }
 
 
+def process_message_with_timeout(phone: str, text: str, message_id: str, correlation_id: str, thread: threading.Thread) -> None:
+    """
+    Wrapper that runs process_message_async with timeout monitoring.
+
+    Args:
+        phone: User phone number
+        text: Message text
+        message_id: WhatsApp message ID
+        correlation_id: Request correlation ID
+        thread: The thread object running this function (for tracking)
+    """
+    # Create a timeout timer
+    timeout_event = threading.Event()
+
+    def timeout_handler():
+        """Called when timeout expires."""
+        eprint(f"[TIMEOUT] Background task timed out after {_BACKGROUND_TASK_TIMEOUT_SECONDS}s: {message_id}")
+        log_event("background_task_timeout", {
+            "message_id": message_id,
+            "phone": phone,
+            "timeout_seconds": _BACKGROUND_TASK_TIMEOUT_SECONDS,
+        }, correlation_id)
+        timeout_event.set()
+
+    # Start timeout timer
+    timer = threading.Timer(_BACKGROUND_TASK_TIMEOUT_SECONDS, timeout_handler)
+    timer.daemon = True
+    timer.start()
+
+    try:
+        # Run the actual processing
+        process_message_async(phone, text, message_id, correlation_id)
+    finally:
+        # Cancel timeout timer if completed before timeout
+        timer.cancel()
+
+        # Remove from active threads
+        with _active_threads_lock:
+            _active_threads.discard(thread)
+
+
 def process_message_async(phone: str, text: str, message_id: str, correlation_id: str) -> None:
     """
     Process incoming message asynchronously in background thread.
@@ -888,12 +935,16 @@ def webhook_handler():
                                 # Never block on typing indicator failure
                                 eprint(f"[WARNING] Failed to send read/typing indicator: {e}")
 
-                            # Launch background thread to process message
+                            # Launch background thread to process message with timeout
                             thread = threading.Thread(
-                                target=process_message_async,
-                                args=(msg_from, text_body, msg_id, correlation_id),
+                                target=lambda: process_message_with_timeout(msg_from, text_body, msg_id, correlation_id, thread),
                                 daemon=True  # Daemon thread won't prevent shutdown
                             )
+
+                            # Track active thread
+                            with _active_threads_lock:
+                                _active_threads.add(thread)
+
                             thread.start()
                             eprint(f"[WEBHOOK] Background thread started for message {msg_id}")
                         else:
@@ -936,6 +987,48 @@ def health_check():
     return jsonify({"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}), 200
 
 
+def graceful_shutdown(signum=None, frame=None):
+    """
+    Graceful shutdown handler - waits for active background threads to complete.
+
+    Called on SIGTERM/SIGINT signals. Waits up to 30 seconds for active threads
+    to complete, then exits.
+
+    Args:
+        signum: Signal number (from signal handler)
+        frame: Current stack frame (from signal handler)
+    """
+    eprint("\n🛑 Shutdown signal received, waiting for active threads...")
+
+    with _active_threads_lock:
+        active_count = len(_active_threads)
+        active_threads_snapshot = list(_active_threads)
+
+    if active_count == 0:
+        eprint("✓ No active threads, exiting immediately")
+        sys.exit(0)
+
+    eprint(f"⏳ Waiting for {active_count} active thread(s) to complete (max 30s)...")
+
+    # Wait for threads with 30-second timeout
+    start_time = time.time()
+    for thread in active_threads_snapshot:
+        remaining_time = 30 - (time.time() - start_time)
+        if remaining_time <= 0:
+            break
+        thread.join(timeout=remaining_time)
+
+    with _active_threads_lock:
+        remaining = len(_active_threads)
+
+    if remaining == 0:
+        eprint(f"✓ All threads completed, exiting")
+    else:
+        eprint(f"⚠️  {remaining} thread(s) still active after 30s, forcing exit")
+
+    sys.exit(0)
+
+
 if __name__ == "__main__":
     # Validate critical environment variables
     required_env_vars = {
@@ -957,6 +1050,10 @@ if __name__ == "__main__":
         eprint("=" * 60)
         sys.exit(1)
 
+    # Register graceful shutdown handlers
+    signal.signal(signal.SIGTERM, graceful_shutdown)
+    signal.signal(signal.SIGINT, graceful_shutdown)
+
     eprint("=" * 60)
     eprint("WhatsApp Bot - Tourism RAG Integration")
     eprint("=" * 60)
@@ -966,6 +1063,7 @@ if __name__ == "__main__":
     eprint(f"Log Directory: {LOG_DIR.absolute()}")
     eprint(f"GCS Bucket: {GCS_BUCKET} (using ADC for authentication)")
     eprint(f"Default Location: {DEFAULT_AREA}/{DEFAULT_SITE}")
+    eprint(f"Background Task Timeout: {_BACKGROUND_TASK_TIMEOUT_SECONDS}s")
     eprint("=" * 60)
 
     # Only run startup logic once (not in Flask reloader child process)
