@@ -159,7 +159,7 @@ def test_prompt_loader_load_relative_path():
     # This assumes config/prompts/tourism_qa.yaml exists in the project
     config = PromptLoader.load("config/prompts/tourism_qa.yaml")
 
-    assert config.model_name == "gemini-2.5-pro"  # Updated to Pro for better quality
+    assert config.model_name == "gemini-3-flash-preview"  # Updated to Flash Preview
     assert config.temperature == 0.4
     assert "{area}" in config.system_prompt
     assert "{site}" in config.system_prompt
