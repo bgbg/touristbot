@@ -250,26 +250,34 @@ def send_image_message(
 
 
 def send_read_receipt(
-    token: str, phone_number_id: str, message_id: str
+    token: str, phone_number_id: str, message_id: str, typing_indicator: bool = False
 ) -> tuple[int, dict]:
     """
     Mark message as read (sends blue checkmarks to sender).
 
+    Optionally displays a typing indicator animation for up to 25 seconds.
+
     This is the WhatsApp read receipt API - it marks a message as read and shows
-    blue checkmarks to the sender. This does NOT show a typing indicator animation.
+    blue checkmarks to the sender. When typing_indicator=True, it also shows
+    a typing animation that lasts up to 25 seconds or until the next message.
 
     Args:
         token: WhatsApp access token
         phone_number_id: WhatsApp phone number ID
         message_id: Message ID from incoming webhook (required to mark as read)
+        typing_indicator: If True, show typing animation (default: False)
 
     Returns:
         Tuple of (status_code, response_dict)
 
     Example:
+        >>> # Just read receipt (blue checkmarks)
         >>> status, resp = send_read_receipt(token, phone_id, "wamid.XXX...")
+        >>>
+        >>> # Read receipt + typing indicator
+        >>> status, resp = send_read_receipt(token, phone_id, "wamid.XXX...", typing_indicator=True)
         >>> if status == 200:
-        ...     print("Message marked as read (blue checkmarks)")
+        ...     print("Message marked as read with typing animation")
     """
     url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}/messages"
 
@@ -279,69 +287,9 @@ def send_read_receipt(
         "message_id": message_id,
     }
 
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url=url,
-        data=data,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            status = resp.getcode()
-            body = resp.read().decode("utf-8", errors="replace")
-            return status, json.loads(body) if body else {}
-    except urllib.error.HTTPError as e:
-        status = e.code
-        body = e.read().decode("utf-8", errors="replace")
-        try:
-            return status, (
-                json.loads(body) if body else {"error": {"message": "Empty error body"}}
-            )
-        except json.JSONDecodeError:
-            return status, {"error": {"message": body}}
-    except Exception as e:
-        return 0, {"error": {"message": f"{type(e).__name__}: {e}"}}
-
-
-def send_typing_indicator(
-    token: str, phone_number_id: str, to_phone: str
-) -> tuple[int, dict]:
-    """
-    Send typing indicator to show bot is processing (shows typing animation).
-
-    Uses WhatsApp Sender Action API to display typing animation to the recipient.
-    The typing indicator lasts approximately 5-10 seconds or until the next
-    message is delivered, whichever comes first.
-
-    This is separate from read receipts (blue checkmarks). Use send_read_receipt()
-    to mark messages as read.
-
-    Args:
-        token: WhatsApp access token
-        phone_number_id: WhatsApp phone number ID
-        to_phone: Recipient phone number (digits only, international format)
-
-    Returns:
-        Tuple of (status_code, response_dict)
-
-    Example:
-        >>> status, resp = send_typing_indicator(token, phone_id, "972501234567")
-        >>> if status == 200:
-        ...     print("Typing indicator sent (typing animation showing)")
-    """
-    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}/messages"
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to_phone,
-        "sender_action": "typing_on",
-    }
+    # Add typing indicator if requested (per official Meta documentation)
+    if typing_indicator:
+        payload["typing_indicator"] = {"type": "text"}
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -370,3 +318,12 @@ def send_typing_indicator(
             return status, {"error": {"message": body}}
     except Exception as e:
         return 0, {"error": {"message": f"{type(e).__name__}: {e}"}}
+
+
+# DEPRECATED: send_typing_indicator() has been removed.
+# Typing indicators are now sent together with read receipts in a single API call.
+# Use send_read_receipt(token, phone_number_id, message_id, typing_indicator=True) instead.
+#
+# Per Meta's official documentation (updated Oct 2025):
+# https://developers.facebook.com/documentation/business-messaging/whatsapp/typing-indicators/
+# The typing indicator must be sent with the read receipt in the same request.

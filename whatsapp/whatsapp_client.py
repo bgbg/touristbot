@@ -19,7 +19,7 @@ from .logging_utils import eprint, EventLogger
 from .retry import retry
 
 # Import WhatsApp utility functions for media upload and messaging
-from whatsapp_utils import upload_media, send_image_message, send_typing_indicator, send_read_receipt
+from whatsapp_utils import upload_media, send_image_message, send_read_receipt
 
 
 class WhatsAppClient:
@@ -269,49 +269,35 @@ class WhatsAppClient:
                 except Exception as e:
                     eprint(f"[WARNING] Failed to delete temp file {temp_file}: {e}")
 
-    def send_typing_indicator(self, to_phone: str) -> Tuple[int, Dict[str, Any]]:
+    def send_read_receipt(self, message_id: str, typing_indicator: bool = False) -> Tuple[int, Dict[str, Any]]:
         """
-        Send typing indicator (typing animation).
+        Mark message as read (blue checkmarks), optionally with typing indicator.
 
-        Shows typing animation to recipient for ~5-10 seconds. No retry logic -
-        non-critical operation, failure is acceptable.
-
-        Args:
-            to_phone: Recipient phone number (will be normalized)
-
-        Returns:
-            Tuple of (status_code, response_dict)
-
-        Example:
-            client = WhatsAppClient(token, phone_id)
-            status, response = client.send_typing_indicator("+972501234567")
-        """
-        try:
-            normalized_phone = self.normalize_phone(to_phone)
-            return send_typing_indicator(self.access_token, self.phone_number_id, normalized_phone)
-        except Exception as e:
-            eprint(f"[WARNING] Failed to send typing indicator: {e}")
-            return 0, {"error": {"message": str(e)}}
-
-    def send_read_receipt(self, message_id: str) -> Tuple[int, Dict[str, Any]]:
-        """
-        Mark message as read (blue checkmarks).
-
-        Shows blue checkmarks to sender. No retry logic - non-critical operation,
+        Shows blue checkmarks to sender. When typing_indicator=True, also displays
+        typing animation for up to 25 seconds. No retry logic - non-critical operation,
         failure is acceptable.
 
         Args:
             message_id: WhatsApp message ID to mark as read
+            typing_indicator: If True, show typing animation (default: False)
 
         Returns:
             Tuple of (status_code, response_dict)
 
         Example:
             client = WhatsAppClient(token, phone_id)
+            # Just read receipt
             status, response = client.send_read_receipt("wamid.XXX...")
+            # Read receipt + typing indicator
+            status, response = client.send_read_receipt("wamid.XXX...", typing_indicator=True)
         """
         try:
-            return send_read_receipt(self.access_token, self.phone_number_id, message_id)
+            return send_read_receipt(
+                self.access_token,
+                self.phone_number_id,
+                message_id,
+                typing_indicator=typing_indicator
+            )
         except Exception as e:
             eprint(f"[WARNING] Failed to send read receipt: {e}")
             return 0, {"error": {"message": str(e)}}
