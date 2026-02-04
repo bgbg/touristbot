@@ -2,3 +2,11 @@ flask==3.0.0
 requests==2.31.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
+
+# Google Cloud dependencies (needed by backend code)
+google-cloud-storage
+google-genai>=1.59.0
+
+# Core dependencies (needed by backend code)
+pyyaml
+pydantic>=2.5.0
