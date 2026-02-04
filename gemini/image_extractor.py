@@ -32,7 +32,7 @@ class ImageExtractor:
     """Extracts images and metadata from DOCX files"""
 
     # Image validation limits
-    MAX_IMAGE_SIZE_MB = 10
+    MAX_IMAGE_SIZE_MB = 1
     VALID_IMAGE_FORMATS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
 
     def __init__(self, docx_path: str):
@@ -93,7 +93,7 @@ class ImageExtractor:
 
         return extracted_images
 
-    def _scale_image(self, image_data: bytes, image_format: str, target_size_mb: float = 10.0) -> bytes:
+    def _scale_image(self, image_data: bytes, image_format: str, target_size_mb: float = 1.0) -> bytes:
         """
         Scale down an image to meet the target size limit
 
