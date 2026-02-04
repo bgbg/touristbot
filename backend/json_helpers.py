@@ -23,6 +23,10 @@ def parse_json(text: str) -> Optional[Any]:
     Returns:
         Parsed JSON object or None if parsing fails
     """
+    # Handle None or empty text
+    if text is None or not text:
+        return None
+
     # Remove markdown code blocks
     text = re.sub(r"```json\s*", "", text)
     text = re.sub(r"```\s*$", "", text)
