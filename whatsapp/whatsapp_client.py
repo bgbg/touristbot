@@ -1,8 +1,8 @@
 """
 WhatsApp Cloud API client.
 
-Provides interface for sending messages, images, and typing indicators via
-WhatsApp Business API.
+Provides interface for sending messages, images, typing indicators, and read receipts
+via WhatsApp Business API.
 """
 
 from __future__ import annotations
@@ -19,15 +19,15 @@ from .logging_utils import eprint, EventLogger
 from .retry import retry
 
 # Import WhatsApp utility functions for media upload and messaging
-from whatsapp_utils import upload_media, send_image_message, send_typing_indicator
+from whatsapp_utils import upload_media, send_image_message, send_typing_indicator, send_read_receipt
 
 
 class WhatsAppClient:
     """
     WhatsApp Cloud API client for sending messages and media.
 
-    Handles text messages, images, typing indicators, and phone number normalization.
-    Uses exponential backoff retry for transient failures.
+    Handles text messages, images, typing indicators, read receipts, and phone
+    number normalization. Uses exponential backoff retry for transient failures.
     """
 
     def __init__(
@@ -269,11 +269,36 @@ class WhatsAppClient:
                 except Exception as e:
                     eprint(f"[WARNING] Failed to delete temp file {temp_file}: {e}")
 
-    def send_typing_indicator(self, message_id: str) -> Tuple[int, Dict[str, Any]]:
+    def send_typing_indicator(self, to_phone: str) -> Tuple[int, Dict[str, Any]]:
         """
-        Send typing indicator (mark message as read).
+        Send typing indicator (typing animation).
 
-        No retry logic - non-critical operation, failure is acceptable.
+        Shows typing animation to recipient for ~5-10 seconds. No retry logic -
+        non-critical operation, failure is acceptable.
+
+        Args:
+            to_phone: Recipient phone number (will be normalized)
+
+        Returns:
+            Tuple of (status_code, response_dict)
+
+        Example:
+            client = WhatsAppClient(token, phone_id)
+            status, response = client.send_typing_indicator("+972501234567")
+        """
+        try:
+            normalized_phone = self.normalize_phone(to_phone)
+            return send_typing_indicator(self.access_token, self.phone_number_id, normalized_phone)
+        except Exception as e:
+            eprint(f"[WARNING] Failed to send typing indicator: {e}")
+            return 0, {"error": {"message": str(e)}}
+
+    def send_read_receipt(self, message_id: str) -> Tuple[int, Dict[str, Any]]:
+        """
+        Mark message as read (blue checkmarks).
+
+        Shows blue checkmarks to sender. No retry logic - non-critical operation,
+        failure is acceptable.
 
         Args:
             message_id: WhatsApp message ID to mark as read
@@ -283,12 +308,12 @@ class WhatsAppClient:
 
         Example:
             client = WhatsAppClient(token, phone_id)
-            status, response = client.send_typing_indicator(msg_id)
+            status, response = client.send_read_receipt("wamid.XXX...")
         """
         try:
-            return send_typing_indicator(self.access_token, self.phone_number_id, message_id)
+            return send_read_receipt(self.access_token, self.phone_number_id, message_id)
         except Exception as e:
-            eprint(f"[WARNING] Failed to send typing indicator: {e}")
+            eprint(f"[WARNING] Failed to send read receipt: {e}")
             return 0, {"error": {"message": str(e)}}
 
     @staticmethod

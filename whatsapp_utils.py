@@ -5,7 +5,8 @@ WhatsApp utility functions for sending messages and media via Meta WhatsApp Clou
 This module provides reusable functions for:
 - Sending text messages
 - Uploading and sending images
-- Sending typing indicators
+- Sending typing indicators (typing animation)
+- Sending read receipts (blue checkmarks)
 - Phone number normalization
 
 Used by both whatsapp_bot.py and send_whatsapp_message.py.
@@ -248,15 +249,14 @@ def send_image_message(
         return 0, {"error": {"message": f"{type(e).__name__}: {e}"}}
 
 
-def send_typing_indicator(
+def send_read_receipt(
     token: str, phone_number_id: str, message_id: str
 ) -> tuple[int, dict]:
     """
-    Mark message as read and send typing indicator to show bot is processing.
+    Mark message as read (sends blue checkmarks to sender).
 
-    WhatsApp Cloud API combines read receipts and typing indicators in a single
-    request. The typing indicator lasts approximately 25 seconds or until the
-    next message is delivered, whichever comes first.
+    This is the WhatsApp read receipt API - it marks a message as read and shows
+    blue checkmarks to the sender. This does NOT show a typing indicator animation.
 
     Args:
         token: WhatsApp access token
@@ -267,9 +267,9 @@ def send_typing_indicator(
         Tuple of (status_code, response_dict)
 
     Example:
-        >>> status, resp = send_typing_indicator(token, phone_id, "wamid.XXX...")
+        >>> status, resp = send_read_receipt(token, phone_id, "wamid.XXX...")
         >>> if status == 200:
-        ...     print("Message marked as read, typing indicator sent")
+        ...     print("Message marked as read (blue checkmarks)")
     """
     url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}/messages"
 
@@ -277,6 +277,70 @@ def send_typing_indicator(
         "messaging_product": "whatsapp",
         "status": "read",
         "message_id": message_id,
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url=url,
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            status = resp.getcode()
+            body = resp.read().decode("utf-8", errors="replace")
+            return status, json.loads(body) if body else {}
+    except urllib.error.HTTPError as e:
+        status = e.code
+        body = e.read().decode("utf-8", errors="replace")
+        try:
+            return status, (
+                json.loads(body) if body else {"error": {"message": "Empty error body"}}
+            )
+        except json.JSONDecodeError:
+            return status, {"error": {"message": body}}
+    except Exception as e:
+        return 0, {"error": {"message": f"{type(e).__name__}: {e}"}}
+
+
+def send_typing_indicator(
+    token: str, phone_number_id: str, to_phone: str
+) -> tuple[int, dict]:
+    """
+    Send typing indicator to show bot is processing (shows typing animation).
+
+    Uses WhatsApp Sender Action API to display typing animation to the recipient.
+    The typing indicator lasts approximately 5-10 seconds or until the next
+    message is delivered, whichever comes first.
+
+    This is separate from read receipts (blue checkmarks). Use send_read_receipt()
+    to mark messages as read.
+
+    Args:
+        token: WhatsApp access token
+        phone_number_id: WhatsApp phone number ID
+        to_phone: Recipient phone number (digits only, international format)
+
+    Returns:
+        Tuple of (status_code, response_dict)
+
+    Example:
+        >>> status, resp = send_typing_indicator(token, phone_id, "972501234567")
+        >>> if status == 200:
+        ...     print("Typing indicator sent (typing animation showing)")
+    """
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}/messages"
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_phone,
+        "sender_action": "typing_on",
     }
 
     data = json.dumps(payload).encode("utf-8")

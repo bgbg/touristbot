@@ -134,16 +134,24 @@ def create_app() -> Flask:
                                     }, correlation_id)
                                     continue  # Skip duplicate, don't process
 
-                                # Send typing indicator immediately (mark as read)
+                                # Send read receipt and typing indicator immediately
                                 try:
-                                    status, resp = whatsapp_client.send_typing_indicator(msg_id)
-                                    if status == 200:
-                                        logger.eprint("[TYPING] Message marked as read, typing indicator active")
+                                    # Mark message as read (blue checkmarks)
+                                    read_status, read_resp = whatsapp_client.send_read_receipt(msg_id)
+                                    if read_status == 200:
+                                        logger.eprint("[READ] Message marked as read (blue checkmarks)")
                                     else:
-                                        logger.eprint(f"[WARNING] Read/typing indicator returned status {status}: {resp}")
+                                        logger.eprint(f"[WARNING] Read receipt returned status {read_status}: {read_resp}")
+
+                                    # Send typing indicator (typing animation)
+                                    typing_status, typing_resp = whatsapp_client.send_typing_indicator(msg_from)
+                                    if typing_status == 200:
+                                        logger.eprint("[TYPING] Typing indicator sent (typing animation)")
+                                    else:
+                                        logger.eprint(f"[WARNING] Typing indicator returned status {typing_status}: {typing_resp}")
                                 except Exception as e:
-                                    # Never block on typing indicator failure
-                                    logger.eprint(f"[WARNING] Failed to send read/typing indicator: {e}")
+                                    # Never block on read receipt or typing indicator failure
+                                    logger.eprint(f"[WARNING] Failed to send read receipt or typing indicator: {e}")
 
                                 # Launch background thread to process message
                                 task_manager.execute_async(

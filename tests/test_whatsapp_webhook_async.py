@@ -109,11 +109,13 @@ def create_webhook_payload(msg_id="wamid.test123", phone="972525974655", text="H
 
 
 @pytest.mark.parametrize("mock_delay", [0, 5, 10])
+@patch('whatsapp_utils.send_read_receipt')
 @patch('whatsapp_utils.send_typing_indicator')
 @patch('whatsapp_bot.process_message_async')
-def test_webhook_returns_200_ok_immediately(mock_process, mock_typing, client, mock_delay):
+def test_webhook_returns_200_ok_immediately(mock_process, mock_typing, mock_read, client, mock_delay):
     """Test that webhook returns 200 OK within 1 second even with slow processing."""
-    # Mock typing indicator success
+    # Mock both operations
+    mock_read.return_value = (200, {"success": True})
     mock_typing.return_value = (200, {"success": True})
 
     # Mock slow processing
@@ -140,10 +142,12 @@ def test_webhook_returns_200_ok_immediately(mock_process, mock_typing, client, m
     assert data.get("status") == "ok"
 
 
+@patch('whatsapp_utils.send_read_receipt')
 @patch('whatsapp_utils.send_typing_indicator')
 @patch('whatsapp.app.process_message')
-def test_duplicate_messages_rejected(mock_process, mock_typing, client):
+def test_duplicate_messages_rejected(mock_process, mock_typing, mock_read, client):
     """Test that duplicate message IDs are detected and skipped."""
+    mock_read.return_value = (200, {"success": True})
     mock_typing.return_value = (200, {"success": True})
 
     payload = create_webhook_payload(msg_id="wamid.duplicate_test")
@@ -191,6 +195,7 @@ def test_background_processing_completes():
     # Mock WhatsApp client
     mock_whatsapp = MagicMock()
     mock_whatsapp.send_text_message.return_value = (200, {"success": True})
+    mock_whatsapp.send_read_receipt.return_value = (200, {"success": True})
     mock_whatsapp.send_typing_indicator.return_value = (200, {"success": True})
 
     # Clear caches and apply patches
@@ -237,9 +242,13 @@ def test_typing_indicator_sent_before_200_ok():
 
     # Mock WhatsApp client
     mock_whatsapp = MagicMock()
+    def track_read(*args):
+        call_order.append("read")
+        return (200, {"success": True})
     def track_typing(*args):
         call_order.append("typing")
         return (200, {"success": True})
+    mock_whatsapp.send_read_receipt.side_effect = track_read
     mock_whatsapp.send_typing_indicator.side_effect = track_typing
 
     # Clear caches and apply patches
@@ -272,22 +281,25 @@ def test_typing_indicator_sent_before_200_ok():
                                   content_type='application/json')
             elapsed = time.time() - start
 
-            # Verify order: typing indicator before response
-            # Note: typing indicator is synchronous, process_message is async in thread
-            # So typing should always come before process
-            assert call_order[0] == "typing"
+            # Verify order: read receipt and typing indicator before response
+            # Note: both are synchronous, process_message is async in thread
+            # So read and typing should always come before process
+            assert call_order[0] == "read"
+            assert call_order[1] == "typing"
             assert response.status_code == 200
             assert elapsed < 1.0
 
 
+@patch('whatsapp_utils.send_read_receipt')
 @patch('whatsapp_utils.send_typing_indicator')
 @patch('whatsapp_bot.call_backend_qa')
 @patch('whatsapp_bot.load_conversation')
 @patch('whatsapp_bot.send_text_message')
 @patch('whatsapp_bot.conversation_store')
 def test_background_task_timeout(mock_conv_store, mock_send_text, mock_load_conv,
-                                mock_backend, mock_typing, client):
+                                mock_backend, mock_typing, mock_read, client):
     """Test that background task timeout triggers after 60s."""
+    mock_read.return_value = (200, {"success": True})
     mock_typing.return_value = (200, {"success": True})
 
     mock_conv = MagicMock()
@@ -318,10 +330,12 @@ def test_background_task_timeout(mock_conv_store, mock_send_text, mock_load_conv
     # Actual timeout behavior verified in manual/staging tests
 
 
+@patch('whatsapp_utils.send_read_receipt')
 @patch('whatsapp_utils.send_typing_indicator')
 @patch('whatsapp.app.process_message')
-def test_concurrent_messages_handled(mock_process, mock_typing, client):
+def test_concurrent_messages_handled(mock_process, mock_typing, mock_read, client):
     """Test that multiple sequential messages are handled correctly."""
+    mock_read.return_value = (200, {"success": True})
     mock_typing.return_value = (200, {"success": True})
     mock_process.return_value = None
 
@@ -345,10 +359,12 @@ def test_concurrent_messages_handled(mock_process, mock_typing, client):
     assert mock_process.call_count == 5
 
 
+@patch('whatsapp_utils.send_read_receipt')
 @patch('whatsapp_utils.send_typing_indicator')
-def test_typing_indicator_failure_does_not_block(mock_typing, client):
+def test_typing_indicator_failure_does_not_block(mock_typing, mock_read, client):
     """Test that typing indicator failure doesn't block webhook response."""
-    # Simulate typing indicator failure
+    # Mock read receipt success, simulate typing indicator failure
+    mock_read.return_value = (200, {"success": True})
     mock_typing.side_effect = Exception("Typing indicator failed")
 
     payload = create_webhook_payload()
@@ -378,6 +394,7 @@ def test_backend_error_handling():
     # Mock WhatsApp client
     mock_whatsapp = MagicMock()
     mock_whatsapp.send_text_message.return_value = (200, {})
+    mock_whatsapp.send_read_receipt.return_value = (200, {"success": True})
     mock_whatsapp.send_typing_indicator.return_value = (200, {"success": True})
 
     # Clear caches and apply patches
