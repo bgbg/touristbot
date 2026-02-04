@@ -110,10 +110,12 @@ def get_whatsapp_client() -> WhatsAppClient:
         client.send_text_message("+972501234567", "Hello!")
     """
     config = get_config()
+    logger = get_event_logger()
     return WhatsAppClient(
         access_token=config.access_token,
         phone_number_id=config.phone_number_id,
-        graph_api_version=config.graph_api_version
+        graph_api_version=config.graph_api_version,
+        logger=logger
     )
 
 
@@ -131,13 +133,16 @@ def get_backend_client() -> BackendClient:
             "whatsapp_972501234567",
             "עמק חפר",
             "אגמון חפר",
-            "מה יש לראות?"
+            "מה יש לראות?",
+            correlation_id="uuid-123"
         )
     """
     config = get_config()
+    logger = get_event_logger()
     return BackendClient(
         base_url=config.backend_api_url,
-        api_key=config.backend_api_key
+        api_key=config.backend_api_key,
+        logger=logger
     )
 
 

@@ -28,11 +28,9 @@ from whatsapp.dependencies import (
     get_backend_client, get_whatsapp_client
 )
 from whatsapp.logging_utils import eprint
-from whatsapp.security import verify_webhook_signature
 
 # Import for backward compatibility with tests
 from backend.gcs_storage import GCSStorage
-from backend.conversation_storage.conversations import ConversationStore
 
 load_dotenv()
 
@@ -48,11 +46,46 @@ _backend_client = get_backend_client()
 _whatsapp_client = get_whatsapp_client()
 _event_logger = get_event_logger()
 
-# Expose internal state for tests (backward compatibility)
-_message_dedup_cache = _deduplicator._cache
-_message_dedup_lock = _deduplicator._lock
-_active_threads = _task_manager._active_threads
-_active_threads_lock = _task_manager._threads_lock
+# Helper accessors for internal state used by tests (backward compatibility)
+# These provide a stable interface without exposing implementation details
+def get_message_dedup_cache_size() -> int:
+    """
+    Return the current size of the message deduplication cache.
+
+    This provides a stable interface for tests without exposing the
+    underlying cache implementation or private attributes directly.
+    """
+    return _deduplicator.get_cache_size()
+
+
+def clear_message_dedup_cache() -> None:
+    """
+    Clear all entries from the message deduplication cache.
+
+    Thread-safe operation. Useful for testing to reset state between test cases.
+    """
+    _deduplicator.clear()
+
+
+def get_active_thread_count() -> int:
+    """
+    Return the current number of active background threads managed
+    by the BackgroundTaskManager.
+
+    This avoids exposing the internal _active_threads collection
+    directly while still allowing tests to assert on thread usage.
+    """
+    return _task_manager.get_active_count()
+
+
+def clear_active_threads() -> None:
+    """
+    Clear all active threads from tracking.
+
+    Thread-safe operation. Useful for testing to reset state between test cases.
+    Note: This only clears tracking, does not stop running threads.
+    """
+    _task_manager.clear_active_threads()
 
 # Expose conversation_store for tests
 conversation_store = get_conversation_store()
@@ -66,7 +99,6 @@ def is_duplicate_message(msg_id: str) -> bool:
 # Import other functions that tests might need
 from whatsapp.message_handler import process_message
 from whatsapp.whatsapp_client import WhatsAppClient
-from whatsapp_utils import send_typing_indicator, upload_media, send_image_message
 
 # Compatibility wrappers for tests
 def process_message_async(phone: str, text: str, message_id: str, correlation_id: str) -> None:

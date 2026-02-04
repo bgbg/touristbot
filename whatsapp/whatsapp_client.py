@@ -10,13 +10,12 @@ from __future__ import annotations
 import imghdr
 import json
 import os
-import sys
 import tempfile
 import urllib.request
 import urllib.error
 from typing import Tuple, Dict, Any, Optional
 
-from .logging_utils import eprint
+from .logging_utils import eprint, EventLogger
 from .retry import retry
 
 # Import WhatsApp utility functions for media upload and messaging
@@ -35,7 +34,8 @@ class WhatsAppClient:
         self,
         access_token: str,
         phone_number_id: str,
-        graph_api_version: str = "v22.0"
+        graph_api_version: str = "v22.0",
+        logger: Optional[EventLogger] = None
     ):
         """
         Initialize WhatsApp API client.
@@ -44,17 +44,20 @@ class WhatsAppClient:
             access_token: WhatsApp Business API access token
             phone_number_id: WhatsApp phone number ID
             graph_api_version: Meta Graph API version (default: v22.0)
+            logger: Optional event logger for request tracing
         """
         self.access_token = access_token
         self.phone_number_id = phone_number_id
         self.graph_api_version = graph_api_version
         self.base_url = f"https://graph.facebook.com/{graph_api_version}/{phone_number_id}"
+        self.logger = logger
 
     @retry(max_attempts=3, base_delay=1.0, max_delay=4.0, logger=eprint)
     def send_text_message(
         self,
         to_phone: str,
-        text: str
+        text: str,
+        correlation_id: Optional[str] = None
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Send text message via WhatsApp API with retry logic.
@@ -64,6 +67,7 @@ class WhatsAppClient:
         Args:
             to_phone: Recipient phone number (will be normalized)
             text: Message text (truncated to 4096 chars - WhatsApp limit)
+            correlation_id: Optional correlation ID for request tracing
 
         Returns:
             Tuple of (status_code, response_dict)
@@ -73,18 +77,31 @@ class WhatsAppClient:
 
         Example:
             client = WhatsAppClient(token, phone_id)
-            status, response = client.send_text_message("+972501234567", "Hello!")
+            status, response = client.send_text_message(
+                "+972501234567",
+                "Hello!",
+                correlation_id="uuid-123"
+            )
             if status == 200:
                 print(f"Message sent: {response}")
         """
         url = f"{self.base_url}/messages"
+        normalized_phone = self.normalize_phone(to_phone)
 
         payload = {
             "messaging_product": "whatsapp",
-            "to": self.normalize_phone(to_phone),
+            "to": normalized_phone,
             "type": "text",
             "text": {"body": text[:4096]},  # WhatsApp 4096 char limit
         }
+
+        # Log outgoing message
+        if self.logger:
+            self.logger.log_event("outgoing_message", {
+                "to_phone": normalized_phone,
+                "message_type": "text",
+                "text_length": len(text),
+            }, correlation_id)
 
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -102,6 +119,13 @@ class WhatsAppClient:
                 status = resp.getcode()
                 body = resp.read().decode("utf-8", errors="replace")
                 response = json.loads(body) if body else {}
+                # Log success
+                if self.logger:
+                    self.logger.log_event("message_sent", {
+                        "to_phone": normalized_phone,
+                        "status_code": status,
+                        "message_type": "text",
+                    }, correlation_id)
                 return status, response
 
         except urllib.error.HTTPError as e:
@@ -111,6 +135,13 @@ class WhatsAppClient:
                 response = json.loads(body) if body else {"error": {"message": "Empty error body"}}
             except json.JSONDecodeError:
                 response = {"error": {"message": body}}
+            # Log error
+            if self.logger:
+                self.logger.log_event("message_send_error", {
+                    "to_phone": normalized_phone,
+                    "status_code": status,
+                    "error": response.get('error', {}).get('message', 'Unknown error'),
+                }, correlation_id)
             # Re-raise to trigger retry
             raise Exception(f"HTTP {status}: {response.get('error', {}).get('message', 'Unknown error')}")
 
@@ -119,7 +150,8 @@ class WhatsAppClient:
         self,
         to_phone: str,
         image_url: str,
-        caption: str
+        caption: str,
+        correlation_id: Optional[str] = None
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Send image to WhatsApp with retry logic.
@@ -131,6 +163,7 @@ class WhatsAppClient:
             to_phone: Recipient phone number (will be normalized)
             image_url: GCS signed URL to download image from
             caption: Image caption (truncated to 1024 chars - WhatsApp limit)
+            correlation_id: Optional correlation ID for request tracing
 
         Returns:
             Tuple of (status_code, response_dict)
@@ -143,11 +176,21 @@ class WhatsAppClient:
             status, response = client.send_image(
                 "+972501234567",
                 "https://storage.googleapis.com/...",
-                "Beautiful sunset"
+                "Beautiful sunset",
+                correlation_id="uuid-123"
             )
         """
         normalized_phone = self.normalize_phone(to_phone)
         temp_file: Optional[str] = None
+
+        # Log outgoing image message
+        if self.logger:
+            self.logger.log_event("outgoing_message", {
+                "to_phone": normalized_phone,
+                "message_type": "image",
+                "image_url": image_url[:100],
+                "caption_length": len(caption),
+            }, correlation_id)
 
         try:
             # Download image
@@ -197,9 +240,25 @@ class WhatsAppClient:
 
             if 200 <= status < 300:
                 eprint(f"✓ Image sent successfully")
+                # Log success
+                if self.logger:
+                    self.logger.log_event("message_sent", {
+                        "to_phone": normalized_phone,
+                        "status_code": status,
+                        "message_type": "image",
+                        "image_size_mb": size_mb,
+                    }, correlation_id)
                 return status, send_response
             else:
                 eprint(f"[ERROR] Send failed: status={status}, response={send_response}")
+                # Log error
+                if self.logger:
+                    self.logger.log_event("message_send_error", {
+                        "to_phone": normalized_phone,
+                        "status_code": status,
+                        "message_type": "image",
+                        "error": send_response.get('error', {}).get('message', 'Unknown error'),
+                    }, correlation_id)
                 raise Exception(f"Send failed: {send_response.get('error', {}).get('message', 'Unknown error')}")
 
         finally:

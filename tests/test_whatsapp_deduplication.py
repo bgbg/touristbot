@@ -9,7 +9,6 @@ message processing on webhook retries.
 import pytest
 import threading
 import time
-from unittest.mock import patch
 
 # Import refactored deduplication module
 import sys

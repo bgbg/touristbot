@@ -216,3 +216,13 @@ class BackgroundTaskManager:
             eprint(f"⚠️  {remaining} thread(s) still active after {max_wait_seconds}s, forcing exit")
 
         return remaining
+
+    def clear_active_threads(self) -> None:
+        """
+        Clear all active threads from tracking.
+
+        Thread-safe operation. Useful for testing to reset state between test cases.
+        Note: This only clears tracking, does not stop running threads.
+        """
+        with self._threads_lock:
+            self._active_threads.clear()

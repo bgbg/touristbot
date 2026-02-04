@@ -8,8 +8,7 @@ processing messages in background threads.
 
 import pytest
 import time
-import threading
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 import json
 
 import sys
@@ -19,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import whatsapp_bot
-from whatsapp_bot import _message_dedup_cache, _message_dedup_lock, _active_threads, _active_threads_lock
+from whatsapp_bot import clear_message_dedup_cache, clear_active_threads
 
 
 @pytest.fixture(autouse=True)
@@ -63,19 +62,13 @@ def client():
 @pytest.fixture(autouse=True)
 def clear_state():
     """Clear global state before each test."""
-    with _message_dedup_lock:
-        _message_dedup_cache.clear()
-
-    with _active_threads_lock:
-        _active_threads.clear()
+    clear_message_dedup_cache()
+    clear_active_threads()
 
     yield
 
-    with _message_dedup_lock:
-        _message_dedup_cache.clear()
-
-    with _active_threads_lock:
-        _active_threads.clear()
+    clear_message_dedup_cache()
+    clear_active_threads()
 
 
 @pytest.fixture(autouse=True)
@@ -116,7 +109,7 @@ def create_webhook_payload(msg_id="wamid.test123", phone="972525974655", text="H
 
 
 @pytest.mark.parametrize("mock_delay", [0, 5, 10])
-@patch('whatsapp_bot.send_typing_indicator')
+@patch('whatsapp_utils.send_typing_indicator')
 @patch('whatsapp_bot.process_message_async')
 def test_webhook_returns_200_ok_immediately(mock_process, mock_typing, client, mock_delay):
     """Test that webhook returns 200 OK within 1 second even with slow processing."""
@@ -287,7 +280,7 @@ def test_typing_indicator_sent_before_200_ok():
             assert elapsed < 1.0
 
 
-@patch('whatsapp_bot.send_typing_indicator')
+@patch('whatsapp_utils.send_typing_indicator')
 @patch('whatsapp_bot.call_backend_qa')
 @patch('whatsapp_bot.load_conversation')
 @patch('whatsapp_bot.send_text_message')
@@ -352,7 +345,7 @@ def test_concurrent_messages_handled(mock_process, mock_typing, client):
     assert mock_process.call_count == 5
 
 
-@patch('whatsapp_bot.send_typing_indicator')
+@patch('whatsapp_utils.send_typing_indicator')
 def test_typing_indicator_failure_does_not_block(mock_typing, client):
     """Test that typing indicator failure doesn't block webhook response."""
     # Simulate typing indicator failure
