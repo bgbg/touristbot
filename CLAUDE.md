@@ -655,6 +655,197 @@ logs = logger.get_logs_range("2024-01-01", "2024-01-31")
 
 **Log retention**: Indefinite (controlled by GCS bucket lifecycle policy)
 
+### WhatsApp Bot Timing Logs (GCS)
+
+**Purpose**: Detailed performance measurement and bottleneck identification for WhatsApp message pipeline
+
+**Storage location**: `gs://tarasa_tourist_bot_content/whatsapp_query_logs/{YYYY-MM-DD}.jsonl`
+
+**Format**: JSONL (one JSON object per line, newline-delimited)
+
+**Schema**: Extends backend query log schema with WhatsApp-specific fields and detailed timing breakdown
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "conversation_id": "whatsapp_972501234567",
+  "area": "עמק חפר",
+  "site": "אגמון חפר",
+  "query": "מה יש לראות באגמון?",
+  "response_text": "באגמון חפר תוכלו לראות...",
+  "response_length": 250,
+  "latency_ms": 12345.67,
+  "citations_count": 3,
+  "images_count": 1,
+  "model_name": null,
+  "temperature": null,
+  "error": null,
+  "should_include_images": true,
+  "image_relevance": [...],
+  "citations": [...],
+  "images": [...],
+  "timing_breakdown": {
+    "webhook_received": 1705318245123.45,
+    "background_task_started": 1705318245125.12,
+    "message_processing_started": 1705318245125.89,
+    "conversation_load_start": 1705318245126.01,
+    "conversation_loaded": 1705318245234.56,
+    "user_message_save_start": 1705318245234.78,
+    "user_message_saved": 1705318245456.23,
+    "backend_request_sent": 1705318245456.45,
+    "backend_api_call_start": 1705318245457.12,
+    "backend_api_call_end": 1705318255678.34,
+    "backend_response_received": 1705318255678.56,
+    "images_send_start": 1705318255678.78,
+    "image_download_start": 1705318255679.01,
+    "image_downloaded": 1705318255890.12,
+    "image_upload_start": 1705318255890.45,
+    "image_uploaded": 1705318256234.56,
+    "image_message_send_start": 1705318256234.78,
+    "image_message_sent": 1705318256456.89,
+    "images_sent": 1705318256457.12,
+    "text_send_start": 1705318256457.34,
+    "whatsapp_text_api_call_start": 1705318256457.56,
+    "whatsapp_text_api_call_end": 1705318256789.01,
+    "text_sent": 1705318256789.23,
+    "history_save_start": 1705318256789.45,
+    "history_saved": 1705318257123.45,
+    "request_completed": 1705318257123.67
+  }
+}
+```
+
+**Timing Checkpoints (Fine-Grained)**:
+
+| Checkpoint | Description |
+|------------|-------------|
+| `webhook_received` | Webhook POST arrives at Flask endpoint |
+| `background_task_started` | Background thread launched for async processing |
+| `message_processing_started` | Start of message processing in background task |
+| `conversation_load_start` | Begin loading conversation history from GCS |
+| `conversation_loaded` | Conversation history loaded |
+| `user_message_save_start` | Begin saving user message to GCS |
+| `user_message_saved` | User message saved to conversation history |
+| `backend_request_sent` | Backend /qa API call initiated |
+| `backend_api_call_start` | HTTP request sent to backend |
+| `backend_api_call_end` | HTTP response received from backend |
+| `backend_response_received` | Backend response parsed |
+| `images_send_start` | Start sending images (if any) |
+| `image_download_start` | Begin downloading image from GCS |
+| `image_downloaded` | Image downloaded |
+| `image_upload_start` | Begin uploading image to WhatsApp |
+| `image_uploaded` | Image uploaded to WhatsApp |
+| `image_message_send_start` | Begin sending image message |
+| `image_message_sent` | Image message sent |
+| `images_sent` | All images sent |
+| `text_send_start` | Start sending text response |
+| `whatsapp_text_api_call_start` | HTTP request sent to WhatsApp API |
+| `whatsapp_text_api_call_end` | HTTP response received from WhatsApp API |
+| `text_sent` | Text response sent |
+| `history_save_start` | Begin saving assistant message to GCS |
+| `history_saved` | Assistant message saved to conversation history |
+| `request_completed` | Full request processing completed |
+
+**Delivery Status Tracking** (Logged separately in `EventLogger`):
+
+Delivery confirmation events are logged when WhatsApp status webhooks arrive:
+```json
+{
+  "timestamp": "2024-01-15T10:30:48.123Z",
+  "event_type": "delivery_timing",
+  "correlation_id": "uuid-456",
+  "data": {
+    "message_id": "wamid.XXX...",
+    "correlation_id": "uuid-456",
+    "phone": "972501234567",
+    "conversation_id": "whatsapp_972501234567",
+    "sent_timestamp_ms": 1705318256789.23,
+    "status_type": "delivered",
+    "status_timestamp_ms": 1705318258123.45,
+    "delivery_latency_ms": 1334.22
+  }
+}
+```
+
+Status types: `sent`, `delivered`, `read`
+
+**Accessing WhatsApp timing logs**:
+
+Via gsutil CLI:
+```bash
+# Download specific date
+gsutil cp gs://tarasa_tourist_bot_content/whatsapp_query_logs/2024-01-15.jsonl .
+
+# Download date range
+gsutil -m cp gs://tarasa_tourist_bot_content/whatsapp_query_logs/2024-01-*.jsonl .
+
+# View recent logs
+gsutil cat gs://tarasa_tourist_bot_content/whatsapp_query_logs/2024-01-15.jsonl | tail -n 10
+```
+
+**Analyzing timing data with jq**:
+
+```bash
+# Calculate average latency by stage
+cat logs.jsonl | jq -r '.timing_breakdown |
+  (.backend_api_call_end - .backend_api_call_start) as $backend |
+  (.image_downloaded - .image_download_start) as $img_download |
+  (.text_sent - .text_send_start) as $whatsapp |
+  "\($backend),\($img_download),\($whatsapp)"' |
+  awk -F, '{b+=$1; i+=$2; w+=$3; n++} END {print "Avg Backend:", b/n, "Img DL:", i/n, "WhatsApp:", w/n}'
+
+# Find slowest queries (>10s total)
+cat logs.jsonl | jq 'select(.latency_ms > 10000) |
+  {conversation_id, latency_ms, query: .query[:50]}'
+
+# Identify bottlenecks by checkpoint
+cat logs.jsonl | jq -r '.timing_breakdown |
+  to_entries |
+  sort_by(.value) |
+  .[] |
+  "\(.key): \(.value)"' |
+  head -5
+
+# Count queries with image downloads
+cat logs.jsonl | jq 'select(.timing_breakdown.image_download_start != null) | .conversation_id' | wc -l
+
+# Calculate percentiles for backend latency
+cat logs.jsonl | jq -s 'map(.timing_breakdown.backend_api_call_end - .timing_breakdown.backend_api_call_start) |
+  sort |
+  .[length * 0.5 | floor] as $p50 |
+  .[length * 0.95 | floor] as $p95 |
+  .[length * 0.99 | floor] as $p99 |
+  {p50: $p50, p95: $p95, p99: $p99}'
+```
+
+**Key Performance Metrics**:
+
+1. **Total Latency**: `request_completed - webhook_received`
+2. **Backend Processing**: `backend_response_received - backend_request_sent`
+3. **GCS Operations**:
+   - Conversation load: `conversation_loaded - conversation_load_start`
+   - User message save: `user_message_saved - user_message_save_start`
+   - History save: `history_saved - history_save_start`
+4. **Image Processing** (if applicable):
+   - Download: `image_downloaded - image_download_start`
+   - Upload: `image_uploaded - image_upload_start`
+   - Send: `image_message_sent - image_message_send_start`
+5. **WhatsApp API Calls**:
+   - Text message: `whatsapp_text_api_call_end - whatsapp_text_api_call_start`
+   - Image message: `image_message_sent - image_message_send_start`
+6. **Delivery Latency** (from delivery events): `status_timestamp_ms - sent_timestamp_ms`
+
+**Bottleneck Identification**:
+
+Compare timing deltas to identify slowest stages:
+- **Backend > 5s**: Gemini API latency or File Search retrieval
+- **GCS operations > 1s**: Network latency or large conversation history
+- **Image download > 2s**: GCS signed URL fetch latency
+- **Image upload > 3s**: WhatsApp media upload (depends on image size)
+- **WhatsApp API > 1s**: Meta API latency or network issues
+
+**Log retention**: Indefinite (controlled by GCS bucket lifecycle policy)
+
 ### Searching and Filtering Best Practices
 
 **Application logs (Cloud Logging)**:
