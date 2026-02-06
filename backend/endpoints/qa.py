@@ -28,7 +28,7 @@ from backend.dependencies import (
     get_store_registry,
 )
 from backend.endpoints.topics import get_topics_for_location
-from backend.image_registry import ImageRegistry
+from backend.image_registry import ImageRegistry, ImageRecord
 from backend.json_helpers import parse_json
 from backend.query_logging.query_logger import QueryLogger
 from backend.models import Citation, ImageMetadata, QARequest, QAResponse
@@ -110,14 +110,17 @@ def query_images_for_location(
 
 
 def filter_images_by_relevance(
-    images: List[dict], image_relevance: List, storage, min_score: int = 85
+    images: List[ImageRecord], image_relevance: List, storage, min_score: int = 85
 ) -> List[ImageMetadata]:
     """
     Filter images by relevance scores from LLM.
 
+    Text-only mode: Matches images by caption text (not URI).
+    LLM scores captions found in File Search documents without seeing images directly.
+
     Args:
-        images: List of image records from registry
-        image_relevance: List of dicts with 'image_uri' and 'relevance_score' from LLM JSON
+        images: List of ImageRecord objects from registry
+        image_relevance: List of dicts with 'caption' and 'relevance_score' from LLM JSON
         storage: Storage backend for generating signed URLs
         min_score: Minimum relevance score (default: 85, strict threshold for high quality)
 
@@ -126,28 +129,37 @@ def filter_images_by_relevance(
     """
     relevant_images = []
 
-    # Convert list of scores to dict for lookup
-    # Handle both dict format (from JSON) and object format (for compatibility)
+    # Build caption → score mapping
+    # Normalize captions for fuzzy matching (strip whitespace, lowercase)
     relevance_dict = {}
     for item in image_relevance:
         if isinstance(item, dict):
-            # JSON format: {"image_uri": "...", "relevance_score": 85}
-            uri = item.get("image_uri")
+            # JSON format: {"caption": "...", "relevance_score": 85}
+            caption = item.get("caption")
             score = item.get("relevance_score", 0)
+            if caption:
+                # Normalize caption for matching
+                normalized_caption = caption.strip().lower()
+                relevance_dict[normalized_caption] = score
+                logger.debug(f"LLM scored caption '{caption}' with relevance {score}")
         else:
-            # Object format (legacy): item.uri, item.score
-            uri = getattr(item, "uri", getattr(item, "image_uri", None))
-            score = getattr(item, "score", getattr(item, "relevance_score", 0))
-        if uri:
-            relevance_dict[uri] = score
+            # Object format (legacy): not expected in text-only mode
+            logger.warning(f"Unexpected non-dict item in image_relevance: {item}")
 
     for img in images:
-        file_api_uri = img.file_api_uri
-        if not file_api_uri:
+        caption = img.caption
+        if not caption:
+            logger.debug(f"Skipping image {img.gcs_path} - no caption")
             continue
 
-        # Get relevance score from LLM output
-        score = relevance_dict.get(file_api_uri, 0)
+        # Normalize for matching
+        normalized = caption.strip().lower()
+        score = relevance_dict.get(normalized, 0)
+
+        if normalized in relevance_dict:
+            logger.debug(f"Caption match: '{caption}' → score {score}")
+        else:
+            logger.debug(f"No LLM score for caption: '{caption}'")
 
         if score >= min_score:
             # Build context from before/after text
@@ -166,6 +178,9 @@ def filter_images_by_relevance(
             except Exception as e:
                 logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}. Skipping image.")
                 continue  # Skip this image if we can't generate a signed URL
+
+            # Keep file_api_uri for deduplication (backward compatibility)
+            file_api_uri = img.file_api_uri
 
             relevant_images.append(
                 ImageMetadata(
@@ -276,35 +291,9 @@ async def chat_query(
             question=request.query,
         )
 
-        # Build user message with images
-        # Add image URI list to prompt so LLM knows what URIs to return
-        image_uri_list = []
-        if location_images:
-            for img in location_images[:5]:
-                if img.file_api_uri:
-                    image_uri_list.append(img.file_api_uri)
-
-        # Enhance user prompt with image URI information
-        if image_uri_list:
-            user_prompt_with_images = f"{user_prompt}\n\n[Image URIs for reference in image_relevance: {', '.join(image_uri_list)}]"
-        else:
-            user_prompt_with_images = user_prompt
-
-        user_parts = [{"text": user_prompt_with_images}]
-
-        # DECISION: Skip File API image URIs entirely (text-only image relevance)
-        # Rationale:
-        # - File API URIs expire after 48 hours, causing 403 errors and retry delays
-        # - LLM can still score image relevance using captions + context text
-        # - Trade-off: Slightly lower accuracy vs. much better reliability and speed
-        # - Images still displayed to users (GCS signed URLs work independently)
-        #
-        # # Original code (disabled):
-        # if location_images:
-        #     for img in location_images[:5]:
-        #         file_api_uri = img.file_api_uri
-        #         if file_api_uri:
-        #             user_parts.append({"file_data": {"file_uri": file_api_uri}})
+        # Text-only mode: LLM scores images based on captions in File Search documents
+        # No multimodal context - LLM doesn't receive images directly
+        user_parts = [{"text": user_prompt}]
 
         # Create File Search tool with metadata filter
         from google.genai import types
@@ -322,7 +311,7 @@ async def chat_query(
         should_include_images_flag = None
         image_relevance_data = None
 
-        # Call Gemini API (no File API URIs = no 403 errors, no retry needed)
+        # Call Gemini API
         try:
             response = client.models.generate_content(
                 model=prompt_config.model_name,
@@ -333,6 +322,7 @@ async def chat_query(
                     temperature=prompt_config.temperature,
                 ),
             )
+
             # Get response text
             response_text = response.text
 
@@ -383,16 +373,19 @@ async def chat_query(
                 if image_relevance_data and len(image_relevance_data) > 0:
                     logger.info(f"Filtering {len(location_images)} images using LLM relevance scores")
 
-                    # Log detailed image relevance scores for debugging
-                    logger.info("=== Image Relevance Scores ===")
-                    # Build URI to score mapping
-                    uri_to_score = {item.get("image_uri"): item.get("relevance_score", 0)
-                                   for item in image_relevance_data if isinstance(item, dict)}
+                    # Log detailed image relevance scores for debugging (caption-based matching)
+                    logger.info("=== Image Relevance Scores (Caption-Based) ===")
+                    # Build caption to score mapping (normalized for matching)
+                    caption_to_score = {
+                        item.get("caption", "").strip().lower(): item.get("relevance_score", 0)
+                        for item in image_relevance_data if isinstance(item, dict) and item.get("caption")
+                    }
                     for img in location_images:
-                        score = uri_to_score.get(img.file_api_uri, 0)
+                        normalized_caption = (img.caption or "").strip().lower()
+                        score = caption_to_score.get(normalized_caption, 0)
                         caption_preview = (img.caption[:50] + "...") if img.caption and len(img.caption) > 50 else (img.caption or "no caption")
                         logger.info(f"  [{score:3d}] {caption_preview}")
-                    logger.info("=============================")
+                    logger.info("==============================================")
 
                     relevant_images = filter_images_by_relevance(
                         location_images, image_relevance_data, storage, min_score=85

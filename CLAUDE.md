@@ -183,39 +183,48 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - Upload process: whole files → File Search Store → metadata tags → server chunks.
 - Query process: metadata filter → File Search retrieval → Gemini response → citations.
 
-## Multimodal Image Support
-- Automatically extracts images from DOCX files during upload (Phase 2B hybrid approach).
+## Image Support (Text-Only Mode)
+- Automatically extracts images from DOCX files during upload.
 - Image extraction: python-docx library extracts inline images with captions and context.
-- Triple storage: Images stored in GCS bucket, uploaded to Gemini File API, tracked in GCS image registry.
-- Image registry: JSON-based system mapping area/site/doc → image metadata (URIs, captions, context).
+- **Storage**: Images stored in GCS bucket, uploaded to Gemini File API (for potential future use), tracked in GCS image registry.
+- Image registry: JSON-based system mapping area/site/doc → image metadata (GCS URIs, File API URIs, captions, context).
 - Sequential naming: image_001.jpg, image_002.jpg, etc. within each document.
 - Hebrew support: Full UTF-8 support for captions and context text.
-- Multimodal context: Image URIs included in user messages for Gemini API (up to 5 images per query).
-- UI display: Images shown in expandable sections with captions and context (before/after text).
-- Upload process: DOCX text → File Search Store → extract images → upload to GCS & File API → register metadata.
-- Query process: query images by area/site → include URIs in API call → LLM assesses relevance → display relevant images in UI.
+- **Text-only mode (since #77)**: LLM does NOT receive images directly (no multimodal context sent to API).
+- **Caption-based relevance**: LLM scores images based ONLY on captions found in File Search documents.
+- UI display: Images shown in expandable sections with captions and context (before/after text) via GCS signed URLs.
+- Upload process: DOCX text → File Search Store → extract images → upload to GCS & File API → register metadata with captions.
+- Query process: query images by area/site → LLM scores captions from File Search → caption-based matching → display relevant images in UI.
 - Note: File Search API does NOT extract images from DOCX (text-only), hence separate image pipeline.
+- **File API URIs**: Kept in registry for backward compatibility and potential future multimodal use, but NOT sent to LLM in current text-only mode.
 
-### LLM-Based Image Relevance (Issue #18, #40)
-- **Status**: Fully implemented and active
+### LLM-Based Image Relevance (Issue #18, #40, #77)
+- **Status**: Fully implemented and active (text-only mode since #77)
+- **Mode**: TEXT-ONLY - LLM scores images based on captions in File Search documents without seeing images directly
 - **Note**: Gemini 2.5 doesn't support File Search tool + structured output simultaneously
 - System prompt instructs model to return JSON with image relevance signals
 - JSON response parsed manually from text (not using response_schema)
 - Response fields:
   - `response_text`: Main response to user query (Hebrew or query language)
   - `should_include_images`: Boolean indicating if images should be shown (false for initial greetings, true for substantive queries)
-  - `image_relevance`: List of `{image_uri, relevance_score}` objects with relevance scores (0-100)
-- **Implementation flow**:
-  1. JSON parsing extracts `should_include_images` and `image_relevance` from Gemini response ([qa.py:294-308](backend/endpoints/qa.py#L294-L308))
-  2. If `should_include_images=false`, no images displayed (greeting/abstract question detection)
-  3. If `should_include_images=true` and relevance data available, `filter_images_by_relevance()` filters images with score >= 60 ([qa.py:109-174](backend/endpoints/qa.py#L109-L174))
-  4. Filtered images sorted by relevance score (descending)
-  5. Fallback: if no relevance data, shows all images (backward compatibility)
+  - `image_relevance`: List of `{caption, relevance_score}` objects with relevance scores (0-100)
+- **Implementation flow (caption-based matching)**:
+  1. LLM receives text-only user prompt (no image URIs, no multimodal context)
+  2. LLM finds image captions in File Search documents and scores them by relevance
+  3. JSON parsing extracts `should_include_images` and `image_relevance` from Gemini response
+  4. If `should_include_images=false`, no images displayed (greeting/abstract question detection)
+  5. If `should_include_images=true` and relevance data available, `filter_images_by_relevance()` matches captions and filters images with score >= 85 ([qa.py:112-186](backend/endpoints/qa.py#L112-L186))
+  6. Caption matching uses normalization (strip whitespace, lowercase) for fuzzy matching
+  7. Filtered images sorted by relevance score (descending)
+  8. If no relevance data is available, no images are shown (no fallback to showing all images)
 - Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks)
-- Image filtering: Only images with relevance score >= 60 are displayed
+- Image filtering: Only images with relevance score >= 85 are displayed (strict threshold)
 - Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!")
 - Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call
-- Comprehensive logging: tracks JSON parsing, image filtering, and relevance scores for debugging
+- Comprehensive logging: tracks JSON parsing, caption matching, and relevance scores for debugging
+- **Trade-offs**:
+  - ✅ **Reliability**: No URI expiration issues, deterministic caption matching, shorter prompts (~500 chars saved)
+  - ❌ **Visual accuracy**: LLM can't assess image quality or detect caption mismatches (acceptable for tourism bot use case)
 
 ## Data Storage Architecture
 - **GCS is mandatory**: All registries stored in Google Cloud Storage (no local fallback).
