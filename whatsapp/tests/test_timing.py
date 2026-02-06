@@ -227,12 +227,14 @@ class TestTimingContext:
         """Test that checkpoint names are case-sensitive."""
         ctx = TimingContext()
         ctx.mark("Test")
+        time.sleep(0.001)  # Ensure different timestamps
         ctx.mark("test")
 
         assert len(ctx.checkpoints) == 2
         assert "Test" in ctx.checkpoints
         assert "test" in ctx.checkpoints
-        assert ctx.checkpoints["Test"] != ctx.checkpoints["test"]
+        # Timestamps will be different due to sleep
+        assert ctx.checkpoints["Test"] < ctx.checkpoints["test"]
 
     def test_checkpoint_names_with_special_characters(self):
         """Test checkpoint names with special characters."""
