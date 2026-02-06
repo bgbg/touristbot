@@ -76,6 +76,8 @@ def generate_qr_for_whatsapp(
 
     print(f"QR code generated: {output_file}")
     print(f"WhatsApp URL: {whatsapp_url}")
+    print("\nQR Code (scan with your phone):")
+    qr.print_ascii()
 
     return output_file
 
@@ -120,7 +122,7 @@ def generate_qr_for_whatsapp_with_location(
 
 if __name__ == "__main__":
     # Example 1: Simple text message
-    phone = "058-7262286"
+    phone = "0507346004"
     # message = "היוש. זאת בדיקה"
     # generate_qr_for_whatsapp(phone, message, "tmp.png")
 
@@ -128,10 +130,10 @@ if __name__ == "__main__":
     # Agamon Hula coordinates as an example
     generate_qr_for_whatsapp_with_location(
         phone,
-        latitude=33.1167,
-        longitude=35.6167,
-        location_name="אגמון החולה",
-        message="שלום! רציתי לשתף איתך את המיקום:",
+        latitude=31.851128,
+        longitude=34.8392552,
+        location_name="מזכרת בתיה, רחוב פלמח",
+        message="יש כאן משהו מעניין?",
         output_file="tmp.png",
     )
 

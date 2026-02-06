@@ -171,6 +171,16 @@ def process_message(
             )
             images = []
 
+        # Re-trigger typing indicator before sending images (initial typing may have expired)
+        # Backend API call can take 10-15 seconds, and typing indicators expire after 25 seconds
+        if should_include_images and images:
+            try:
+                eprint("[TYPING] Re-triggering typing indicator before sending image...")
+                whatsapp_client.send_read_receipt(message_id, typing_indicator=True)
+            except Exception as e:
+                eprint(f"[WARNING] Failed to send typing indicator: {e}")
+                # Continue anyway - non-critical operation
+
         # Send images FIRST (if available)
         # Images are sent before text to provide visual context immediately
         timing_ctx.mark("images_send_start")
@@ -186,7 +196,7 @@ def process_message(
         )
         timing_ctx.mark("images_sent")
 
-        # If images were sent, trigger typing indicator before text response
+        # Re-trigger typing indicator before text response
         if should_include_images and images:
             try:
                 eprint("[TYPING] Re-triggering typing indicator before text response...")

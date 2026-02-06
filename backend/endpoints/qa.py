@@ -292,12 +292,19 @@ async def chat_query(
 
         user_parts = [{"text": user_prompt_with_images}]
 
-        # Add image URIs to user message (up to 5 images for context)
-        if location_images:
-            for img in location_images[:5]:
-                file_api_uri = img.file_api_uri
-                if file_api_uri:
-                    user_parts.append({"file_data": {"file_uri": file_api_uri}})
+        # DECISION: Skip File API image URIs entirely (text-only image relevance)
+        # Rationale:
+        # - File API URIs expire after 48 hours, causing 403 errors and retry delays
+        # - LLM can still score image relevance using captions + context text
+        # - Trade-off: Slightly lower accuracy vs. much better reliability and speed
+        # - Images still displayed to users (GCS signed URLs work independently)
+        #
+        # # Original code (disabled):
+        # if location_images:
+        #     for img in location_images[:5]:
+        #         file_api_uri = img.file_api_uri
+        #         if file_api_uri:
+        #             user_parts.append({"file_data": {"file_uri": file_api_uri}})
 
         # Create File Search tool with metadata filter
         from google.genai import types
@@ -315,7 +322,7 @@ async def chat_query(
         should_include_images_flag = None
         image_relevance_data = None
 
-        # Call Gemini API
+        # Call Gemini API (no File API URIs = no 403 errors, no retry needed)
         try:
             response = client.models.generate_content(
                 model=prompt_config.model_name,
@@ -326,7 +333,6 @@ async def chat_query(
                     temperature=prompt_config.temperature,
                 ),
             )
-
             # Get response text
             response_text = response.text
 

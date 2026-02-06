@@ -18,8 +18,14 @@ storage = st.session_state.storage
 # Initialize conversation store
 conv_store = ConversationStore(storage, gcs_prefix="conversations")
 
-# Filters
-st.markdown("### Filters")
+# Refresh button
+col1, col2 = st.columns([6, 1])
+with col1:
+    st.markdown("### Filters")
+with col2:
+    if st.button("🔄 Refresh", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -69,6 +75,19 @@ try:
     # Selection for bulk operations
     if "selected_ids" not in st.session_state:
         st.session_state.selected_ids = set()
+
+    # Select All / Deselect All buttons
+    btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 4])
+    with btn_col1:
+        if st.button("✅ Select All Visible", use_container_width=True):
+            st.session_state.selected_ids = {conv["conversation_id"] for conv in conversations}
+            st.rerun()
+    with btn_col2:
+        if st.button("❌ Deselect All", use_container_width=True):
+            st.session_state.selected_ids = set()
+            st.rerun()
+
+    st.markdown("---")
 
     # Display table header
     header_cols = st.columns([0.5, 1, 1.5, 1.5, 1, 1.5, 1])
