@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional
 
 from .backend_client import BackendClient
 from .conversation import ConversationLoader
+from .delivery_tracker import DeliveryTracker
 from .logging_utils import EventLogger, eprint
 from .query_logger import WhatsAppQueryLogger
 from .timing import TimingContext
@@ -27,6 +28,7 @@ def process_message(
     whatsapp_client: WhatsAppClient,
     logger: EventLogger,
     query_logger: WhatsAppQueryLogger,
+    delivery_tracker: DeliveryTracker,
     timing_ctx: Optional[TimingContext] = None,
 ) -> None:
     """
@@ -209,6 +211,20 @@ def process_message(
             )
         else:
             eprint(f"✓ [TEXT] Text response sent successfully")
+
+            # Register outgoing message for delivery tracking
+            # Extract WhatsApp message ID from API response
+            outgoing_msg_id = send_response.get("messages", [{}])[0].get("id")
+            if outgoing_msg_id:
+                sent_timestamp_ms = timing_ctx.checkpoints.get("text_sent", 0)
+                delivery_tracker.register_outgoing_message(
+                    message_id=outgoing_msg_id,
+                    correlation_id=correlation_id,
+                    phone=phone,
+                    conversation_id=conv.conversation_id,
+                    sent_timestamp_ms=sent_timestamp_ms,
+                )
+                eprint(f"[DELIVERY] Registered message {outgoing_msg_id} for tracking")
 
         # Add assistant response to history with images (automatically saves to GCS)
         # This is CRITICAL for duplicate prevention - must save images that were sent

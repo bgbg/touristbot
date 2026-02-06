@@ -16,6 +16,7 @@ from .background_tasks import BackgroundTaskManager
 from .config import WhatsAppConfig
 from .conversation import ConversationLoader
 from .deduplication import MessageDeduplicator
+from .delivery_tracker import DeliveryTracker
 from .logging_utils import EventLogger
 from .query_logger import WhatsAppQueryLogger
 from .whatsapp_client import WhatsAppClient
@@ -242,3 +243,26 @@ def get_query_logger() -> WhatsAppQueryLogger:
     """
     storage = get_gcs_storage()
     return WhatsAppQueryLogger(storage)
+
+
+@lru_cache()
+def get_delivery_tracker() -> DeliveryTracker:
+    """
+    Get delivery status tracker singleton.
+
+    Tracks outgoing messages to correlate with delivery status webhooks.
+
+    Returns:
+        DeliveryTracker instance
+
+    Example:
+        tracker = get_delivery_tracker()
+        tracker.register_outgoing_message(
+            message_id="wamid.XXX",
+            correlation_id="uuid-123",
+            phone="972501234567",
+            conversation_id="whatsapp_972501234567",
+            sent_timestamp_ms=1234567890123
+        )
+    """
+    return DeliveryTracker(ttl_seconds=1800)  # 30-minute TTL

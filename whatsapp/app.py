@@ -41,6 +41,7 @@ def create_app() -> Flask:
     conversation_loader = dependencies.get_conversation_loader()
     backend_client = dependencies.get_backend_client()
     query_logger = dependencies.get_query_logger()
+    delivery_tracker = dependencies.get_delivery_tracker()
 
     @app.route("/webhook", methods=["GET"])
     def webhook_verification():
@@ -168,6 +169,7 @@ def create_app() -> Flask:
                                     whatsapp_client=whatsapp_client,
                                     logger=logger,
                                     query_logger=query_logger,
+                                    delivery_tracker=delivery_tracker,
                                     timing_ctx=timing_ctx
                                 )
                                 logger.eprint(f"[WEBHOOK] Background thread started for message {msg_id}")
@@ -183,13 +185,45 @@ def create_app() -> Flask:
                     # Process status updates (sent, delivered, read, failed)
                     if "statuses" in value:
                         for status in value["statuses"]:
+                            msg_id = status.get("id")
+                            status_type = status.get("status")  # sent, delivered, read, failed
+                            timestamp_unix = status.get("timestamp")  # Unix timestamp (seconds)
+                            recipient_id = status.get("recipient_id")
+
                             status_info = {
-                                "message_id": status.get("id"),
-                                "status": status.get("status"),
-                                "timestamp": status.get("timestamp"),
-                                "recipient_id": status.get("recipient_id"),
+                                "message_id": msg_id,
+                                "status": status_type,
+                                "timestamp": timestamp_unix,
+                                "recipient_id": recipient_id,
                             }
                             logger.log_event("status_update", status_info, correlation_id)
+
+                            # Check if this message is tracked for delivery timing
+                            metadata = delivery_tracker.get_and_remove(msg_id)
+                            if metadata and status_type in ("sent", "delivered", "read"):
+                                # Convert timestamp to milliseconds
+                                timestamp_ms = float(timestamp_unix) * 1000 if timestamp_unix else None
+
+                                if timestamp_ms:
+                                    logger.eprint(
+                                        f"[DELIVERY] Status update for {msg_id}: "
+                                        f"{status_type} at {timestamp_ms}"
+                                    )
+
+                                    # TODO: Update the existing query log entry in GCS with delivery timing
+                                    # This would require reading the log, finding the entry by correlation_id,
+                                    # updating the timing_breakdown, and writing back.
+                                    # For MVP, we just log the event - full implementation can be added later
+                                    logger.log_event("delivery_timing", {
+                                        "message_id": msg_id,
+                                        "correlation_id": metadata["correlation_id"],
+                                        "phone": metadata["phone"],
+                                        "conversation_id": metadata["conversation_id"],
+                                        "sent_timestamp_ms": metadata["sent_timestamp_ms"],
+                                        "status_type": status_type,
+                                        "status_timestamp_ms": timestamp_ms,
+                                        "delivery_latency_ms": timestamp_ms - metadata["sent_timestamp_ms"],
+                                    }, metadata["correlation_id"])
 
             return jsonify({"status": "ok"}), 200
 
