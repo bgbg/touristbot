@@ -8,7 +8,7 @@ Each line is a JSON object with query metadata and response info.
 import json
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from backend.gcs_storage import StorageBackend
 
@@ -66,6 +66,7 @@ class QueryLogger:
         image_relevance: Optional[List[dict]] = None,
         citations: Optional[List[dict]] = None,
         images: Optional[List[dict]] = None,
+        timing_breakdown: Optional[Dict[str, float]] = None,
     ):
         """
         Log a query to GCS.
@@ -89,6 +90,7 @@ class QueryLogger:
             image_relevance: List of dicts with image_uri and relevance_score
             citations: Full list of citations with source, chunk_id, text
             images: List of displayed images with uri, caption, context, relevance_score
+            timing_breakdown: Dict of timing checkpoints to timestamps (milliseconds since epoch)
         """
         timestamp = datetime.utcnow().isoformat() + "Z"
         log_path = self._get_log_path()
@@ -122,6 +124,12 @@ class QueryLogger:
 
         if images is not None:
             log_entry["images"] = images
+
+        if timing_breakdown is not None:
+            # Round all timing values to 2 decimal places for consistency
+            log_entry["timing_breakdown"] = {
+                k: round(v, 2) for k, v in timing_breakdown.items()
+            }
 
         try:
             # Read existing content

@@ -12,7 +12,10 @@ from typing import List, Dict, Any, Optional
 
 from .backend_client import BackendClient
 from .conversation import ConversationLoader
+from .delivery_tracker import DeliveryTracker
 from .logging_utils import EventLogger, eprint
+from .query_logger import WhatsAppQueryLogger
+from .timing import TimingContext
 from .whatsapp_client import WhatsAppClient
 
 def process_message(
@@ -24,6 +27,9 @@ def process_message(
     backend_client: BackendClient,
     whatsapp_client: WhatsAppClient,
     logger: EventLogger,
+    query_logger: WhatsAppQueryLogger,
+    delivery_tracker: DeliveryTracker,
+    timing_ctx: Optional[TimingContext] = None,
 ) -> None:
     """
     Process incoming WhatsApp message.
@@ -50,6 +56,7 @@ def process_message(
         backend_client: Backend API client
         whatsapp_client: WhatsApp API client
         logger: Event logger
+        timing_ctx: Optional timing context for performance measurement
 
     Example:
         process_message(
@@ -66,9 +73,18 @@ def process_message(
     try:
         eprint(f"\n📱 [ASYNC] Processing message from {phone}: {text[:50]}...")
 
+        # Create timing context if not provided
+        if timing_ctx is None:
+            timing_ctx = TimingContext(correlation_id=correlation_id)
+
+        # Mark start of message processing in background task
+        timing_ctx.mark("message_processing_started")
+
         # Load conversation
+        timing_ctx.mark("conversation_load_start")
         try:
             conv = conversation_loader.load_conversation(phone)
+            timing_ctx.mark("conversation_loaded")
         except Exception as e:
             eprint(f"[ERROR] Failed to load conversation: {e}")
             whatsapp_client.send_text_message(
@@ -93,8 +109,10 @@ def process_message(
             return
 
         # Add user message to history (automatically saves to GCS)
+        timing_ctx.mark("user_message_save_start")
         try:
             conversation_loader.conversation_store.add_message(conv, "user", text)
+            timing_ctx.mark("user_message_saved")
         except Exception as e:
             eprint(f"[ERROR] Failed to save user message: {e}")
             whatsapp_client.send_text_message(
@@ -103,12 +121,15 @@ def process_message(
             return
 
         # Call backend API
+        timing_ctx.mark("backend_request_sent")
         backend_response = backend_client.call_qa_endpoint(
             conversation_id=conv.conversation_id,
             area=conv.area,
             site=conv.site,
             query=text,
+            timing_ctx=timing_ctx,
         )
+        timing_ctx.mark("backend_response_received")
 
         # Validate and extract response
         response_text = backend_response.get(
@@ -152,6 +173,7 @@ def process_message(
 
         # Send images FIRST (if available)
         # Images are sent before text to provide visual context immediately
+        timing_ctx.mark("images_send_start")
         send_images_if_needed(
             images=images,
             should_include=should_include_images,
@@ -160,7 +182,9 @@ def process_message(
             whatsapp_client=whatsapp_client,
             correlation_id=correlation_id,
             logger=logger,
+            timing_ctx=timing_ctx,
         )
+        timing_ctx.mark("images_sent")
 
         # If images were sent, trigger typing indicator before text response
         if should_include_images and images:
@@ -173,7 +197,11 @@ def process_message(
 
         # Send text response AFTER images
         eprint(f"[TEXT] Sending text response...")
-        status, send_response = whatsapp_client.send_text_message(phone, response_text)
+        timing_ctx.mark("text_send_start")
+        status, send_response = whatsapp_client.send_text_message(
+            phone, response_text, correlation_id, timing_ctx
+        )
+        timing_ctx.mark("text_sent")
 
         if status < 200 or status >= 300:
             # Send failed, try fallback error message
@@ -184,8 +212,24 @@ def process_message(
         else:
             eprint(f"✓ [TEXT] Text response sent successfully")
 
+            # Register outgoing message for delivery tracking
+            # Extract WhatsApp message ID from API response
+            outgoing_msg_id = send_response.get("messages", [{}])[0].get("id")
+            if outgoing_msg_id:
+                breakdown = timing_ctx.get_breakdown()
+                sent_timestamp_ms = breakdown.get("text_sent", 0)
+                delivery_tracker.register_outgoing_message(
+                    message_id=outgoing_msg_id,
+                    correlation_id=correlation_id,
+                    phone=phone,
+                    conversation_id=conv.conversation_id,
+                    sent_timestamp_ms=sent_timestamp_ms,
+                )
+                eprint(f"[DELIVERY] Registered message {outgoing_msg_id} for tracking")
+
         # Add assistant response to history with images (automatically saves to GCS)
         # This is CRITICAL for duplicate prevention - must save images that were sent
+        timing_ctx.mark("history_save_start")
         try:
             conversation_loader.conversation_store.add_message(
                 conv,
@@ -194,9 +238,37 @@ def process_message(
                 citations=backend_response.get("citations", []),
                 images=images if (should_include_images and images) else [],
             )
+            timing_ctx.mark("history_saved")
         except Exception as e:
             eprint(f"[ERROR] Failed to save assistant message: {e}")
             # Continue anyway - response already sent
+
+        # Log query with timing breakdown to GCS
+        timing_ctx.mark("request_completed")
+        try:
+            total_latency = timing_ctx.get_total_elapsed() or 0.0
+            query_logger.log_query(
+                conversation_id=conv.conversation_id,
+                area=conv.area,
+                site=conv.site,
+                query=text,
+                response_text=response_text,
+                latency_ms=total_latency,
+                phone=phone,
+                message_id=message_id,
+                correlation_id=correlation_id,
+                citations=backend_response.get("citations", []),
+                images=images if (should_include_images and images) else [],
+                should_include_images=should_include_images,
+                image_relevance=backend_response.get("image_relevance"),
+                timing_breakdown=timing_ctx.get_breakdown(),
+                delivery_status=None,  # Will be updated by status webhooks later
+                error=None,
+            )
+            eprint(f"[TIMING] Query logged with {len(timing_ctx.checkpoints)} timing checkpoints")
+        except Exception as e:
+            eprint(f"[WARNING] Failed to log query timing: {e}")
+            # Don't fail message processing if logging fails
 
     except Exception as e:
         # Catch all errors in background thread to prevent crashes
@@ -273,6 +345,7 @@ def send_images_if_needed(
     whatsapp_client: WhatsAppClient,
     correlation_id: str,
     logger: EventLogger,
+    timing_ctx: Optional[TimingContext] = None,
 ) -> None:
     """
     Send images if available and flagged by LLM.
@@ -288,6 +361,7 @@ def send_images_if_needed(
         whatsapp_client: WhatsApp API client
         correlation_id: Request correlation ID for logging
         logger: Event logger
+        timing_ctx: Optional timing context for performance measurement
 
     Example:
         send_images_if_needed(
@@ -343,9 +417,13 @@ def send_images_if_needed(
 
     if image_url:
         eprint(f"[IMAGE] Sending image: {caption[:50]}...")
+        if timing_ctx:
+            timing_ctx.mark("image_send_start")
         image_status, image_response = whatsapp_client.send_image(
-            phone, image_url, caption
+            phone, image_url, caption, correlation_id, timing_ctx
         )
+        if timing_ctx:
+            timing_ctx.mark("image_send_end")
 
         if image_status < 200 or image_status >= 300:
             eprint(f"[WARNING] Image send failed, continuing with text response")

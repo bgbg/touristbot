@@ -14,6 +14,7 @@ import requests
 
 from .logging_utils import eprint, EventLogger
 from .retry import retry
+from .timing import TimingContext
 
 
 class BackendClient:
@@ -48,7 +49,8 @@ class BackendClient:
         area: str,
         site: str,
         query: str,
-        correlation_id: Optional[str] = None
+        correlation_id: Optional[str] = None,
+        timing_ctx: Optional[TimingContext] = None,
     ) -> Dict[str, Any]:
         """
         Call backend /qa endpoint with retry logic.
@@ -62,6 +64,7 @@ class BackendClient:
             site: Location site (Hebrew name)
             query: User query text
             correlation_id: Optional correlation ID for request tracing
+            timing_ctx: Optional timing context for performance measurement
 
         Returns:
             Backend response dictionary with keys:
@@ -104,10 +107,14 @@ class BackendClient:
             }, correlation_id)
 
         start_time = time.time()
+        if timing_ctx:
+            timing_ctx.mark("backend_api_call_start")
 
         try:
             response = requests.post(url, json=payload, headers=self.headers, timeout=60)
             latency_ms = (time.time() - start_time) * 1000
+            if timing_ctx:
+                timing_ctx.mark("backend_api_call_end")
             eprint(f"[BACKEND] /qa responded with {response.status_code} in {latency_ms:.1f} ms")
 
             if response.status_code == 200:

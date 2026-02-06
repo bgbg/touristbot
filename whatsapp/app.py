@@ -14,6 +14,7 @@ from flask import Flask, request, jsonify
 from . import dependencies
 from .message_handler import process_message
 from .security import verify_webhook_signature
+from .timing import TimingContext
 
 
 def create_app() -> Flask:
@@ -39,6 +40,8 @@ def create_app() -> Flask:
     task_manager = dependencies.get_task_manager()
     conversation_loader = dependencies.get_conversation_loader()
     backend_client = dependencies.get_backend_client()
+    query_logger = dependencies.get_query_logger()
+    delivery_tracker = dependencies.get_delivery_tracker()
 
     @app.route("/webhook", methods=["GET"])
     def webhook_verification():
@@ -80,6 +83,9 @@ def create_app() -> Flask:
             JSON response with status (always 200 to prevent retries)
         """
         try:
+            # Mark webhook received timestamp (will be copied to each message's timing context)
+            webhook_received_ts = TimingContext().mark("webhook_received")
+
             # Verify webhook signature (Meta X-Hub-Signature-256)
             signature = request.headers.get("X-Hub-Signature-256", "")
             payload = request.get_data()
@@ -99,10 +105,10 @@ def create_app() -> Flask:
                 return jsonify({"status": "error", "message": "No data"}), 400
 
             # Generate correlation ID for this webhook
-            correlation_id = str(uuid.uuid4())
+            webhook_correlation_id = str(uuid.uuid4())
 
             # Log the raw webhook
-            logger.log_event("incoming_webhook", data, correlation_id)
+            logger.log_event("incoming_webhook", data, webhook_correlation_id)
 
             # Process webhook entries
             for entry in data.get("entry", []):
@@ -115,6 +121,15 @@ def create_app() -> Flask:
                             msg_type = message.get("type")
                             msg_from = message.get("from")
                             msg_id = message.get("id")
+
+                            # Create new timing context for each message
+                            # Copy webhook_received timestamp from webhook-level timing
+                            msg_timing_ctx = TimingContext()
+                            msg_timing_ctx.set_checkpoint("webhook_received", webhook_received_ts)
+
+                            # Generate unique correlation ID for this message
+                            correlation_id = str(uuid.uuid4())
+                            msg_timing_ctx.correlation_id = correlation_id
 
                             logger.log_event("incoming_message", {
                                 "from": msg_from,
@@ -146,6 +161,9 @@ def create_app() -> Flask:
                                     # Never block on read receipt or typing indicator failure
                                     logger.eprint(f"[WARNING] Failed to send read receipt/typing indicator: {e}")
 
+                                # Mark background task started
+                                msg_timing_ctx.mark("background_task_started")
+
                                 # Launch background thread to process message
                                 task_manager.execute_async(
                                     process_message,
@@ -156,7 +174,10 @@ def create_app() -> Flask:
                                     conversation_loader=conversation_loader,
                                     backend_client=backend_client,
                                     whatsapp_client=whatsapp_client,
-                                    logger=logger
+                                    logger=logger,
+                                    query_logger=query_logger,
+                                    delivery_tracker=delivery_tracker,
+                                    timing_ctx=msg_timing_ctx
                                 )
                                 logger.eprint(f"[WEBHOOK] Background thread started for message {msg_id}")
 
@@ -171,13 +192,50 @@ def create_app() -> Flask:
                     # Process status updates (sent, delivered, read, failed)
                     if "statuses" in value:
                         for status in value["statuses"]:
+                            msg_id = status.get("id")
+                            status_type = status.get("status")  # sent, delivered, read, failed
+                            timestamp_unix = status.get("timestamp")  # Unix timestamp (seconds)
+                            recipient_id = status.get("recipient_id")
+
                             status_info = {
-                                "message_id": status.get("id"),
-                                "status": status.get("status"),
-                                "timestamp": status.get("timestamp"),
-                                "recipient_id": status.get("recipient_id"),
+                                "message_id": msg_id,
+                                "status": status_type,
+                                "timestamp": timestamp_unix,
+                                "recipient_id": recipient_id,
                             }
-                            logger.log_event("status_update", status_info, correlation_id)
+                            logger.log_event("status_update", status_info, webhook_correlation_id)
+
+                            # Check if this message is tracked for delivery timing
+                            # Use get() instead of get_and_remove() to preserve tracking for all status updates
+                            metadata = delivery_tracker.get(msg_id)
+                            if metadata and status_type in ("sent", "delivered", "read"):
+                                # Convert timestamp to milliseconds
+                                timestamp_ms = float(timestamp_unix) * 1000 if timestamp_unix else None
+
+                                if timestamp_ms:
+                                    logger.eprint(
+                                        f"[DELIVERY] Status update for {msg_id}: "
+                                        f"{status_type} at {timestamp_ms}"
+                                    )
+
+                                    # TODO: Update the existing query log entry in GCS with delivery timing
+                                    # This would require reading the log, finding the entry by correlation_id,
+                                    # updating the timing_breakdown, and writing back.
+                                    # For MVP, we just log the event - full implementation can be added later
+                                    logger.log_event("delivery_timing", {
+                                        "message_id": msg_id,
+                                        "correlation_id": metadata["correlation_id"],
+                                        "phone": metadata["phone"],
+                                        "conversation_id": metadata["conversation_id"],
+                                        "sent_timestamp_ms": metadata["sent_timestamp_ms"],
+                                        "status_type": status_type,
+                                        "status_timestamp_ms": timestamp_ms,
+                                        "delivery_latency_ms": timestamp_ms - metadata["sent_timestamp_ms"],
+                                    }, metadata["correlation_id"])
+
+                            # Note: Cleanup of delivery tracker entries happens automatically via TTL (30 minutes)
+                            # or explicit cleanup_expired() calls. We don't remove entries on status updates
+                            # to capture all sequential status changes (sent -> delivered -> read).
 
             return jsonify({"status": "ok"}), 200
 

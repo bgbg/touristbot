@@ -17,6 +17,7 @@ from typing import Tuple, Dict, Any, Optional
 
 from .logging_utils import eprint, EventLogger
 from .retry import retry
+from .timing import TimingContext
 
 # Import WhatsApp utility functions for media upload and messaging
 from whatsapp_utils import upload_media, send_image_message, send_read_receipt
@@ -57,7 +58,8 @@ class WhatsAppClient:
         self,
         to_phone: str,
         text: str,
-        correlation_id: Optional[str] = None
+        correlation_id: Optional[str] = None,
+        timing_ctx: Optional[TimingContext] = None,
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Send text message via WhatsApp API with retry logic.
@@ -68,6 +70,7 @@ class WhatsAppClient:
             to_phone: Recipient phone number (will be normalized)
             text: Message text (truncated to 4096 chars - WhatsApp limit)
             correlation_id: Optional correlation ID for request tracing
+            timing_ctx: Optional timing context for performance measurement
 
         Returns:
             Tuple of (status_code, response_dict)
@@ -114,11 +117,16 @@ class WhatsAppClient:
             },
         )
 
+        if timing_ctx:
+            timing_ctx.mark("whatsapp_text_api_call_start")
+
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 status = resp.getcode()
                 body = resp.read().decode("utf-8", errors="replace")
                 response = json.loads(body) if body else {}
+                if timing_ctx:
+                    timing_ctx.mark("whatsapp_text_api_call_end")
                 # Log success
                 if self.logger:
                     self.logger.log_event("message_sent", {
@@ -151,7 +159,8 @@ class WhatsAppClient:
         to_phone: str,
         image_url: str,
         caption: str,
-        correlation_id: Optional[str] = None
+        correlation_id: Optional[str] = None,
+        timing_ctx: Optional[TimingContext] = None,
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Send image to WhatsApp with retry logic.
@@ -164,6 +173,7 @@ class WhatsAppClient:
             image_url: GCS signed URL to download image from
             caption: Image caption (truncated to 1024 chars - WhatsApp limit)
             correlation_id: Optional correlation ID for request tracing
+            timing_ctx: Optional timing context for performance measurement
 
         Returns:
             Tuple of (status_code, response_dict)
@@ -195,7 +205,11 @@ class WhatsAppClient:
         try:
             # Download image
             eprint(f"[IMAGE] Downloading from {image_url[:50]}...")
+            if timing_ctx:
+                timing_ctx.mark("image_download_start")
             image_bytes = self.download_image_from_url(image_url)
+            if timing_ctx:
+                timing_ctx.mark("image_downloaded")
 
             # Check size (WhatsApp 5MB limit)
             size_mb = len(image_bytes) / (1024 * 1024)
@@ -214,6 +228,8 @@ class WhatsAppClient:
 
             eprint(f"[IMAGE] Uploading to WhatsApp ({size_mb:.2f}MB)...")
 
+            if timing_ctx:
+                timing_ctx.mark("image_upload_start")
             # Upload to WhatsApp
             status, upload_response = upload_media(
                 self.access_token,
@@ -227,9 +243,13 @@ class WhatsAppClient:
 
             media_id = upload_response["id"]
             eprint(f"[IMAGE] Upload successful, media_id={media_id}")
+            if timing_ctx:
+                timing_ctx.mark("image_uploaded")
 
             # Send image message
             eprint(f"[IMAGE] Sending image with caption...")
+            if timing_ctx:
+                timing_ctx.mark("image_message_send_start")
             status, send_response = send_image_message(
                 self.access_token,
                 self.phone_number_id,
@@ -240,6 +260,8 @@ class WhatsAppClient:
 
             if 200 <= status < 300:
                 eprint(f"✓ Image sent successfully")
+                if timing_ctx:
+                    timing_ctx.mark("image_message_sent")
                 # Log success
                 if self.logger:
                     self.logger.log_event("message_sent", {
