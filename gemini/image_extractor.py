@@ -32,7 +32,7 @@ class ImageExtractor:
     """Extracts images and metadata from DOCX files"""
 
     # Image validation limits
-    MAX_IMAGE_SIZE_MB = 1
+    MAX_IMAGE_SIZE_MB = 0.25  # 250 KB limit
     VALID_IMAGE_FORMATS = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'}
 
     def __init__(self, docx_path: str):
@@ -93,14 +93,14 @@ class ImageExtractor:
 
         return extracted_images
 
-    def _scale_image(self, image_data: bytes, image_format: str, target_size_mb: float = 1.0) -> bytes:
+    def _scale_image(self, image_data: bytes, image_format: str, target_size_mb: float = 0.25) -> bytes:
         """
-        Scale down an image to meet the target size limit
+        Scale down an image to meet the target size limit using binary search compression
 
         Args:
             image_data: Original image bytes
             image_format: Image format (jpg, png, etc.)
-            target_size_mb: Target size in MB (default: 10MB)
+            target_size_mb: Target size in MB (default: 0.25 = 250 KB)
 
         Returns:
             Scaled image bytes
@@ -109,68 +109,51 @@ class ImageExtractor:
             # Open image from bytes
             img = Image.open(io.BytesIO(image_data))
 
-            # Convert RGBA to RGB for JPEG format (JPEG doesn't support transparency)
-            if image_format in ('jpg', 'jpeg') and img.mode in ('RGBA', 'LA', 'P'):
-                # Create white background
+            # Convert RGBA/P to RGB for JPEG format (JPEG doesn't support transparency)
+            if img.mode in ('RGBA', 'LA', 'P'):
                 background = Image.new('RGB', img.size, (255, 255, 255))
                 if img.mode == 'P':
                     img = img.convert('RGBA')
-                background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                if img.mode in ('RGBA', 'LA'):
+                    background.paste(img, mask=img.split()[-1])
+                else:
+                    background.paste(img)
                 img = background
 
-            # Start with original dimensions
-            width, height = img.size
-            quality = 85  # Initial quality for JPEG
+            # Binary search for optimal quality to achieve target size
+            quality = 85
+            min_quality = 10
+            max_quality = 95
+            target_bytes = target_size_mb * 1024 * 1024
 
-            # Iteratively reduce size until it fits
-            max_iterations = 10
-            for iteration in range(max_iterations):
+            # Try compression with binary search (10 iterations max)
+            for iteration in range(10):
                 output = io.BytesIO()
+                img.save(output, format='JPEG', quality=quality, optimize=True)
+                size = output.tell()
 
-                # Save with current dimensions and quality
-                if image_format in ('jpg', 'jpeg'):
-                    img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
-                    img_resized.save(output, format='JPEG', quality=quality, optimize=True)
-                elif image_format == 'png':
-                    img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
-                    img_resized.save(output, format='PNG', optimize=True)
+                # Within 10% of target is acceptable
+                if abs(size - target_bytes) < target_bytes * 0.1:
+                    break
+
+                # Adjust quality based on size
+                if size > target_bytes:
+                    max_quality = quality
+                    quality = (min_quality + quality) // 2
                 else:
-                    # For other formats, try JPEG conversion
-                    img_resized = img.resize((width, height), Image.Resampling.LANCZOS)
-                    if img_resized.mode in ('RGBA', 'LA', 'P'):
-                        background = Image.new('RGB', img_resized.size, (255, 255, 255))
-                        if img_resized.mode == 'P':
-                            img_resized = img_resized.convert('RGBA')
-                        background.paste(img_resized, mask=img_resized.split()[-1] if img_resized.mode in ('RGBA', 'LA') else None)
-                        img_resized = background
-                    img_resized.save(output, format='JPEG', quality=quality, optimize=True)
+                    min_quality = quality
+                    quality = (quality + max_quality) // 2
 
-                output.seek(0)
-                scaled_data = output.read()
-                scaled_size_mb = len(scaled_data) / (1024 * 1024)
+            # Final save with optimized quality
+            output = io.BytesIO()
+            img.save(output, format='JPEG', quality=quality, optimize=True)
+            output.seek(0)
+            scaled_data = output.read()
+            scaled_size_mb = len(scaled_data) / (1024 * 1024)
+            scaled_size_kb = len(scaled_data) / 1024
 
-                # Check if size is acceptable
-                if scaled_size_mb <= target_size_mb:
-                    print(f"Image scaled successfully: {len(image_data)/(1024*1024):.1f}MB -> {scaled_size_mb:.1f}MB "
-                          f"(dimensions: {img.size[0]}x{img.size[1]} -> {width}x{height}, quality: {quality})")
-                    return scaled_data
-
-                # Reduce dimensions or quality for next iteration
-                if quality > 60:
-                    quality -= 10
-                else:
-                    width = int(width * 0.85)
-                    height = int(height * 0.85)
-                    quality = 85  # Reset quality when reducing dimensions
-
-                # Safety check - don't go too small
-                if width < 200 or height < 200:
-                    print(f"Warning: Image scaled to minimum dimensions, size is {scaled_size_mb:.1f}MB")
-                    return scaled_data
-
-            # If we couldn't get it small enough after max iterations, return the last attempt
-            print(f"Warning: Could not scale image below {target_size_mb}MB after {max_iterations} iterations, "
-                  f"returning image at {scaled_size_mb:.1f}MB")
+            print(f"Image scaled: {len(image_data)/(1024):.0f}KB -> {scaled_size_kb:.0f}KB "
+                  f"(quality={quality}, format=JPEG)")
             return scaled_data
 
         except Exception as e:

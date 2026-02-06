@@ -125,6 +125,3 @@ with col3:
 # Footer
 st.markdown("---")
 st.caption("Tourism RAG Admin Backoffice • Built with Streamlit")
-
-# Auto-redirect to Query Logs page (make it the default landing page)
-st.switch_page("pages/1_Query_Logs.py")

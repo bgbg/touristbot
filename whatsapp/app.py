@@ -117,10 +117,19 @@ def create_app() -> Flask:
 
                     # Process messages
                     if "messages" in value:
+                        # Extract contact profile names (keyed by wa_id)
+                        contacts_map = {}
+                        for contact in value.get("contacts", []):
+                            wa_id = contact.get("wa_id")
+                            profile_name = contact.get("profile", {}).get("name")
+                            if wa_id and profile_name:
+                                contacts_map[wa_id] = profile_name
+
                         for message in value["messages"]:
                             msg_type = message.get("type")
                             msg_from = message.get("from")
                             msg_id = message.get("id")
+                            profile_name = contacts_map.get(msg_from)  # Get name for this sender
 
                             # Create new timing context for each message
                             # Copy webhook_received timestamp from webhook-level timing
@@ -135,6 +144,7 @@ def create_app() -> Flask:
                                 "from": msg_from,
                                 "type": msg_type,
                                 "message_id": msg_id,
+                                "profile_name": profile_name,
                             }, correlation_id)
 
                             if msg_type == "text":
@@ -171,6 +181,7 @@ def create_app() -> Flask:
                                     text=text_body,
                                     message_id=msg_id,
                                     correlation_id=correlation_id,
+                                    profile_name=profile_name,
                                     conversation_loader=conversation_loader,
                                     backend_client=backend_client,
                                     whatsapp_client=whatsapp_client,

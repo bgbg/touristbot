@@ -39,12 +39,13 @@ class ConversationLoader:
         self.default_area = default_area
         self.default_site = default_site
 
-    def load_conversation(self, phone: str) -> Conversation:
+    def load_conversation(self, phone: str, profile_name: Optional[str] = None) -> Conversation:
         """
         Load existing conversation or create new one.
 
         Args:
             phone: Normalized phone number (digits only)
+            profile_name: Optional WhatsApp profile name (from webhook)
 
         Returns:
             Conversation object with message history
@@ -54,7 +55,7 @@ class ConversationLoader:
 
         Example:
             loader = ConversationLoader(store, "עמק חפר", "אגמון חפר")
-            conv = loader.load_conversation("972501234567")
+            conv = loader.load_conversation("972501234567", profile_name="John Doe")
             print(f"Loaded {len(conv.messages)} messages")
         """
         conversation_id = self._generate_conversation_id(phone)
@@ -63,6 +64,10 @@ class ConversationLoader:
             # Try to load existing conversation from GCS
             conv = self.conversation_store.get_conversation(conversation_id)
             if conv:
+                # Update profile name if provided (handles name changes)
+                if profile_name:
+                    self.conversation_store.update_profile_name(conv, profile_name)
+
                 # Check if all messages were expired (conversation exists but empty after filtering)
                 if len(conv.messages) == 0:
                     eprint(f"[CONV] Loaded conversation with all messages expired: {conversation_id}")
@@ -76,7 +81,8 @@ class ConversationLoader:
                 conv = self.conversation_store.create_conversation(
                     area=self.default_area,
                     site=self.default_site,
-                    conversation_id=conversation_id
+                    conversation_id=conversation_id,
+                    profile_name=profile_name
                 )
                 # Save immediately to GCS
                 self.conversation_store.save_conversation(conv)

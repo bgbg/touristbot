@@ -18,8 +18,14 @@ storage = st.session_state.storage
 # Initialize conversation store
 conv_store = ConversationStore(storage, gcs_prefix="conversations")
 
-# Filters
-st.markdown("### Filters")
+# Refresh button
+col1, col2 = st.columns([6, 1])
+with col1:
+    st.markdown("### Filters")
+with col2:
+    if st.button("🔄 Refresh", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -70,15 +76,29 @@ try:
     if "selected_ids" not in st.session_state:
         st.session_state.selected_ids = set()
 
+    # Select All / Deselect All buttons
+    btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 4])
+    with btn_col1:
+        if st.button("✅ Select All Visible", use_container_width=True):
+            st.session_state.selected_ids = {conv["conversation_id"] for conv in conversations}
+            st.rerun()
+    with btn_col2:
+        if st.button("❌ Deselect All", use_container_width=True):
+            st.session_state.selected_ids = set()
+            st.rerun()
+
+    st.markdown("---")
+
     # Display table header
-    header_cols = st.columns([0.5, 1, 1.5, 1.5, 1, 1.5, 1])
+    header_cols = st.columns([0.5, 1, 1.5, 1.5, 1.5, 1, 1.5, 1])
     header_cols[0].markdown("**Select**")
     header_cols[1].markdown("**Source**")
     header_cols[2].markdown("**ID / Phone**")
-    header_cols[3].markdown("**Location**")
-    header_cols[4].markdown("**Messages**")
-    header_cols[5].markdown("**Updated**")
-    header_cols[6].markdown("**Actions**")
+    header_cols[3].markdown("**Name**")
+    header_cols[4].markdown("**Location**")
+    header_cols[5].markdown("**Messages**")
+    header_cols[6].markdown("**Updated**")
+    header_cols[7].markdown("**Actions**")
 
     st.markdown("---")
 
@@ -86,8 +106,9 @@ try:
     for conv in conversations:
         conv_id = conv["conversation_id"]
         is_whatsapp = conv_id.startswith("whatsapp_")
+        profile_name = conv.get("profile_name")
 
-        cols = st.columns([0.5, 1, 1.5, 1.5, 1, 1.5, 1])
+        cols = st.columns([0.5, 1, 1.5, 1.5, 1.5, 1, 1.5, 1])
 
         with cols[0]:
             checkbox_key = f"check_{conv_id}"
@@ -122,19 +143,26 @@ try:
                 st.text(conv_id[:20] + ("..." if len(conv_id) > 20 else ""))
 
         with cols[3]:
-            st.text(f"{conv['area']} / {conv['site']}")
+            # Display profile name (WhatsApp only)
+            if is_whatsapp and profile_name:
+                st.text(profile_name)
+            else:
+                st.text("-")
 
         with cols[4]:
-            st.text(f"{conv['message_count']}")
+            st.text(f"{conv['area']} / {conv['site']}")
 
         with cols[5]:
+            st.text(f"{conv['message_count']}")
+
+        with cols[6]:
             try:
                 updated = datetime.fromisoformat(conv['updated_at'].replace("Z", ""))
                 st.text(updated.strftime("%Y-%m-%d %H:%M"))
             except Exception:
                 st.text(conv['updated_at'][:16])
 
-        with cols[6]:
+        with cols[7]:
             if st.button("View", key=f"view_{conv_id}"):
                 st.session_state.selected_conversation = conv_id
                 st.rerun()
@@ -198,6 +226,8 @@ try:
                         formatted_phone = f"+{phone}"
                     st.markdown(f"**Source:** WhatsApp")
                     st.markdown(f"**Phone:** {formatted_phone}")
+                    if conv.profile_name:
+                        st.markdown(f"**Name:** {conv.profile_name}")
                 else:
                     st.markdown(f"**Source:** Web")
                     st.markdown(f"**ID:** `{conv_id[:40]}{'...' if len(conv_id) > 40 else ''}`")
