@@ -57,6 +57,11 @@ class WhatsAppQueryLogger:
         """
         Log WhatsApp query with timing data to GCS.
 
+        Note: phone and message_id parameters are used for debug logging only and are
+        not stored in GCS logs. Conversation ID already contains phone number
+        (whatsapp_<phone>) and message_id can be correlated via delivery_status events.
+        This keeps query logs consistent with backend format while supporting WhatsApp-specific debugging.
+
         Args:
             conversation_id: Conversation ID
             area: Location area
@@ -64,8 +69,8 @@ class WhatsAppQueryLogger:
             query: User query text
             response_text: Assistant response text
             latency_ms: Total query latency in milliseconds
-            phone: User phone number (normalized)
-            message_id: WhatsApp message ID
+            phone: User phone number (normalized) - used for debug logging only
+            message_id: WhatsApp message ID - used for debug logging only
             correlation_id: Optional correlation ID for request tracing
             citations: Full list of citations from backend
             images: List of displayed images

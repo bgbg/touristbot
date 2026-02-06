@@ -83,9 +83,8 @@ def create_app() -> Flask:
             JSON response with status (always 200 to prevent retries)
         """
         try:
-            # Create timing context and mark webhook received
-            timing_ctx = TimingContext()
-            timing_ctx.mark("webhook_received")
+            # Mark webhook received timestamp (will be copied to each message's timing context)
+            webhook_received_ts = TimingContext().mark("webhook_received")
 
             # Verify webhook signature (Meta X-Hub-Signature-256)
             signature = request.headers.get("X-Hub-Signature-256", "")
@@ -106,11 +105,10 @@ def create_app() -> Flask:
                 return jsonify({"status": "error", "message": "No data"}), 400
 
             # Generate correlation ID for this webhook
-            correlation_id = str(uuid.uuid4())
-            timing_ctx.correlation_id = correlation_id
+            webhook_correlation_id = str(uuid.uuid4())
 
             # Log the raw webhook
-            logger.log_event("incoming_webhook", data, correlation_id)
+            logger.log_event("incoming_webhook", data, webhook_correlation_id)
 
             # Process webhook entries
             for entry in data.get("entry", []):
@@ -123,6 +121,15 @@ def create_app() -> Flask:
                             msg_type = message.get("type")
                             msg_from = message.get("from")
                             msg_id = message.get("id")
+
+                            # Create new timing context for each message
+                            # Copy webhook_received timestamp from webhook-level timing
+                            msg_timing_ctx = TimingContext()
+                            msg_timing_ctx.set_checkpoint("webhook_received", webhook_received_ts)
+
+                            # Generate unique correlation ID for this message
+                            correlation_id = str(uuid.uuid4())
+                            msg_timing_ctx.correlation_id = correlation_id
 
                             logger.log_event("incoming_message", {
                                 "from": msg_from,
@@ -155,7 +162,7 @@ def create_app() -> Flask:
                                     logger.eprint(f"[WARNING] Failed to send read receipt/typing indicator: {e}")
 
                                 # Mark background task started
-                                timing_ctx.mark("background_task_started")
+                                msg_timing_ctx.mark("background_task_started")
 
                                 # Launch background thread to process message
                                 task_manager.execute_async(
@@ -170,7 +177,7 @@ def create_app() -> Flask:
                                     logger=logger,
                                     query_logger=query_logger,
                                     delivery_tracker=delivery_tracker,
-                                    timing_ctx=timing_ctx
+                                    timing_ctx=msg_timing_ctx
                                 )
                                 logger.eprint(f"[WEBHOOK] Background thread started for message {msg_id}")
 
@@ -196,10 +203,11 @@ def create_app() -> Flask:
                                 "timestamp": timestamp_unix,
                                 "recipient_id": recipient_id,
                             }
-                            logger.log_event("status_update", status_info, correlation_id)
+                            logger.log_event("status_update", status_info, webhook_correlation_id)
 
                             # Check if this message is tracked for delivery timing
-                            metadata = delivery_tracker.get_and_remove(msg_id)
+                            # Use get() instead of get_and_remove() to preserve tracking for all status updates
+                            metadata = delivery_tracker.get(msg_id)
                             if metadata and status_type in ("sent", "delivered", "read"):
                                 # Convert timestamp to milliseconds
                                 timestamp_ms = float(timestamp_unix) * 1000 if timestamp_unix else None
@@ -224,6 +232,10 @@ def create_app() -> Flask:
                                         "status_timestamp_ms": timestamp_ms,
                                         "delivery_latency_ms": timestamp_ms - metadata["sent_timestamp_ms"],
                                     }, metadata["correlation_id"])
+
+                            # Note: Cleanup of delivery tracker entries happens automatically via TTL (30 minutes)
+                            # or explicit cleanup_expired() calls. We don't remove entries on status updates
+                            # to capture all sequential status changes (sent -> delivered -> read).
 
             return jsonify({"status": "ok"}), 200
 

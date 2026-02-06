@@ -3,7 +3,6 @@ Tests for DeliveryTracker class.
 """
 
 import time
-import pytest
 
 from whatsapp.delivery_tracker import DeliveryTracker
 

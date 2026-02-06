@@ -33,6 +33,8 @@ class DeliveryTracker:
         self.ttl_seconds = ttl_seconds
         self.pending: Dict[str, Dict] = {}  # message_id -> metadata
         self.lock = Lock()
+        self._last_cleanup = time.time()
+        self._cleanup_interval = 300  # Cleanup every 5 minutes
 
     def register_outgoing_message(
         self,
@@ -61,11 +63,12 @@ class DeliveryTracker:
                 "registered_at": time.time(),
             }
 
-    def get_and_remove(self, message_id: str) -> Optional[Dict]:
+    def get(self, message_id: str) -> Optional[Dict]:
         """
-        Get and remove metadata for a message.
+        Get metadata for a message without removing it.
 
-        Used when delivery status arrives - retrieves metadata and cleans up.
+        Used to retrieve message metadata for multiple status updates
+        (sent/delivered/read) without losing the tracking data.
 
         Args:
             message_id: WhatsApp message ID
@@ -74,11 +77,34 @@ class DeliveryTracker:
             Metadata dict or None if not found
         """
         with self.lock:
+            return self.pending.get(message_id)
+
+    def get_and_remove(self, message_id: str) -> Optional[Dict]:
+        """
+        Get and remove metadata for a message.
+
+        Used when delivery status arrives - retrieves metadata and cleans up.
+        Automatically triggers cleanup of expired entries every 5 minutes.
+
+        Args:
+            message_id: WhatsApp message ID
+
+        Returns:
+            Metadata dict or None if not found
+        """
+        # Trigger automatic cleanup periodically (similar to MessageDeduplicator pattern)
+        now = time.time()
+        if now - self._last_cleanup > self._cleanup_interval:
+            self._cleanup_expired_internal()
+            self._last_cleanup = now
+
+        with self.lock:
             return self.pending.pop(message_id, None)
 
-    def cleanup_expired(self) -> int:
+    def _cleanup_expired_internal(self) -> int:
         """
-        Remove expired entries (older than TTL).
+        Internal method to remove expired entries (older than TTL).
+        Called automatically by get_and_remove every 5 minutes.
 
         Returns:
             Number of entries removed
@@ -97,6 +123,20 @@ class DeliveryTracker:
                 del self.pending[msg_id]
 
         return len(expired)
+
+    def cleanup_expired(self) -> int:
+        """
+        Manually trigger cleanup of expired entries (older than TTL).
+
+        This method can be called explicitly, but cleanup also happens automatically
+        every 5 minutes when get_and_remove() is called.
+
+        Returns:
+            Number of entries removed
+        """
+        count = self._cleanup_expired_internal()
+        self._last_cleanup = time.time()
+        return count
 
     def get_pending_count(self) -> int:
         """

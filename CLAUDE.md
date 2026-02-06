@@ -731,12 +731,14 @@ logs = logger.get_logs_range("2024-01-01", "2024-01-31")
 | `backend_api_call_end` | HTTP response received from backend |
 | `backend_response_received` | Backend response parsed |
 | `images_send_start` | Start sending images (if any) |
+| `image_send_start` | Begin sending single image via WhatsApp client |
 | `image_download_start` | Begin downloading image from GCS |
 | `image_downloaded` | Image downloaded |
 | `image_upload_start` | Begin uploading image to WhatsApp |
 | `image_uploaded` | Image uploaded to WhatsApp |
 | `image_message_send_start` | Begin sending image message |
 | `image_message_sent` | Image message sent |
+| `image_send_end` | Completed sending single image via WhatsApp client |
 | `images_sent` | All images sent |
 | `text_send_start` | Start sending text response |
 | `whatsapp_text_api_call_start` | HTTP request sent to WhatsApp API |

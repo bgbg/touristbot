@@ -106,3 +106,18 @@ class TimingContext:
 
         timestamps = list(self.checkpoints.values())
         return max(timestamps) - min(timestamps)
+
+    def set_checkpoint(self, checkpoint_name: str, timestamp_ms: float) -> None:
+        """
+        Set a checkpoint with an explicit timestamp value.
+
+        Used for copying checkpoints between contexts or setting initial values.
+
+        Args:
+            checkpoint_name: Name of the checkpoint
+            timestamp_ms: Timestamp in milliseconds since epoch
+
+        Example:
+            ctx.set_checkpoint("webhook_received", 1234567890123.45)
+        """
+        self.checkpoints[checkpoint_name] = timestamp_ms

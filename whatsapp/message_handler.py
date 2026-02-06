@@ -216,7 +216,8 @@ def process_message(
             # Extract WhatsApp message ID from API response
             outgoing_msg_id = send_response.get("messages", [{}])[0].get("id")
             if outgoing_msg_id:
-                sent_timestamp_ms = timing_ctx.checkpoints.get("text_sent", 0)
+                breakdown = timing_ctx.get_breakdown()
+                sent_timestamp_ms = breakdown.get("text_sent", 0)
                 delivery_tracker.register_outgoing_message(
                     message_id=outgoing_msg_id,
                     correlation_id=correlation_id,

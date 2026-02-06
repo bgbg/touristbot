@@ -3,7 +3,6 @@ Tests for TimingContext class.
 """
 
 import time
-import pytest
 
 from whatsapp.timing import TimingContext
 
