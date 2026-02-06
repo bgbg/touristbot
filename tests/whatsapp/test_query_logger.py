@@ -4,8 +4,7 @@ Unit tests for WhatsApp query logger.
 Tests WhatsAppQueryLogger for logging queries with timing data to GCS.
 """
 
-import json
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 import pytest
 
 from whatsapp.query_logger import WhatsAppQueryLogger
