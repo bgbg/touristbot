@@ -181,6 +181,7 @@ def create_app() -> Flask:
                                     text=text_body,
                                     message_id=msg_id,
                                     correlation_id=correlation_id,
+                                    profile_name=profile_name,
                                     conversation_loader=conversation_loader,
                                     backend_client=backend_client,
                                     whatsapp_client=whatsapp_client,

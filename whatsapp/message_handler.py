@@ -23,6 +23,7 @@ def process_message(
     text: str,
     message_id: str,
     correlation_id: str,
+    profile_name: Optional[str],
     conversation_loader: ConversationLoader,
     backend_client: BackendClient,
     whatsapp_client: WhatsAppClient,
@@ -52,10 +53,13 @@ def process_message(
         text: Message text from user
         message_id: WhatsApp message ID (for logging)
         correlation_id: Request correlation ID for logging
+        profile_name: WhatsApp profile name (from webhook contacts array)
         conversation_loader: Conversation management service
         backend_client: Backend API client
         whatsapp_client: WhatsApp API client
         logger: Event logger
+        query_logger: WhatsApp query logger
+        delivery_tracker: Delivery tracking service
         timing_ctx: Optional timing context for performance measurement
 
     Example:
@@ -64,10 +68,13 @@ def process_message(
             text="מה יש לראות באגמון?",
             message_id="wamid.123",
             correlation_id="uuid-456",
+            profile_name="John Doe",
             conversation_loader=loader,
             backend_client=backend,
             whatsapp_client=whatsapp,
-            logger=event_logger
+            logger=event_logger,
+            query_logger=query_logger,
+            delivery_tracker=delivery_tracker
         )
     """
     try:
@@ -80,10 +87,10 @@ def process_message(
         # Mark start of message processing in background task
         timing_ctx.mark("message_processing_started")
 
-        # Load conversation
+        # Load conversation (with profile name from webhook)
         timing_ctx.mark("conversation_load_start")
         try:
-            conv = conversation_loader.load_conversation(phone)
+            conv = conversation_loader.load_conversation(phone, profile_name=profile_name)
             timing_ctx.mark("conversation_loaded")
         except Exception as e:
             eprint(f"[ERROR] Failed to load conversation: {e}")

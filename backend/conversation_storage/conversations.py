@@ -42,10 +42,11 @@ class Conversation:
     created_at: str
     updated_at: str
     messages: List[Message]
+    profile_name: Optional[str] = None  # WhatsApp profile name (optional)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "conversation_id": self.conversation_id,
             "area": self.area,
             "site": self.site,
@@ -53,6 +54,9 @@ class Conversation:
             "updated_at": self.updated_at,
             "messages": [asdict(msg) for msg in self.messages],
         }
+        if self.profile_name:
+            result["profile_name"] = self.profile_name
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "Conversation":
@@ -65,6 +69,7 @@ class Conversation:
             created_at=data["created_at"],
             updated_at=data["updated_at"],
             messages=messages,
+            profile_name=data.get("profile_name"),  # Optional field
         )
 
 
@@ -139,7 +144,7 @@ class ConversationStore:
         return conversation, expired_count
 
     def create_conversation(
-        self, area: str, site: str, conversation_id: Optional[str] = None
+        self, area: str, site: str, conversation_id: Optional[str] = None, profile_name: Optional[str] = None
     ) -> Conversation:
         """
         Create a new conversation.
@@ -148,6 +153,7 @@ class ConversationStore:
             area: Location area
             site: Location site
             conversation_id: Optional conversation ID (generates UUID if not provided)
+            profile_name: Optional WhatsApp profile name
 
         Returns:
             New Conversation object
@@ -163,9 +169,10 @@ class ConversationStore:
             created_at=now,
             updated_at=now,
             messages=[],
+            profile_name=profile_name,
         )
 
-        logger.info(f"Created new conversation: {conversation_id} ({area}/{site})")
+        logger.info(f"Created new conversation: {conversation_id} ({area}/{site}, profile: {profile_name or 'N/A'})")
         return conversation
 
     def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
@@ -246,6 +253,28 @@ class ConversationStore:
                 f"Failed to save conversation: {conversation.conversation_id} - {e}"
             )
             return False
+
+    def update_profile_name(
+        self,
+        conversation: Conversation,
+        profile_name: Optional[str]
+    ) -> Conversation:
+        """
+        Update profile name for a conversation and save.
+
+        Args:
+            conversation: Conversation to update
+            profile_name: New profile name (None to clear)
+
+        Returns:
+            Updated conversation
+        """
+        if conversation.profile_name != profile_name:
+            conversation.profile_name = profile_name
+            self.save_conversation(conversation)
+            logger.debug(f"Updated profile name for conversation: {conversation.conversation_id} -> {profile_name}")
+
+        return conversation
 
     def add_message(
         self,
@@ -489,6 +518,7 @@ class ConversationStore:
                         "updated_at": data.get("updated_at", ""),
                         "message_count": message_count,
                         "last_query": last_query,
+                        "profile_name": data.get("profile_name"),  # WhatsApp profile name
                     })
 
                 except Exception as e:
