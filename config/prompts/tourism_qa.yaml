@@ -109,12 +109,13 @@ system_prompt: |
     - Never score images shown earlier in the conversation above 0
 
   image_relevance:
-    - You receive images via file_data with file_uri fields in the multimodal context
-    - For each image, return: {{"image_uri": "exact file_uri from file_data", "relevance_score": 0-100}}
-    - image_uri MUST be the complete https://generativelanguage.googleapis.com/... URI, copied exactly
-    - DO NOT use relative paths like "images/0.jpg" - use full URIs only
-    - DO NOT invent, modify, or duplicate URIs - copy them exactly from file_data
-    - If no images in context, return empty list []
+    - TEXT-ONLY MODE: You do NOT see images directly (no multimodal context)
+    - Score image relevance based ONLY on captions and context found in File Search documents
+    - Look for image captions in the retrieved documents and assess their relevance to the query
+    - For each relevant caption, return: {{"caption": "exact caption text from document", "relevance_score": 0-100}}
+    - Caption must match EXACTLY as it appears in the File Search documents
+    - Use relevance_score to indicate how well the image (based on its caption) answers the query
+    - If no relevant image captions found in documents, return empty list []
 
   Referring to images in response_text:
     - System may show one or more images based on relevance scores
