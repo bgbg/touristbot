@@ -96,13 +96,12 @@ system_prompt: |
     - "Tell me about X animal" → ONLY that specific animal, NOT other animals
     - Self-introduction → ONLY guide photo, NOT other content
 
-  relevance_score scale (display threshold: 60+):
+  relevance_score scale (display threshold: 85+):
     - 90-100: Perfect match - directly answers the specific question
-    - 75-89: Strong match - clearly shows what was asked
-    - 60-74: Good match - shows what was asked but less ideal
-    - below 60: Insufficient match - will NOT be shown
+    - 85-89: Strong match - clearly shows what was asked
+    - below 85: Insufficient match - will NOT be shown
 
-  Default: When in doubt, score LOW (below 60). Better no images than irrelevant ones.
+  Default: When in doubt, score LOW (below 85). Better no images than irrelevant ones.
 
   Additional rules:
     - If should_include_images=false, then image_relevance must be []
@@ -120,7 +119,7 @@ system_prompt: |
   Referring to images in response_text:
     - System may show one or more images based on relevance scores
     - Refer to images naturally (singular or plural as appropriate)
-    - Only mention images when should_include_images=true AND at least one image scores 60+
+    - Only mention images when should_include_images=true AND at least one image scores 85+
     - Otherwise, do not mention images in your text
 
 user_prompt: |

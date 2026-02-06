@@ -28,7 +28,7 @@ from backend.dependencies import (
     get_store_registry,
 )
 from backend.endpoints.topics import get_topics_for_location
-from backend.image_registry import ImageRegistry
+from backend.image_registry import ImageRegistry, ImageRecord
 from backend.json_helpers import parse_json
 from backend.query_logging.query_logger import QueryLogger
 from backend.models import Citation, ImageMetadata, QARequest, QAResponse
@@ -110,7 +110,7 @@ def query_images_for_location(
 
 
 def filter_images_by_relevance(
-    images: List[dict], image_relevance: List, storage, min_score: int = 85
+    images: List[ImageRecord], image_relevance: List, storage, min_score: int = 85
 ) -> List[ImageMetadata]:
     """
     Filter images by relevance scores from LLM.
@@ -119,7 +119,7 @@ def filter_images_by_relevance(
     LLM scores captions found in File Search documents without seeing images directly.
 
     Args:
-        images: List of image records from registry
+        images: List of ImageRecord objects from registry
         image_relevance: List of dicts with 'caption' and 'relevance_score' from LLM JSON
         storage: Storage backend for generating signed URLs
         min_score: Minimum relevance score (default: 85, strict threshold for high quality)
@@ -178,6 +178,9 @@ def filter_images_by_relevance(
             except Exception as e:
                 logger.error(f"Failed to generate signed URL for {img.gcs_path}: {e}. Skipping image.")
                 continue  # Skip this image if we can't generate a signed URL
+
+            # Keep file_api_uri for deduplication (backward compatibility)
+            file_api_uri = img.file_api_uri
 
             relevant_images.append(
                 ImageMetadata(

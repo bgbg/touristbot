@@ -216,7 +216,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
   5. If `should_include_images=true` and relevance data available, `filter_images_by_relevance()` matches captions and filters images with score >= 85 ([qa.py:112-186](backend/endpoints/qa.py#L112-L186))
   6. Caption matching uses normalization (strip whitespace, lowercase) for fuzzy matching
   7. Filtered images sorted by relevance score (descending)
-  8. Fallback: if no relevance data, shows all images (backward compatibility)
+  8. If no relevance data is available, no images are shown (no fallback to showing all images)
 - Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks)
 - Image filtering: Only images with relevance score >= 85 are displayed (strict threshold)
 - Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!")
