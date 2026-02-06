@@ -17,6 +17,7 @@ from .config import WhatsAppConfig
 from .conversation import ConversationLoader
 from .deduplication import MessageDeduplicator
 from .logging_utils import EventLogger
+from .query_logger import WhatsAppQueryLogger
 from .whatsapp_client import WhatsAppClient
 
 
@@ -213,3 +214,31 @@ def get_task_manager() -> BackgroundTaskManager:
         timeout_seconds=config.background_task_timeout_seconds,
         logger=logger
     )
+
+
+@lru_cache()
+def get_query_logger() -> WhatsAppQueryLogger:
+    """
+    Get WhatsApp query logger singleton.
+
+    Logs queries with timing data to GCS for analytics.
+
+    Returns:
+        WhatsAppQueryLogger instance
+
+    Example:
+        query_logger = get_query_logger()
+        query_logger.log_query(
+            conversation_id="whatsapp_972501234567",
+            area="עמק חפר",
+            site="אגמון חפר",
+            query="מה יש לראות?",
+            response_text="תשובה...",
+            latency_ms=1234.5,
+            phone="972501234567",
+            message_id="wamid.XXX",
+            timing_breakdown={"webhook_received": 1234567890123, ...}
+        )
+    """
+    storage = get_gcs_storage()
+    return WhatsAppQueryLogger(storage)

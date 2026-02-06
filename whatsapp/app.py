@@ -14,6 +14,7 @@ from flask import Flask, request, jsonify
 from . import dependencies
 from .message_handler import process_message
 from .security import verify_webhook_signature
+from .timing import TimingContext
 
 
 def create_app() -> Flask:
@@ -39,6 +40,7 @@ def create_app() -> Flask:
     task_manager = dependencies.get_task_manager()
     conversation_loader = dependencies.get_conversation_loader()
     backend_client = dependencies.get_backend_client()
+    query_logger = dependencies.get_query_logger()
 
     @app.route("/webhook", methods=["GET"])
     def webhook_verification():
@@ -80,6 +82,10 @@ def create_app() -> Flask:
             JSON response with status (always 200 to prevent retries)
         """
         try:
+            # Create timing context and mark webhook received
+            timing_ctx = TimingContext()
+            timing_ctx.mark("webhook_received")
+
             # Verify webhook signature (Meta X-Hub-Signature-256)
             signature = request.headers.get("X-Hub-Signature-256", "")
             payload = request.get_data()
@@ -100,6 +106,7 @@ def create_app() -> Flask:
 
             # Generate correlation ID for this webhook
             correlation_id = str(uuid.uuid4())
+            timing_ctx.correlation_id = correlation_id
 
             # Log the raw webhook
             logger.log_event("incoming_webhook", data, correlation_id)
@@ -146,6 +153,9 @@ def create_app() -> Flask:
                                     # Never block on read receipt or typing indicator failure
                                     logger.eprint(f"[WARNING] Failed to send read receipt/typing indicator: {e}")
 
+                                # Mark background task started
+                                timing_ctx.mark("background_task_started")
+
                                 # Launch background thread to process message
                                 task_manager.execute_async(
                                     process_message,
@@ -156,7 +166,9 @@ def create_app() -> Flask:
                                     conversation_loader=conversation_loader,
                                     backend_client=backend_client,
                                     whatsapp_client=whatsapp_client,
-                                    logger=logger
+                                    logger=logger,
+                                    query_logger=query_logger,
+                                    timing_ctx=timing_ctx
                                 )
                                 logger.eprint(f"[WEBHOOK] Background thread started for message {msg_id}")
 
