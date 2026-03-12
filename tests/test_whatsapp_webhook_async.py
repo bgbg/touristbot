@@ -21,35 +21,41 @@ import whatsapp_bot
 from whatsapp_bot import clear_message_dedup_cache, clear_active_threads
 
 
+def _clear_all_dependency_caches():
+    from whatsapp import dependencies
+    dependencies.get_config.cache_clear()
+    dependencies.get_whatsapp_clients.cache_clear()
+    dependencies.get_backend_client.cache_clear()
+    dependencies.get_conversation_loader.cache_clear()
+    dependencies.get_event_logger.cache_clear()
+    dependencies.get_message_deduplicator.cache_clear()
+    dependencies.get_task_manager.cache_clear()
+    dependencies.get_conversation_store.cache_clear()
+    dependencies.get_gcs_storage.cache_clear()
+
+
 @pytest.fixture(autouse=True)
 def clear_dependency_cache():
     """Clear lru_cache on dependency getters to allow mocking."""
-    from whatsapp import dependencies
-    # Clear all dependency caches before each test
-    dependencies.get_config.cache_clear()
-    dependencies.get_whatsapp_client.cache_clear()
-    dependencies.get_backend_client.cache_clear()
-    dependencies.get_conversation_loader.cache_clear()
-    dependencies.get_event_logger.cache_clear()
-    dependencies.get_message_deduplicator.cache_clear()
-    dependencies.get_task_manager.cache_clear()
-    dependencies.get_conversation_store.cache_clear()
-    dependencies.get_gcs_storage.cache_clear()
+    _clear_all_dependency_caches()
     yield
-    # Clear again after test
-    dependencies.get_config.cache_clear()
-    dependencies.get_whatsapp_client.cache_clear()
-    dependencies.get_backend_client.cache_clear()
-    dependencies.get_conversation_loader.cache_clear()
-    dependencies.get_event_logger.cache_clear()
-    dependencies.get_message_deduplicator.cache_clear()
-    dependencies.get_task_manager.cache_clear()
-    dependencies.get_conversation_store.cache_clear()
-    dependencies.get_gcs_storage.cache_clear()
+    _clear_all_dependency_caches()
+
+
+@pytest.fixture(autouse=True)
+def mock_gcs_storage():
+    """Mock GCS storage to prevent real GCS calls in all tests."""
+    mock_storage = MagicMock()
+    mock_storage.read.return_value = None
+    mock_storage.write.return_value = None
+
+    from whatsapp import dependencies
+    with patch.object(dependencies, 'get_gcs_storage', return_value=mock_storage):
+        yield mock_storage
 
 
 @pytest.fixture
-def client():
+def client(mock_gcs_storage):
     """Flask test client with fresh app instance."""
     # Import create_app after dependency cache is cleared
     from whatsapp.app import create_app
@@ -79,7 +85,8 @@ def mock_signature_validation():
         yield
 
 
-def create_webhook_payload(msg_id="wamid.test123", phone="972525974655", text="Hello"):
+def create_webhook_payload(msg_id="wamid.test123", phone="972525974655", text="Hello",
+                           phone_number_id="PHONE_NUMBER_ID"):
     """Create a WhatsApp webhook payload."""
     return {
         "object": "whatsapp_business_account",
@@ -90,7 +97,7 @@ def create_webhook_payload(msg_id="wamid.test123", phone="972525974655", text="H
                     "messaging_product": "whatsapp",
                     "metadata": {
                         "display_phone_number": "15550000000",
-                        "phone_number_id": "PHONE_NUMBER_ID"
+                        "phone_number_id": phone_number_id,
                     },
                     "messages": [{
                         "from": phone,
@@ -197,11 +204,11 @@ def test_background_processing_completes():
     from whatsapp import dependencies
     dependencies.get_conversation_loader.cache_clear()
     dependencies.get_backend_client.cache_clear()
-    dependencies.get_whatsapp_client.cache_clear()
+    dependencies.get_whatsapp_clients.cache_clear()
 
     with patch('whatsapp.dependencies.get_conversation_loader', return_value=mock_loader), \
          patch('whatsapp.dependencies.get_backend_client', return_value=mock_backend), \
-         patch('whatsapp.dependencies.get_whatsapp_client', return_value=mock_whatsapp), \
+         patch('whatsapp.dependencies.get_whatsapp_client_for', return_value=mock_whatsapp), \
          patch('whatsapp.app.verify_webhook_signature', return_value=True):
 
         # Create app with mocked dependencies
@@ -247,7 +254,7 @@ def test_typing_indicator_sent_before_200_ok():
 
     # Clear caches and apply patches
     from whatsapp import dependencies
-    dependencies.get_whatsapp_client.cache_clear()
+    dependencies.get_whatsapp_clients.cache_clear()
 
     # Patch process_message to track when it's called
     from whatsapp import message_handler
@@ -256,7 +263,7 @@ def test_typing_indicator_sent_before_200_ok():
         call_order.append("process")
         return original_process(*args, **kwargs)
 
-    with patch('whatsapp.dependencies.get_whatsapp_client', return_value=mock_whatsapp), \
+    with patch('whatsapp.dependencies.get_whatsapp_client_for', return_value=mock_whatsapp), \
          patch('whatsapp.app.verify_webhook_signature', return_value=True), \
          patch('whatsapp.message_handler.process_message', side_effect=track_process):
 
@@ -287,8 +294,7 @@ def test_typing_indicator_sent_before_200_ok():
 @patch('whatsapp_bot.call_backend_qa')
 @patch('whatsapp_bot.load_conversation')
 @patch('whatsapp_bot.send_text_message')
-@patch('whatsapp_bot.conversation_store')
-def test_background_task_timeout(mock_conv_store, mock_send_text, mock_load_conv,
+def test_background_task_timeout(mock_send_text, mock_load_conv,
                                 mock_backend, mock_read, client):
     """Test that background task timeout triggers after 60s."""
     mock_read.return_value = (200, {"success": True})
@@ -387,11 +393,11 @@ def test_backend_error_handling():
     from whatsapp import dependencies
     dependencies.get_conversation_loader.cache_clear()
     dependencies.get_backend_client.cache_clear()
-    dependencies.get_whatsapp_client.cache_clear()
+    dependencies.get_whatsapp_clients.cache_clear()
 
     with patch('whatsapp.dependencies.get_conversation_loader', return_value=mock_loader), \
          patch('whatsapp.dependencies.get_backend_client', return_value=mock_backend), \
-         patch('whatsapp.dependencies.get_whatsapp_client', return_value=mock_whatsapp), \
+         patch('whatsapp.dependencies.get_whatsapp_client_for', return_value=mock_whatsapp), \
          patch('whatsapp.app.verify_webhook_signature', return_value=True):
 
         # Create app with mocked dependencies
@@ -416,3 +422,142 @@ def test_backend_error_handling():
             # Check that an error message was sent
             error_sent = any("שגיאה" in str(call_args) for call_args in mock_whatsapp.send_text_message.call_args_list)
             assert error_sent
+
+
+# ── Multi-number routing tests ────────────────────────────────────────────────
+
+def _make_mock_config(phone_number_map):
+    """Helper to create a mock WhatsAppConfig with a given phone_number_map."""
+    from pathlib import Path
+    from whatsapp.config import WhatsAppConfig
+    mock_config = MagicMock(spec=WhatsAppConfig)
+    mock_config.verify_token = "test-token"
+    mock_config.phone_number_map = phone_number_map
+    mock_config.default_area = "default_area"
+    mock_config.default_site = "default_site"
+    mock_config.phone_number_id = ""
+    mock_config.graph_api_version = "v22.0"
+    mock_config.background_task_timeout_seconds = 180
+    mock_config.message_dedup_ttl_seconds = 300
+    mock_config.backend_api_url = "http://localhost:8001"
+    mock_config.backend_api_key = "test-key"
+    mock_config.log_dir = Path("/tmp/whatsapp_test_logs")
+    mock_config.log_dir.mkdir(exist_ok=True)
+    return mock_config
+
+
+@patch('whatsapp.app.process_message')
+@patch('whatsapp.app.verify_webhook_signature', return_value=True)
+def test_routing_sends_correct_area_site_for_phone_number_1(mock_sig, mock_process):
+    """Message to phone number 1 triggers process_message with area1/site1."""
+    from whatsapp.config import PhoneNumberConfig
+
+    mock_client_1 = MagicMock()
+    mock_client_1.send_read_receipt.return_value = (200, {})
+    mock_client_1.send_text_message.return_value = (200, {})
+
+    phone_map = {
+        "id1": PhoneNumberConfig("id1", "token1", "area1", "site1"),
+        "id2": PhoneNumberConfig("id2", "token2", "area2", "site2"),
+    }
+    mock_config = _make_mock_config(phone_map)
+
+    _clear_all_dependency_caches()
+    with patch('whatsapp.dependencies.get_config', return_value=mock_config), \
+         patch('whatsapp.dependencies.get_whatsapp_client_for', return_value=mock_client_1):
+        from whatsapp.app import create_app
+        app = create_app()
+        app.config['TESTING'] = True
+
+        payload = create_webhook_payload(phone_number_id="id1", msg_id="wamid.routing1")
+        with app.test_client() as c:
+            resp = c.post('/webhook', data=json.dumps(payload), content_type='application/json')
+            assert resp.status_code == 200
+
+        time.sleep(0.2)
+
+        assert mock_process.called
+        call_kwargs = mock_process.call_args.kwargs if mock_process.call_args.kwargs else {}
+        if not call_kwargs:
+            call_kwargs = {}
+            call_args_list = mock_process.call_args[1] if mock_process.call_args[1] else {}
+            call_kwargs = call_args_list
+        # process_message is called with keyword args from execute_async
+        assert mock_process.call_args is not None
+        kwargs = mock_process.call_args[1]
+        assert kwargs.get("area") == "area1"
+        assert kwargs.get("site") == "site1"
+
+
+@patch('whatsapp.app.process_message')
+@patch('whatsapp.app.verify_webhook_signature', return_value=True)
+def test_routing_sends_correct_area_site_for_phone_number_2(mock_sig, mock_process):
+    """Message to phone number 2 triggers process_message with area2/site2."""
+    from whatsapp.config import PhoneNumberConfig
+
+    mock_client_2 = MagicMock()
+    mock_client_2.send_read_receipt.return_value = (200, {})
+    mock_client_2.send_text_message.return_value = (200, {})
+
+    phone_map = {
+        "id1": PhoneNumberConfig("id1", "token1", "area1", "site1"),
+        "id2": PhoneNumberConfig("id2", "token2", "area2", "site2"),
+    }
+    mock_config = _make_mock_config(phone_map)
+
+    _clear_all_dependency_caches()
+    with patch('whatsapp.dependencies.get_config', return_value=mock_config), \
+         patch('whatsapp.dependencies.get_whatsapp_client_for', return_value=mock_client_2):
+        from whatsapp.app import create_app
+        app = create_app()
+        app.config['TESTING'] = True
+
+        payload = create_webhook_payload(phone_number_id="id2", msg_id="wamid.routing2")
+        with app.test_client() as c:
+            resp = c.post('/webhook', data=json.dumps(payload), content_type='application/json')
+            assert resp.status_code == 200
+
+        time.sleep(0.2)
+
+        assert mock_process.called
+        kwargs = mock_process.call_args[1]
+        assert kwargs.get("area") == "area2"
+        assert kwargs.get("site") == "site2"
+
+
+@patch('whatsapp.app.process_message')
+@patch('whatsapp.app.verify_webhook_signature', return_value=True)
+def test_unknown_phone_number_id_falls_back_to_defaults(mock_sig, mock_process):
+    """Unknown phone_number_id in webhook falls back to default area/site."""
+    from whatsapp.config import PhoneNumberConfig
+
+    mock_fallback_client = MagicMock()
+    mock_fallback_client.send_read_receipt.return_value = (200, {})
+    mock_fallback_client.send_text_message.return_value = (200, {})
+
+    phone_map = {
+        "id1": PhoneNumberConfig("id1", "token1", "area1", "site1"),
+    }
+    mock_config = _make_mock_config(phone_map)
+
+    _clear_all_dependency_caches()
+    with patch('whatsapp.dependencies.get_config', return_value=mock_config), \
+         patch('whatsapp.dependencies.get_whatsapp_client_for', return_value=mock_fallback_client):
+        from whatsapp.app import create_app
+        app = create_app()
+        app.config['TESTING'] = True
+
+        # Send to an unknown phone_number_id
+        payload = create_webhook_payload(phone_number_id="unknown_id", msg_id="wamid.unknown")
+        with app.test_client() as c:
+            resp = c.post('/webhook', data=json.dumps(payload), content_type='application/json')
+            # Should still return 200 OK (graceful fallback)
+            assert resp.status_code == 200
+
+        time.sleep(0.2)
+
+        # process_message should still be called (with fallback area/site)
+        assert mock_process.called
+        kwargs = mock_process.call_args[1]
+        assert kwargs.get("area") == "default_area"
+        assert kwargs.get("site") == "default_site"

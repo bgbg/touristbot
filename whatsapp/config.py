@@ -8,9 +8,18 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
+
+
+@dataclass
+class PhoneNumberConfig:
+    """Configuration for a single WhatsApp phone number."""
+    phone_number_id: str
+    access_token: str
+    area: str
+    site: str
 
 
 @dataclass
@@ -38,16 +47,66 @@ class WhatsAppConfig:
     use_local_backend: bool
     backend_port: int
 
-    # Default location context
+    # Default location context (used when phone_number_id not found in map)
     default_area: str
     default_site: str
 
+    # Multi-number routing map: phone_number_id -> PhoneNumberConfig
+    phone_number_map: Dict[str, PhoneNumberConfig] = field(default_factory=dict)
+
     # Logging
-    log_dir: Path
+    log_dir: Path = field(default_factory=lambda: Path("whatsapp_logs"))
 
     # Background task configuration
-    background_task_timeout_seconds: int
-    message_dedup_ttl_seconds: int
+    background_task_timeout_seconds: int = 180
+    message_dedup_ttl_seconds: int = 300
+
+    @staticmethod
+    def _parse_phone_number_map(raw: str, default_area: str, default_site: str) -> Dict[str, PhoneNumberConfig]:
+        """
+        Parse PHONE_NUMBER_MAP env var into a dict of PhoneNumberConfig.
+
+        Format: id1:token1:area1:site1,id2:token2:area2:site2
+
+        Args:
+            raw: Raw env var string
+            default_area: Fallback area for entries with empty area field
+            default_site: Fallback site for entries with empty site field
+
+        Returns:
+            Dict mapping phone_number_id to PhoneNumberConfig
+
+        Raises:
+            ValueError: If an entry has wrong number of fields or empty required fields
+        """
+        result: Dict[str, PhoneNumberConfig] = {}
+        if not raw.strip():
+            return result
+
+        for entry in raw.strip().split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            parts = entry.split(":")
+            if len(parts) != 4:
+                raise ValueError(
+                    f"Invalid PHONE_NUMBER_MAP entry '{entry}': "
+                    f"expected 'phone_number_id:access_token:area:site', got {len(parts)} fields"
+                )
+            phone_number_id, access_token, area, site = parts
+            if not phone_number_id or not access_token:
+                raise ValueError(
+                    f"Invalid PHONE_NUMBER_MAP entry '{entry}': "
+                    f"phone_number_id and access_token must not be empty"
+                )
+            result[phone_number_id] = PhoneNumberConfig(
+                phone_number_id=phone_number_id,
+                access_token=access_token,
+                area=area or default_area,
+                site=site or default_site,
+            )
+
+        return result
 
     @classmethod
     def from_env(cls) -> WhatsAppConfig:
@@ -78,10 +137,29 @@ class WhatsAppConfig:
         port_env = os.getenv("PORT") or os.getenv("WHATSAPP_LISTENER_PORT")
         port = int(port_env) if port_env else 8080
 
+        default_area = "עמק חפר"  # Hefer Valley
+        default_site = "אגמון חפר"  # Agamon Hefer
+
+        primary_phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+        primary_access_token = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
+
+        # Build phone_number_map from PHONE_NUMBER_MAP env var
+        phone_number_map_raw = os.getenv("PHONE_NUMBER_MAP", "")
+        phone_number_map = cls._parse_phone_number_map(phone_number_map_raw, default_area, default_site)
+
+        # Always seed the primary number into the map if set and not already there
+        if primary_phone_number_id and primary_phone_number_id not in phone_number_map:
+            phone_number_map[primary_phone_number_id] = PhoneNumberConfig(
+                phone_number_id=primary_phone_number_id,
+                access_token=primary_access_token,
+                area=default_area,
+                site=default_site,
+            )
+
         return cls(
             verify_token=os.getenv("WHATSAPP_VERIFY_TOKEN", "your-verify-token-here"),
-            access_token=os.getenv("WHATSAPP_ACCESS_TOKEN", ""),
-            phone_number_id=os.getenv("WHATSAPP_PHONE_NUMBER_ID", ""),
+            access_token=primary_access_token,
+            phone_number_id=primary_phone_number_id,
             app_secret=os.getenv("WHATSAPP_APP_SECRET"),
             backend_api_url=backend_api_url,
             backend_api_key=os.getenv("BACKEND_API_KEY", ""),
@@ -90,8 +168,9 @@ class WhatsAppConfig:
             port=port,
             use_local_backend=use_local_backend,
             backend_port=backend_port,
-            default_area="עמק חפר",  # Hefer Valley
-            default_site="אגמון חפר",  # Agamon Hefer
+            default_area=default_area,
+            default_site=default_site,
+            phone_number_map=phone_number_map,
             log_dir=Path("whatsapp_logs"),
             background_task_timeout_seconds=180,  # 3 minutes (handles large image uploads)
             message_dedup_ttl_seconds=300,  # 5 minutes
@@ -101,20 +180,39 @@ class WhatsAppConfig:
         """
         Validate required environment variables at startup (fail fast).
 
+        If phone_number_map has at least one entry, individual
+        WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID are not required
+        (they may be configured via PHONE_NUMBER_MAP instead).
+
         Raises:
             RuntimeError: If required environment variables are missing
         """
-        required_vars = {
-            "WHATSAPP_VERIFY_TOKEN": ("Token for Meta webhook verification", self.verify_token),
-            "WHATSAPP_ACCESS_TOKEN": ("WhatsApp Business API access token", self.access_token),
-            "WHATSAPP_PHONE_NUMBER_ID": ("WhatsApp phone number ID", self.phone_number_id),
-            "BACKEND_API_KEY": ("Backend API authentication key", self.backend_api_key),
-            "GCS_BUCKET": (
-                "Google Cloud Storage bucket for conversation persistence "
-                "(use Application Default Credentials for auth)",
-                self.gcs_bucket
-            ),
-        }
+        has_phone_map = bool(self.phone_number_map)
+
+        if not has_phone_map:
+            # Single-number mode: validate individual vars
+            required_vars: Dict[str, tuple] = {
+                "WHATSAPP_VERIFY_TOKEN": ("Token for Meta webhook verification", self.verify_token),
+                "WHATSAPP_ACCESS_TOKEN": ("WhatsApp Business API access token", self.access_token),
+                "WHATSAPP_PHONE_NUMBER_ID": ("WhatsApp phone number ID", self.phone_number_id),
+                "BACKEND_API_KEY": ("Backend API authentication key", self.backend_api_key),
+                "GCS_BUCKET": (
+                    "Google Cloud Storage bucket for conversation persistence "
+                    "(use Application Default Credentials for auth)",
+                    self.gcs_bucket
+                ),
+            }
+        else:
+            # Multi-number mode: only require shared vars
+            required_vars = {
+                "WHATSAPP_VERIFY_TOKEN": ("Token for Meta webhook verification", self.verify_token),
+                "BACKEND_API_KEY": ("Backend API authentication key", self.backend_api_key),
+                "GCS_BUCKET": (
+                    "Google Cloud Storage bucket for conversation persistence "
+                    "(use Application Default Credentials for auth)",
+                    self.gcs_bucket
+                ),
+            }
 
         # In production, WHATSAPP_APP_SECRET is also required for webhook signature validation
         is_production = os.getenv("K_SERVICE") or os.getenv("GAE_ENV")

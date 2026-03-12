@@ -25,7 +25,7 @@ from whatsapp.app import create_app
 from whatsapp.dependencies import (
     get_config, get_task_manager, get_message_deduplicator,
     get_conversation_store, get_event_logger, get_conversation_loader,
-    get_backend_client, get_whatsapp_client
+    get_backend_client, get_whatsapp_clients, get_whatsapp_client_for
 )
 from whatsapp.logging_utils import eprint
 
@@ -34,84 +34,63 @@ from backend.gcs_storage import GCSStorage
 
 load_dotenv()
 
-# Backward compatibility: expose app and internal state for tests
-# Tests expect to import these directly from whatsapp_bot module
-app = create_app()  # Create app instance at module level
-
-# Compatibility exports for tests - expose singletons
-_deduplicator = get_message_deduplicator()
-_task_manager = get_task_manager()
-_conversation_loader = get_conversation_loader()
-_backend_client = get_backend_client()
-_whatsapp_client = get_whatsapp_client()
-_event_logger = get_event_logger()
-
-# Helper accessors for internal state used by tests (backward compatibility)
-# These provide a stable interface without exposing implementation details
-def get_message_dedup_cache_size() -> int:
-    """
-    Return the current size of the message deduplication cache.
-
-    This provides a stable interface for tests without exposing the
-    underlying cache implementation or private attributes directly.
-    """
-    return _deduplicator.get_cache_size()
-
-
-def clear_message_dedup_cache() -> None:
-    """
-    Clear all entries from the message deduplication cache.
-
-    Thread-safe operation. Useful for testing to reset state between test cases.
-    """
-    _deduplicator.clear()
-
-
-def get_active_thread_count() -> int:
-    """
-    Return the current number of active background threads managed
-    by the BackgroundTaskManager.
-
-    This avoids exposing the internal _active_threads collection
-    directly while still allowing tests to assert on thread usage.
-    """
-    return _task_manager.get_active_count()
-
-
-def clear_active_threads() -> None:
-    """
-    Clear all active threads from tracking.
-
-    Thread-safe operation. Useful for testing to reset state between test cases.
-    Note: This only clears tracking, does not stop running threads.
-    """
-    _task_manager.clear_active_threads()
-
-# Expose conversation_store for tests
-conversation_store = get_conversation_store()
-
-# Compatibility function for tests
-def is_duplicate_message(msg_id: str) -> bool:
-    """Backward compatibility wrapper for deduplication."""
-    return _deduplicator.is_duplicate(msg_id)
-
+# Backward compatibility: expose app and internal state for tests.
+# App is created lazily via create_app() below only when needed.
+# Tests create their own app via create_app() after patching dependencies.
 
 # Import other functions that tests might need
 from whatsapp.message_handler import process_message
 from whatsapp.whatsapp_client import WhatsAppClient
 
+
+# Helper accessors for internal state used by tests (backward compatibility)
+# These call dependency functions on each invocation (respects patches/mocks).
+def get_message_dedup_cache_size() -> int:
+    """Return the current size of the message deduplication cache."""
+    return get_message_deduplicator().get_cache_size()
+
+
+def clear_message_dedup_cache() -> None:
+    """Clear all entries from the message deduplication cache."""
+    get_message_deduplicator().clear()
+
+
+def get_active_thread_count() -> int:
+    """Return the current number of active background threads."""
+    return get_task_manager().get_active_count()
+
+
+def clear_active_threads() -> None:
+    """Clear all active threads from tracking."""
+    get_task_manager().clear_active_threads()
+
+
+# Compatibility function for tests
+def is_duplicate_message(msg_id: str) -> bool:
+    """Backward compatibility wrapper for deduplication."""
+    return get_message_deduplicator().is_duplicate(msg_id)
+
+
 # Compatibility wrappers for tests
 def process_message_async(phone: str, text: str, message_id: str, correlation_id: str) -> None:
     """Backward compatibility wrapper for process_message."""
+    config = get_config()
+    clients = get_whatsapp_clients()
+    whatsapp_client = get_whatsapp_client_for(config.phone_number_id or next(iter(clients), ""))
     process_message(
         phone=phone,
         text=text,
         message_id=message_id,
         correlation_id=correlation_id,
-        conversation_loader=_conversation_loader,
-        backend_client=_backend_client,
-        whatsapp_client=_whatsapp_client,
-        logger=_event_logger
+        profile_name=None,
+        area=config.default_area,
+        site=config.default_site,
+        conversation_loader=get_conversation_loader(),
+        backend_client=get_backend_client(),
+        whatsapp_client=whatsapp_client,
+        logger=get_event_logger(),
+        query_logger=None,
+        delivery_tracker=None,
     )
 
 
@@ -121,15 +100,12 @@ def load_conversation(phone: str):
 
     Uses module-level conversation_store for test compatibility.
     """
-    # For test compatibility, use the module-level conversation_store
-    # which can be patched by tests
+    conv_store = get_conversation_store()
     conversation_id = f"whatsapp_{phone}"
 
     try:
-        # Try to load existing conversation from GCS
-        conv = conversation_store.get_conversation(conversation_id)
+        conv = conv_store.get_conversation(conversation_id)
         if conv:
-            # Check if all messages were expired
             if len(conv.messages) == 0:
                 eprint(f"[CONV] Loaded conversation with all messages expired: {conversation_id}")
                 eprint(f"[CONV] Starting fresh conversation after expiration")
@@ -137,31 +113,31 @@ def load_conversation(phone: str):
                 eprint(f"[CONV] Loaded existing conversation: {conversation_id} ({len(conv.messages)} messages)")
             return conv
         else:
-            # Create new conversation
             eprint(f"[CONV] Creating new conversation: {conversation_id}")
             config = get_config()
-            conv = conversation_store.create_conversation(
+            conv = conv_store.create_conversation(
                 area=config.default_area,
                 site=config.default_site,
                 conversation_id=conversation_id
             )
-            # Save immediately to GCS
-            conversation_store.save_conversation(conv)
+            conv_store.save_conversation(conv)
             return conv
     except Exception as e:
         eprint(f"[ERROR] Failed to load/create conversation: {e}")
-        # Fail-fast: re-raise exception to trigger error response
         raise
 
 
 def call_backend_qa(conversation_id: str, area: str, site: str, query: str, correlation_id: str = None):
     """Backward compatibility wrapper for call_backend_qa."""
-    return _backend_client.call_qa_endpoint(conversation_id, area, site, query)
+    return get_backend_client().call_qa_endpoint(conversation_id, area, site, query)
 
 
 def send_text_message(to_phone: str, text: str, correlation_id: str = None):
     """Backward compatibility wrapper for send_text_message."""
-    return _whatsapp_client.send_text_message(to_phone, text)
+    config = get_config()
+    clients = get_whatsapp_clients()
+    client = get_whatsapp_client_for(config.phone_number_id or next(iter(clients), ""))
+    return client.send_text_message(to_phone, text)
 
 
 def normalize_phone(raw: str) -> str:
@@ -176,7 +152,10 @@ def download_image_from_url(url: str) -> bytes:
 
 def send_image_with_retry(to_phone: str, image_url: str, caption: str, correlation_id: str = None):
     """Backward compatibility wrapper for send_image."""
-    return _whatsapp_client.send_image(to_phone, image_url, caption)
+    config = get_config()
+    clients = get_whatsapp_clients()
+    client = get_whatsapp_client_for(config.phone_number_id or next(iter(clients), ""))
+    return client.send_image(to_phone, image_url, caption)
 
 
 # Backend process (will be started if USE_LOCAL_BACKEND=true)

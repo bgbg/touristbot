@@ -36,12 +36,12 @@ def create_app() -> Flask:
     config = dependencies.get_config()
     logger = dependencies.get_event_logger()
     deduplicator = dependencies.get_message_deduplicator()
-    whatsapp_client = dependencies.get_whatsapp_client()
     task_manager = dependencies.get_task_manager()
     conversation_loader = dependencies.get_conversation_loader()
     backend_client = dependencies.get_backend_client()
     query_logger = dependencies.get_query_logger()
     delivery_tracker = dependencies.get_delivery_tracker()
+    # WhatsApp clients are fetched per-message using get_whatsapp_client_for(phone_number_id)
 
     @app.route("/webhook", methods=["GET"])
     def webhook_verification():
@@ -117,6 +117,25 @@ def create_app() -> Flask:
 
                     # Process messages
                     if "messages" in value:
+                        # Extract phone_number_id from metadata for routing
+                        incoming_phone_number_id = value.get("metadata", {}).get("phone_number_id", "")
+
+                        # Look up area/site from routing map
+                        pnc = config.phone_number_map.get(incoming_phone_number_id)
+                        if pnc:
+                            msg_area = pnc.area
+                            msg_site = pnc.site
+                        else:
+                            logger.eprint(
+                                f"[WARNING] Unknown phone_number_id '{incoming_phone_number_id}', "
+                                f"falling back to defaults"
+                            )
+                            msg_area = config.default_area
+                            msg_site = config.default_site
+
+                        # Select WhatsApp client for this phone number
+                        msg_whatsapp_client = dependencies.get_whatsapp_client_for(incoming_phone_number_id)
+
                         # Extract contact profile names (keyed by wa_id)
                         contacts_map = {}
                         for contact in value.get("contacts", []):
@@ -145,6 +164,9 @@ def create_app() -> Flask:
                                 "type": msg_type,
                                 "message_id": msg_id,
                                 "profile_name": profile_name,
+                                "phone_number_id": incoming_phone_number_id,
+                                "area": msg_area,
+                                "site": msg_site,
                             }, correlation_id)
 
                             if msg_type == "text":
@@ -162,7 +184,7 @@ def create_app() -> Flask:
                                 # Send read receipt with typing indicator immediately
                                 # Per Meta docs: both are sent in a single API call
                                 try:
-                                    status, resp = whatsapp_client.send_read_receipt(msg_id, typing_indicator=True)
+                                    status, resp = msg_whatsapp_client.send_read_receipt(msg_id, typing_indicator=True)
                                     if status == 200:
                                         logger.eprint("[READ+TYPING] Message marked as read with typing indicator")
                                     else:
@@ -182,9 +204,11 @@ def create_app() -> Flask:
                                     message_id=msg_id,
                                     correlation_id=correlation_id,
                                     profile_name=profile_name,
+                                    area=msg_area,
+                                    site=msg_site,
                                     conversation_loader=conversation_loader,
                                     backend_client=backend_client,
-                                    whatsapp_client=whatsapp_client,
+                                    whatsapp_client=msg_whatsapp_client,
                                     logger=logger,
                                     query_logger=query_logger,
                                     delivery_tracker=delivery_tracker,
@@ -195,7 +219,7 @@ def create_app() -> Flask:
                             else:
                                 # Unsupported message type
                                 logger.eprint(f"\n📱 Unsupported message type: {msg_type} from {msg_from}")
-                                whatsapp_client.send_text_message(
+                                msg_whatsapp_client.send_text_message(
                                     msg_from,
                                     "מצטער, אני תומך רק בהודעות טקסט כרגע."
                                 )

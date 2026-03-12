@@ -2,9 +2,12 @@
 Conversation management for WhatsApp bot.
 
 Provides interface for loading, creating, and resetting conversations stored in GCS.
+Area and site are always passed explicitly at call sites for multi-number routing.
 """
 
 from __future__ import annotations
+
+from typing import Optional
 
 from backend.conversation_storage.conversations import ConversationStore, Conversation
 
@@ -17,34 +20,35 @@ class ConversationLoader:
 
     Wraps ConversationStore with WhatsApp-specific logic:
     - Conversation ID generation (whatsapp_{normalized_phone})
-    - Default location context (area, site)
     - Reset command handling
+
+    Area and site are passed explicitly at each call site, supporting
+    multi-number routing where each phone number maps to a different location.
     """
 
-    def __init__(
-        self,
-        conversation_store: ConversationStore,
-        default_area: str,
-        default_site: str
-    ):
+    def __init__(self, conversation_store: ConversationStore):
         """
         Initialize conversation loader.
 
         Args:
             conversation_store: GCS-backed conversation store
-            default_area: Default location area (Hebrew name)
-            default_site: Default location site (Hebrew name)
         """
         self.conversation_store = conversation_store
-        self.default_area = default_area
-        self.default_site = default_site
 
-    def load_conversation(self, phone: str, profile_name: Optional[str] = None) -> Conversation:
+    def load_conversation(
+        self,
+        phone: str,
+        area: str,
+        site: str,
+        profile_name: Optional[str] = None,
+    ) -> Conversation:
         """
         Load existing conversation or create new one.
 
         Args:
             phone: Normalized phone number (digits only)
+            area: Location area (used when creating new conversation)
+            site: Location site (used when creating new conversation)
             profile_name: Optional WhatsApp profile name (from webhook)
 
         Returns:
@@ -54,8 +58,8 @@ class ConversationLoader:
             Exception: If GCS storage fails
 
         Example:
-            loader = ConversationLoader(store, "עמק חפר", "אגמון חפר")
-            conv = loader.load_conversation("972501234567", profile_name="John Doe")
+            loader = ConversationLoader(store)
+            conv = loader.load_conversation("972501234567", "עמק חפר", "אגמון חפר", profile_name="John Doe")
             print(f"Loaded {len(conv.messages)} messages")
         """
         conversation_id = self._generate_conversation_id(phone)
@@ -79,10 +83,10 @@ class ConversationLoader:
                 # Create new conversation
                 eprint(f"[CONV] Creating new conversation: {conversation_id}")
                 conv = self.conversation_store.create_conversation(
-                    area=self.default_area,
-                    site=self.default_site,
+                    area=area,
+                    site=site,
                     conversation_id=conversation_id,
-                    profile_name=profile_name
+                    profile_name=profile_name,
                 )
                 # Save immediately to GCS
                 self.conversation_store.save_conversation(conv)
@@ -92,7 +96,7 @@ class ConversationLoader:
             # Fail-fast: re-raise exception to trigger error response
             raise
 
-    def reset_conversation(self, phone: str) -> Conversation:
+    def reset_conversation(self, phone: str, area: str, site: str) -> Conversation:
         """
         Delete old conversation and create fresh one.
 
@@ -100,6 +104,8 @@ class ConversationLoader:
 
         Args:
             phone: Normalized phone number (digits only)
+            area: Location area for the new conversation
+            site: Location site for the new conversation
 
         Returns:
             New conversation object (empty message history)
@@ -108,8 +114,8 @@ class ConversationLoader:
             Exception: If GCS storage fails
 
         Example:
-            loader = ConversationLoader(store, "עמק חפר", "אגמון חפר")
-            conv = loader.reset_conversation("972501234567")
+            loader = ConversationLoader(store)
+            conv = loader.reset_conversation("972501234567", "עמק חפר", "אגמון חפר")
         """
         conversation_id = self._generate_conversation_id(phone)
 
@@ -119,9 +125,9 @@ class ConversationLoader:
 
             # Create new conversation
             conv = self.conversation_store.create_conversation(
-                area=self.default_area,
-                site=self.default_site,
-                conversation_id=conversation_id
+                area=area,
+                site=site,
+                conversation_id=conversation_id,
             )
 
             # Save immediately to GCS

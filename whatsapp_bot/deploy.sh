@@ -88,6 +88,7 @@ BACKEND_API_KEY: "${BACKEND_API_KEY}"
 META_GRAPH_API_VERSION: "${META_GRAPH_API_VERSION}"
 WHATSAPP_APP_SECRET: "${WHATSAPP_APP_SECRET}"
 GCS_BUCKET: "tarasa_tourist_bot_content"
+PHONE_NUMBER_MAP: "${PHONE_NUMBER_MAP}"
 EOF
 
 # Deploy to Cloud Run with environment variables

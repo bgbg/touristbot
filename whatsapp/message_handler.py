@@ -24,6 +24,8 @@ def process_message(
     message_id: str,
     correlation_id: str,
     profile_name: Optional[str],
+    area: str,
+    site: str,
     conversation_loader: ConversationLoader,
     backend_client: BackendClient,
     whatsapp_client: WhatsAppClient,
@@ -54,6 +56,8 @@ def process_message(
         message_id: WhatsApp message ID (for logging)
         correlation_id: Request correlation ID for logging
         profile_name: WhatsApp profile name (from webhook contacts array)
+        area: Location area for this phone number (from routing map)
+        site: Location site for this phone number (from routing map)
         conversation_loader: Conversation management service
         backend_client: Backend API client
         whatsapp_client: WhatsApp API client
@@ -69,6 +73,8 @@ def process_message(
             message_id="wamid.123",
             correlation_id="uuid-456",
             profile_name="John Doe",
+            area="עמק חפר",
+            site="אגמון חפר",
             conversation_loader=loader,
             backend_client=backend,
             whatsapp_client=whatsapp,
@@ -90,7 +96,7 @@ def process_message(
         # Load conversation (with profile name from webhook)
         timing_ctx.mark("conversation_load_start")
         try:
-            conv = conversation_loader.load_conversation(phone, profile_name=profile_name)
+            conv = conversation_loader.load_conversation(phone, area=area, site=site, profile_name=profile_name)
             timing_ctx.mark("conversation_loaded")
         except Exception as e:
             eprint(f"[ERROR] Failed to load conversation: {e}")
@@ -101,7 +107,7 @@ def process_message(
 
         # Handle special commands
         response_text = handle_special_command(
-            text, phone, conversation_loader, whatsapp_client
+            text, phone, area, site, conversation_loader, whatsapp_client
         )
         if response_text:
             # Command handled, response already sent
@@ -313,6 +319,8 @@ def process_message(
 def handle_special_command(
     text: str,
     phone: str,
+    area: str,
+    site: str,
     conversation_loader: ConversationLoader,
     whatsapp_client: WhatsAppClient,
 ) -> Optional[str]:
@@ -322,6 +330,8 @@ def handle_special_command(
     Args:
         text: Message text from user
         phone: User phone number
+        area: Location area for this phone number
+        site: Location site for this phone number
         conversation_loader: Conversation management service
         whatsapp_client: WhatsApp API client
 
@@ -329,14 +339,14 @@ def handle_special_command(
         Response text if command was handled, None otherwise
 
     Example:
-        response = handle_special_command("reset", phone, loader, client)
+        response = handle_special_command("reset", phone, "עמק חפר", "אגמון חפר", loader, client)
         if response:
             print(f"Command handled: {response}")
     """
     # Reset command
     if text.lower() in ("reset", "התחל מחדש"):
         try:
-            conversation_loader.reset_conversation(phone)
+            conversation_loader.reset_conversation(phone, area=area, site=site)
             whatsapp_client.send_text_message(phone, "השיחה אופסה. אפשר להתחיל מחדש!")
             eprint("✓ Conversation reset")
             return "השיחה אופסה. אפשר להתחיל מחדש!"
