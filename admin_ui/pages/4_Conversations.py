@@ -1,9 +1,11 @@
 """Conversation management."""
 
 import streamlit as st
+from collections import defaultdict
 from datetime import datetime
 
 from backend.conversation_storage.conversations import ConversationStore
+from backend.store_registry import StoreRegistry
 
 st.title("Conversations")
 
@@ -18,6 +20,28 @@ storage = st.session_state.storage
 # Initialize conversation store
 conv_store = ConversationStore(storage, gcs_prefix="conversations")
 
+
+@st.cache_data(ttl=300)
+def load_locations():
+    """Load available areas and sites from StoreRegistry."""
+    registry = StoreRegistry(
+        storage_backend=storage,
+        gcs_path=config.store_registry_gcs_path,
+    )
+    locations = registry.list_all()
+    area_to_sites = defaultdict(list)
+    for area, site in locations.keys():
+        area_to_sites[area].append(site)
+    # Sort everything
+    areas = sorted(area_to_sites.keys())
+    for area in areas:
+        area_to_sites[area] = sorted(area_to_sites[area])
+    all_sites = sorted({site for _, site in locations.keys()})
+    return areas, dict(area_to_sites), all_sites
+
+
+areas_list, area_to_sites, all_sites_list = load_locations()
+
 # Refresh button
 col1, col2 = st.columns([6, 1])
 with col1:
@@ -30,10 +54,26 @@ with col2:
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    area_filter = st.text_input("Area", placeholder="All areas", help="Filter by area")
+    area_filter = st.selectbox(
+        "Area",
+        options=[""] + areas_list,
+        format_func=lambda x: "All areas" if x == "" else x,
+        help="Filter by area",
+    )
+    area_filter = area_filter if area_filter else None
 
 with col2:
-    site_filter = st.text_input("Site", placeholder="All sites", help="Filter by site")
+    if area_filter:
+        site_options = area_to_sites.get(area_filter, [])
+    else:
+        site_options = all_sites_list
+    site_filter = st.selectbox(
+        "Site",
+        options=[""] + site_options,
+        format_func=lambda x: "All sites" if x == "" else x,
+        help="Filter by site",
+    )
+    site_filter = site_filter if site_filter else None
 
 with col3:
     source_filter = st.selectbox(
@@ -55,8 +95,8 @@ with col4:
 try:
     conversations = conv_store.list_all_conversations(
         limit=limit,
-        area_filter=area_filter if area_filter else None,
-        site_filter=site_filter if site_filter else None
+        area_filter=area_filter,
+        site_filter=site_filter
     )
 
     # Apply source filter

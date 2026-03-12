@@ -547,3 +547,112 @@ class TestConversationExpiration:
         assert len(conv.messages) == 2  # Both messages should be kept
         assert conv.messages[0].content == "Old message"
         assert conv.messages[1].content == "Recent message"
+
+
+class TestListAllConversationsFiltering:
+    """Tests for list_all_conversations area/site filtering with multiple areas."""
+
+    @pytest.fixture
+    def mock_storage(self):
+        """Create a mock storage backend."""
+        return MagicMock()
+
+    @pytest.fixture
+    def store(self, mock_storage):
+        """Create a conversation store with mocked storage."""
+        return ConversationStore(mock_storage, gcs_prefix="test-conversations")
+
+    def _make_conversation_json(self, conversation_id, area, site):
+        """Helper to create conversation JSON string."""
+        now = datetime.utcnow().isoformat() + "Z"
+        return json.dumps({
+            "conversation_id": conversation_id,
+            "area": area,
+            "site": site,
+            "created_at": now,
+            "updated_at": now,
+            "messages": [
+                {"role": "user", "content": "Hello", "timestamp": now, "citations": None, "images": None},
+            ],
+        })
+
+    def test_list_all_conversations_area_filter_multi_area(self, store, mock_storage):
+        """Test filtering conversations by area when multiple areas exist."""
+        # Setup: 4 conversation files across 2 areas
+        mock_storage.list_files.return_value = [
+            "test-conversations/conv_hv_1.json",
+            "test-conversations/conv_hv_2.json",
+            "test-conversations/conv_emb_1.json",
+            "test-conversations/conv_emb_2.json",
+        ]
+
+        conv_data = {
+            "test-conversations/conv_hv_1.json": self._make_conversation_json("conv_hv_1", "hefer_valley", "agamon_hefer"),
+            "test-conversations/conv_hv_2.json": self._make_conversation_json("conv_hv_2", "hefer_valley", "agamon_hefer"),
+            "test-conversations/conv_emb_1.json": self._make_conversation_json("conv_emb_1", "embassyhoteltlv", "embassyhoteltlv"),
+            "test-conversations/conv_emb_2.json": self._make_conversation_json("conv_emb_2", "embassyhoteltlv", "embassyhoteltlv"),
+        }
+        mock_storage.read_file.side_effect = lambda path: conv_data[path]
+
+        # Filter by hefer_valley
+        results = store.list_all_conversations(area_filter="hefer_valley")
+        assert len(results) == 2
+        assert all(r["area"] == "hefer_valley" for r in results)
+
+        # Filter by embassyhoteltlv
+        mock_storage.list_files.return_value = list(conv_data.keys())
+        results = store.list_all_conversations(area_filter="embassyhoteltlv")
+        assert len(results) == 2
+        assert all(r["area"] == "embassyhoteltlv" for r in results)
+
+    def test_list_all_conversations_no_filter_returns_all(self, store, mock_storage):
+        """Test that no filter returns all conversations from all areas."""
+        mock_storage.list_files.return_value = [
+            "test-conversations/conv_hv_1.json",
+            "test-conversations/conv_emb_1.json",
+        ]
+        conv_data = {
+            "test-conversations/conv_hv_1.json": self._make_conversation_json("conv_hv_1", "hefer_valley", "agamon_hefer"),
+            "test-conversations/conv_emb_1.json": self._make_conversation_json("conv_emb_1", "embassyhoteltlv", "embassyhoteltlv"),
+        }
+        mock_storage.read_file.side_effect = lambda path: conv_data[path]
+
+        results = store.list_all_conversations()
+        assert len(results) == 2
+        areas = {r["area"] for r in results}
+        assert areas == {"hefer_valley", "embassyhoteltlv"}
+
+    def test_list_all_conversations_site_filter(self, store, mock_storage):
+        """Test filtering by site across areas."""
+        mock_storage.list_files.return_value = [
+            "test-conversations/conv_1.json",
+            "test-conversations/conv_2.json",
+            "test-conversations/conv_3.json",
+        ]
+        conv_data = {
+            "test-conversations/conv_1.json": self._make_conversation_json("conv_1", "hefer_valley", "agamon_hefer"),
+            "test-conversations/conv_2.json": self._make_conversation_json("conv_2", "hefer_valley", "beit_yanai"),
+            "test-conversations/conv_3.json": self._make_conversation_json("conv_3", "embassyhoteltlv", "embassyhoteltlv"),
+        }
+        mock_storage.read_file.side_effect = lambda path: conv_data[path]
+
+        results = store.list_all_conversations(site_filter="agamon_hefer")
+        assert len(results) == 1
+        assert results[0]["site"] == "agamon_hefer"
+
+    def test_list_all_conversations_area_and_site_filter(self, store, mock_storage):
+        """Test filtering by both area and site."""
+        mock_storage.list_files.return_value = [
+            "test-conversations/conv_1.json",
+            "test-conversations/conv_2.json",
+        ]
+        conv_data = {
+            "test-conversations/conv_1.json": self._make_conversation_json("conv_1", "hefer_valley", "agamon_hefer"),
+            "test-conversations/conv_2.json": self._make_conversation_json("conv_2", "hefer_valley", "beit_yanai"),
+        }
+        mock_storage.read_file.side_effect = lambda path: conv_data[path]
+
+        results = store.list_all_conversations(area_filter="hefer_valley", site_filter="agamon_hefer")
+        assert len(results) == 1
+        assert results[0]["area"] == "hefer_valley"
+        assert results[0]["site"] == "agamon_hefer"
