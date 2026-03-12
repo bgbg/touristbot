@@ -54,6 +54,9 @@ class WhatsAppConfig:
     # Multi-number routing map: phone_number_id -> PhoneNumberConfig
     phone_number_map: Dict[str, PhoneNumberConfig] = field(default_factory=dict)
 
+    # True when PHONE_NUMBER_MAP env var was explicitly set (vs. auto-seeded primary)
+    multi_number_mode: bool = False
+
     # Logging
     log_dir: Path = field(default_factory=lambda: Path("whatsapp_logs"))
 
@@ -146,6 +149,7 @@ class WhatsAppConfig:
         # Build phone_number_map from PHONE_NUMBER_MAP env var
         phone_number_map_raw = os.getenv("PHONE_NUMBER_MAP", "")
         phone_number_map = cls._parse_phone_number_map(phone_number_map_raw, default_area, default_site)
+        multi_number_mode = bool(phone_number_map)  # True only if PHONE_NUMBER_MAP had entries
 
         # Always seed the primary number into the map if set and not already there
         if primary_phone_number_id and primary_phone_number_id not in phone_number_map:
@@ -171,6 +175,7 @@ class WhatsAppConfig:
             default_area=default_area,
             default_site=default_site,
             phone_number_map=phone_number_map,
+            multi_number_mode=multi_number_mode,
             log_dir=Path("whatsapp_logs"),
             background_task_timeout_seconds=180,  # 3 minutes (handles large image uploads)
             message_dedup_ttl_seconds=300,  # 5 minutes
@@ -180,16 +185,14 @@ class WhatsAppConfig:
         """
         Validate required environment variables at startup (fail fast).
 
-        If phone_number_map has at least one entry, individual
+        If PHONE_NUMBER_MAP was explicitly set (multi_number_mode), individual
         WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID are not required
-        (they may be configured via PHONE_NUMBER_MAP instead).
+        (tokens are configured via PHONE_NUMBER_MAP instead).
 
         Raises:
             RuntimeError: If required environment variables are missing
         """
-        has_phone_map = bool(self.phone_number_map)
-
-        if not has_phone_map:
+        if not self.multi_number_mode:
             # Single-number mode: validate individual vars
             required_vars: Dict[str, tuple] = {
                 "WHATSAPP_VERIFY_TOKEN": ("Token for Meta webhook verification", self.verify_token),

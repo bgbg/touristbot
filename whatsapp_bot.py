@@ -25,7 +25,8 @@ from whatsapp.app import create_app
 from whatsapp.dependencies import (
     get_config, get_task_manager, get_message_deduplicator,
     get_conversation_store, get_event_logger, get_conversation_loader,
-    get_backend_client, get_whatsapp_clients, get_whatsapp_client_for
+    get_backend_client, get_whatsapp_clients, get_whatsapp_client_for,
+    get_query_logger, get_delivery_tracker
 )
 from whatsapp.logging_utils import eprint
 
@@ -89,8 +90,8 @@ def process_message_async(phone: str, text: str, message_id: str, correlation_id
         backend_client=get_backend_client(),
         whatsapp_client=whatsapp_client,
         logger=get_event_logger(),
-        query_logger=None,
-        delivery_tracker=None,
+        query_logger=get_query_logger(),
+        delivery_tracker=get_delivery_tracker(),
     )
 
 
