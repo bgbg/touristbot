@@ -25,7 +25,7 @@ def verify_webhook_signature(
     Implements security best practices:
     - Production: Fail closed (reject all requests without app secret)
     - Local dev: Warn but allow (for testing without Meta app secret)
-    - Constant-time comparison to prevent timing attacks
+    - All secrets always checked (no early exit) to avoid timing side-channels
 
     Args:
         payload: Raw request body bytes
@@ -75,14 +75,16 @@ def verify_webhook_signature(
     # Extract hex signature from header
     expected_signature = signature[7:]  # Remove "sha256=" prefix
 
-    # Try each secret — valid if any matches (constant-time comparison)
+    # Try each secret — accept if any matches.
+    # All secrets are always checked (no early exit) to avoid timing side-channels.
+    matched = False
     for secret in secrets_to_try:
         mac = hmac.new(secret.encode(), msg=payload, digestmod=hashlib.sha256)
         computed_signature = mac.hexdigest()
         if hmac.compare_digest(computed_signature, expected_signature):
-            return True
+            matched = True
 
-    return False
+    return matched
 
 
 def is_production_environment() -> bool:

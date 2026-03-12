@@ -343,6 +343,7 @@ if __name__ == "__main__":
         debug_mode = flask_debug_env.lower() in ("1", "true", "yes", "on")
         use_reloader = debug_mode
 
+    app = create_app()
     try:
         app.run(host="0.0.0.0", port=config.port, debug=debug_mode, use_reloader=use_reloader)
     finally:
