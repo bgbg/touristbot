@@ -30,6 +30,7 @@ def _clear_all_dependency_caches():
     dependencies.get_event_logger.cache_clear()
     dependencies.get_message_deduplicator.cache_clear()
     dependencies.get_task_manager.cache_clear()
+    dependencies.get_error_rate_limiter.cache_clear()
     dependencies.get_conversation_store.cache_clear()
     dependencies.get_gcs_storage.cache_clear()
 

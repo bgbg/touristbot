@@ -107,6 +107,7 @@ def process_message(
                 phone, "מצטער, המערכת אינה זמינה כרגע. נסה שוב בעוד מספר דקות.",
                 whatsapp_client, error_rate_limiter, logger,
                 error_type="conversation_load_failure",
+                correlation_id=correlation_id,
             )
             return
 
@@ -137,6 +138,7 @@ def process_message(
                 phone, "מצטער, המערכת אינה זמינה כרגע. נסה שוב בעוד מספר דקות.",
                 whatsapp_client, error_rate_limiter, logger,
                 error_type="user_message_save_failure",
+                correlation_id=correlation_id,
             )
             return
 
@@ -240,6 +242,7 @@ def process_message(
                 phone, "מצטער, לא הצלחתי לשלוח את התשובה. נסה שוב בעוד מספר דקות.",
                 whatsapp_client, error_rate_limiter, logger,
                 error_type="send_response_failure",
+                correlation_id=correlation_id,
             )
         else:
             eprint(f"✓ [TEXT] Text response sent successfully")
@@ -322,6 +325,7 @@ def process_message(
                 phone, "מצטער, המערכת אינה זמינה כרגע. נסה שוב בעוד מספר דקות.",
                 whatsapp_client, error_rate_limiter, logger,
                 error_type="background_task_exception",
+                correlation_id=correlation_id,
             )
         except Exception:
             pass  # Failed to send error message, nothing more we can do
@@ -334,6 +338,7 @@ def _send_rate_limited_error(
     error_rate_limiter: Optional[ErrorRateLimiter],
     logger: EventLogger,
     error_type: str = "unknown",
+    correlation_id: Optional[str] = None,
 ) -> None:
     """
     Send an error message to a user, rate-limited to prevent flooding.
@@ -348,6 +353,7 @@ def _send_rate_limited_error(
         error_rate_limiter: Rate limiter (None to skip rate limiting)
         logger: Event logger for logging suppressed errors
         error_type: Type of error for logging context
+        correlation_id: Request correlation ID for tracing
     """
     if error_rate_limiter and not error_rate_limiter.should_send_error(phone):
         eprint(f"[RATE_LIMIT] Suppressing error message to {phone} (cooldown active)")
@@ -355,10 +361,15 @@ def _send_rate_limited_error(
             "phone": phone,
             "error_type": error_type,
             "reason": "cooldown_active",
-        })
+        }, correlation_id)
         return
 
     whatsapp_client.send_text_message(phone, message)
+
+    # Record timestamp only after successful send so a failed send
+    # does not start the cooldown (user never received the message)
+    if error_rate_limiter:
+        error_rate_limiter.record_error_sent(phone)
 
 
 def handle_special_command(
