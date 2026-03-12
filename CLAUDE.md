@@ -195,7 +195,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - **REST API** for all operations (chat, topics, locations, uploads)
 - **Stateless design**: All state in GCS (conversations, logs, registries)
 - **Two-layer authentication**:
-  1. **GCP IAM**: Cloud Run requires GCP authentication (not publicly accessible)
+  1. **Cloud Run**: Deployed with `--allow-unauthenticated` (publicly accessible)
   2. **API keys**: Application-level auth via `Authorization: Bearer <key>` header
 - **Single storage backend**: GCS for everything (no Firestore/BigQuery/Redis)
 
@@ -208,7 +208,7 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 - `POST /upload/{area}/{site}`: Placeholder (501 — use CLI uploader).
 - `DELETE /conversations/{conversation_id}`: Delete specific conversation (admin, API key required).
 - `DELETE /conversations?older_than_hours=N&prefix=X`: Bulk delete old conversations.
-- `GET /_internal_probe_3f9a2c1b`: Cloud Run health check (unauthenticated).
+- `GET /_internal_probe_3f9a2c1b`: Cloud Run health check (no API key required).
 
 ### Backend Components
 
@@ -285,9 +285,9 @@ backend/
 cd backend && ./deploy.sh  # reads from .env (NEVER commit .env)
 ```
 
-Required env vars: `BACKEND_API_KEYS`, `GCS_BUCKET`, `GOOGLE_API_KEY`.
+Env vars: `GOOGLE_API_KEY` (required). `GCS_BUCKET` defaults to hardcoded bucket in script; `BACKEND_API_KEYS` is auto-generated if not set.
 
-**Post-deployment:** Service URL `https://tourism-rag-backend-347968285860.me-west1.run.app`. All API endpoints require `Authorization: Bearer <api-key>` header. Add `backend_api_url` and `backend_api_key` to `.streamlit/secrets.toml`.
+**Post-deployment:** Use the service URL printed by `./deploy.sh` as `backend_api_url`. All API endpoints require `Authorization: Bearer <api-key>` header. Add `backend_api_url` and `backend_api_key` to `.streamlit/secrets.toml`.
 
 **Local:** `python -m uvicorn backend.main:app --reload --port 8080`
 
@@ -302,7 +302,7 @@ Backend fully supports location-specific config/prompt overrides:
 
 ```bash
 pytest backend/tests/ -v
-pytest tests/test_qa_api_integration.py -v  # integration tests against deployed backend
+pytest backend/tests/test_qa_api_integration.py -v  # integration tests against deployed backend
 ```
 
 
