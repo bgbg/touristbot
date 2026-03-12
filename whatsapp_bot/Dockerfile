@@ -38,4 +38,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
 
 # Run the application with gunicorn for production
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 300 whatsapp_bot:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 300 "whatsapp.app:create_app()"

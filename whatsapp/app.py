@@ -88,10 +88,14 @@ def create_app() -> Flask:
             webhook_received_ts = TimingContext().mark("webhook_received")
 
             # Verify webhook signature (Meta X-Hub-Signature-256)
+            # Pass per-number app secrets so multi-app setups work correctly.
             signature = request.headers.get("X-Hub-Signature-256", "")
             payload = request.get_data()
+            per_number_secrets = [
+                pnc.app_secret for pnc in config.phone_number_map.values() if pnc.app_secret
+            ]
 
-            if not verify_webhook_signature(payload, signature):
+            if not verify_webhook_signature(payload, signature, app_secret=config.app_secret, extra_secrets=per_number_secrets):
                 logger.eprint("[SECURITY] Invalid webhook signature - rejecting request")
                 logger.log_event("error", {
                     "type": "invalid_webhook_signature",

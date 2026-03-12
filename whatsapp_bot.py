@@ -35,10 +35,6 @@ from backend.gcs_storage import GCSStorage
 
 load_dotenv()
 
-# Backward compatibility: expose app and internal state for tests.
-# App is created lazily via create_app() below only when needed.
-# Tests create their own app via create_app() after patching dependencies.
-
 # Import other functions that tests might need
 from whatsapp.message_handler import process_message
 from whatsapp.whatsapp_client import WhatsAppClient
@@ -337,9 +333,6 @@ if __name__ == "__main__":
             eprint(f"🌐 Local only: http://127.0.0.1:{config.port}")
             eprint("=" * 60)
 
-    # Create Flask app
-    app = create_app()
-
     # Run Flask app with auto-reload enabled
     # Default: debug mode OFF for security (must be explicitly enabled via FLASK_DEBUG)
     flask_debug_env = os.getenv("FLASK_DEBUG")
@@ -350,6 +343,7 @@ if __name__ == "__main__":
         debug_mode = flask_debug_env.lower() in ("1", "true", "yes", "on")
         use_reloader = debug_mode
 
+    app = create_app()
     try:
         app.run(host="0.0.0.0", port=config.port, debug=debug_mode, use_reloader=use_reloader)
     finally:

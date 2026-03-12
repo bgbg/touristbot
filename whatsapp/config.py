@@ -20,6 +20,7 @@ class PhoneNumberConfig:
     access_token: str
     area: str
     site: str
+    app_secret: Optional[str] = None
 
 
 @dataclass
@@ -69,7 +70,10 @@ class WhatsAppConfig:
         """
         Parse PHONE_NUMBER_MAP env var into a dict of PhoneNumberConfig.
 
-        Format: id1:token1:area1:site1,id2:token2:area2:site2
+        Format: id1:token1:area1:site1[:app_secret1],id2:token2:area2:site2[:app_secret2]
+
+        The app_secret field (5th) is optional. When omitted, the global
+        WHATSAPP_APP_SECRET is used for signature verification.
 
         Args:
             raw: Raw env var string
@@ -91,12 +95,13 @@ class WhatsAppConfig:
             if not entry:
                 continue
             parts = entry.split(":")
-            if len(parts) != 4:
+            if len(parts) not in (4, 5):
                 raise ValueError(
                     f"Invalid PHONE_NUMBER_MAP entry '{entry}': "
-                    f"expected 'phone_number_id:access_token:area:site', got {len(parts)} fields"
+                    f"expected 'phone_number_id:access_token:area:site[:app_secret]', got {len(parts)} fields"
                 )
-            phone_number_id, access_token, area, site = parts
+            phone_number_id, access_token, area, site = parts[:4]
+            app_secret = parts[4] if len(parts) == 5 else None
             if not phone_number_id or not access_token:
                 raise ValueError(
                     f"Invalid PHONE_NUMBER_MAP entry '{entry}': "
@@ -107,6 +112,7 @@ class WhatsAppConfig:
                 access_token=access_token,
                 area=area or default_area,
                 site=site or default_site,
+                app_secret=app_secret or None,
             )
 
         return result

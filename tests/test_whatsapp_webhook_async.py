@@ -443,6 +443,7 @@ def _make_mock_config(phone_number_map):
     mock_config.graph_api_version = "v22.0"
     mock_config.background_task_timeout_seconds = 180
     mock_config.message_dedup_ttl_seconds = 300
+    mock_config.app_secret = None
     mock_config.backend_api_url = "http://localhost:8001"
     mock_config.backend_api_key = "test-key"
     mock_config.log_dir = Path("/tmp/whatsapp_test_logs")

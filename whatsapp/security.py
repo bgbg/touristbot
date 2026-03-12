@@ -10,13 +10,14 @@ import hashlib
 import hmac
 import os
 import sys
-from typing import Optional
+from typing import List, Optional
 
 
 def verify_webhook_signature(
     payload: bytes,
     signature: str,
-    app_secret: Optional[str] = None
+    app_secret: Optional[str] = None,
+    extra_secrets: Optional[List[str]] = None,
 ) -> bool:
     """
     Verify Meta webhook signature using HMAC-SHA256.
@@ -24,12 +25,13 @@ def verify_webhook_signature(
     Implements security best practices:
     - Production: Fail closed (reject all requests without app secret)
     - Local dev: Warn but allow (for testing without Meta app secret)
-    - Constant-time comparison to prevent timing attacks
+    - All secrets always checked (no early exit) to avoid timing side-channels
 
     Args:
         payload: Raw request body bytes
         signature: X-Hub-Signature-256 header value (format: "sha256=<hex>")
         app_secret: Meta app secret (default: from WHATSAPP_APP_SECRET env var)
+        extra_secrets: Additional app secrets to try (for multi-app setups)
 
     Returns:
         True if signature is valid, False otherwise
@@ -47,7 +49,10 @@ def verify_webhook_signature(
     # Detect production environment (Cloud Run sets K_SERVICE, App Engine sets GAE_ENV)
     is_production = bool(os.getenv("K_SERVICE") or os.getenv("GAE_ENV"))
 
-    if not app_secret:
+    # Collect all secrets to try (primary + extras, filtering out None/empty)
+    secrets_to_try = [s for s in ([app_secret] + (extra_secrets or [])) if s]
+
+    if not secrets_to_try:
         if is_production:
             # Production: Fail closed - reject all requests without app secret
             print(
@@ -70,12 +75,16 @@ def verify_webhook_signature(
     # Extract hex signature from header
     expected_signature = signature[7:]  # Remove "sha256=" prefix
 
-    # Compute HMAC-SHA256 signature
-    mac = hmac.new(app_secret.encode(), msg=payload, digestmod=hashlib.sha256)
-    computed_signature = mac.hexdigest()
+    # Try each secret — accept if any matches.
+    # All secrets are always checked (no early exit) to avoid timing side-channels.
+    matched = False
+    for secret in secrets_to_try:
+        mac = hmac.new(secret.encode(), msg=payload, digestmod=hashlib.sha256)
+        computed_signature = mac.hexdigest()
+        if hmac.compare_digest(computed_signature, expected_signature):
+            matched = True
 
-    # Constant-time comparison to prevent timing attacks
-    return hmac.compare_digest(computed_signature, expected_signature)
+    return matched
 
 
 def is_production_environment() -> bool:
