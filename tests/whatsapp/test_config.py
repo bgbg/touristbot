@@ -52,12 +52,24 @@ class TestParsePhoneNumberMap:
         assert result["111"].site == DEFAULT_SITE
 
     def test_malformed_entry_wrong_field_count_raises(self):
-        with pytest.raises(ValueError, match="expected 'phone_number_id:access_token:area:site'"):
+        with pytest.raises(ValueError, match="expected 'phone_number_id:access_token:area:site"):
             WhatsAppConfig._parse_phone_number_map("111:token1:area1", DEFAULT_AREA, DEFAULT_SITE)
+
+    def test_entry_with_app_secret(self):
+        result = WhatsAppConfig._parse_phone_number_map(
+            "111:token1:area1:site1:mysecret", DEFAULT_AREA, DEFAULT_SITE
+        )
+        assert result["111"].app_secret == "mysecret"
+
+    def test_entry_without_app_secret_is_none(self):
+        result = WhatsAppConfig._parse_phone_number_map(
+            "111:token1:area1:site1", DEFAULT_AREA, DEFAULT_SITE
+        )
+        assert result["111"].app_secret is None
 
     def test_malformed_entry_too_many_fields_raises(self):
         with pytest.raises(ValueError):
-            WhatsAppConfig._parse_phone_number_map("111:token1:area1:site1:extra", DEFAULT_AREA, DEFAULT_SITE)
+            WhatsAppConfig._parse_phone_number_map("111:token1:area1:site1:secret:extra", DEFAULT_AREA, DEFAULT_SITE)
 
     def test_empty_phone_number_id_raises(self):
         with pytest.raises(ValueError, match="phone_number_id and access_token must not be empty"):
