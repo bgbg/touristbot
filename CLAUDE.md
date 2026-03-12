@@ -345,16 +345,21 @@ backend/
 
 **Automatic Expiration (3-Hour Timeout):**
 - Messages older than 3 hours are automatically filtered from conversation history
-- Expiration occurs at read-time when `ConversationStore.get_conversation()` is called
+- Expiration occurs at read-time when `ConversationStore.get_conversation()` is called (default behavior)
 - Conversation files remain in GCS with full history intact (no automatic deletion)
 - Configuration: `CONVERSATION_TIMEOUT_HOURS = 3` in `backend/conversation_storage/conversations.py`
 
 **Behavior:**
-1. When loading conversation, old messages are filtered out transparently
+1. When loading conversation, old messages are filtered out transparently (unless disabled)
 2. User experiences seamless fresh-start after 3-hour timeout
 3. No user notifications (silent filtering)
 4. Full conversation history preserved in GCS for audit purposes
 5. WhatsApp bot logs when all messages are expired: "Starting fresh conversation after expiration"
+
+**Admin UI Viewing:**
+- Admin UI uses `get_conversation(conversation_id, apply_expiration=False)` to view ALL messages
+- This bypasses expiration filter for administrative viewing and debugging
+- Allows admins to see complete conversation history regardless of age
 
 **Manual Deletion (Administrative):**
 - API endpoints available for administrative cleanup only
@@ -368,6 +373,7 @@ backend/
 - **Zero data loss**: Expiration only affects what's returned, not what's stored
 - **Serverless-friendly**: Lazy evaluation minimizes performance impact
 - **Backward compatible**: Gracefully handles messages without timestamps
+- **Admin override**: `apply_expiration=False` parameter for full history viewing
 
 ### Deployment
 
