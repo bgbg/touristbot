@@ -62,48 +62,11 @@ config/locations/
 │           └── tourism_qa.yaml         # Site-level prompt override (optional)
 ```
 
-### Example: Config Override (temperature only)
-```yaml
-# config/locations/hefer_valley/agamon_hefer.yaml
-# Only override temperature - all other fields inherited from global config.yaml
-gemini_rag:
-  temperature: 0.5  # Override: cooler temperature for this site
-  # model, chunk_tokens, etc. inherited from global config
-```
-
-### Example: Prompt Override (custom guide persona)
-```yaml
-# config/locations/hefer_valley/agamon_hefer/prompts/tourism_qa.yaml
-# Override temperature and system_prompt - model_name and user_prompt inherited
-temperature: 0.4
-
-system_prompt: |
-  אתה דני, מדריך צפרות מומחה באגמון חפר...
-  (custom bird-watching guide persona)
-
-# model_name and user_prompt inherited from global config/prompts/tourism_qa.yaml
-```
-
 ### Merge Behavior
 - **Nested dicts**: Deep merge (child overrides parent, other fields preserved)
 - **Lists**: Complete replacement (no smart merging)
 - **Primitives**: Override value replaces base value
 - **Missing override files**: Graceful fallback to parent level (no errors)
-
-### Example Merge Flow
-```
-Global config.yaml:                     Site override (agamon_hefer.yaml):
-  gemini_rag:                             gemini_rag:
-    temperature: 0.7                        temperature: 0.5
-    model: gemini-2.0-flash         →
-    chunk_tokens: 400
-
-Result for agamon_hefer:
-  gemini_rag:
-    temperature: 0.5    ← overridden from site
-    model: gemini-2.0-flash    ← inherited from global
-    chunk_tokens: 400    ← inherited from global
-```
 
 ### API Usage
 ```python
@@ -121,46 +84,9 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 ```
 
 ### Common Use Cases
-1. **Custom guide personas per site** (primary use case):
-   - Different character/personality for each location
-   - Site-specific tone, language, or focus areas
-   - Example: bird-watching expert for wetlands, archaeology expert for historical sites
-
-2. **Model selection per location**:
-   - More powerful model for complex content
-   - Faster model for simple locations
-   - Example: `model: "gemini-2.5-flash"` for detailed sites
-
-3. **Temperature tuning**:
-   - Cooler for factual/technical content
-   - Warmer for creative/engaging content
-   - Example: 0.4 for nature reserves, 0.8 for cultural sites
-
-### Validation and Error Handling
-- Override files must use identical schema to base configuration
-- Invalid field names will cause explicit errors (no silent failures)
-- Malformed YAML will fail with clear error messages
-- Missing override files are graceful (no errors, use parent config)
-
-### Cache Behavior
-- Configurations cached by `lru_cache` with location parameters in cache key
-- Different locations get different cached configs
-- Config changes require application restart (existing limitation)
-
-### Troubleshooting
-**Issue**: Override not being applied
-- Check file paths: `config/locations/<area>.yaml` or `config/locations/<area>/<site>.yaml`
-- Verify YAML syntax (use YAML validator)
-- Check that override field names match base config schema exactly
-- Restart application to clear cache
-
-**Issue**: "Field not found" error
-- Override field name typo - must match base config exactly
-- Nested fields use same structure as base config (e.g., `gemini_rag.temperature`)
-
-**Issue**: List not merging as expected
-- Lists are replaced entirely, not merged (by design)
-- To add items, must specify complete list with all desired items
+- Custom guide personas per site (primary use case): different personality/language per location
+- Model selection per location: e.g. `model: "gemini-2.5-flash"` for complex sites
+- Temperature tuning: cooler (0.4) for factual content, warmer (0.8) for cultural sites
 
 ## Topic Generation Feature
 - Automatically extracts 5-10 key topics from location content during upload.
@@ -219,12 +145,8 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
   8. If no relevance data is available, no images are shown (no fallback to showing all images)
 - Initial greeting detection: LLM detects greeting context and sets `should_include_images=false` (no hardcoded history checks)
 - Image filtering: Only images with relevance score >= 85 are displayed (strict threshold)
-- Commentary generation: System prompt guides LLM to add natural commentary when showing images (e.g., "שימו לב כמה יפים השקנאים האלה!")
+- Commentary generation: System prompt guides LLM to add natural commentary when showing images
 - Single API call: All logic (response generation, greeting detection, relevance scoring) handled in one Gemini API call
-- Comprehensive logging: tracks JSON parsing, caption matching, and relevance scores for debugging
-- **Trade-offs**:
-  - ✅ **Reliability**: No URI expiration issues, deterministic caption matching, shorter prompts (~500 chars saved)
-  - ❌ **Visual accuracy**: LLM can't assess image quality or detect caption mismatches (acceptable for tourism bot use case)
 
 ## Data Storage Architecture
 - **GCS is mandatory**: All registries stored in Google Cloud Storage (no local fallback).
@@ -279,33 +201,14 @@ prompt = PromptLoader.load("config/prompts/tourism_qa.yaml", area="hefer_valley"
 
 ### API Endpoints
 
-**Chat & Query:**
-- `POST /qa`: Chat queries with File Search RAG pipeline
-  - Request: `{conversation_id?, area, site, query}`
-  - Response: `{conversation_id, response_text, citations[], images[], latency_ms}`
-  - Features: Conversation history, structured output, image relevance, Hebrew support
-
-**Content Management:**
-- `GET /topics/{area}/{site}`: Retrieve topics for location
-- `GET /locations`: List all areas and sites
-- `GET /locations/{area}/{site}/content`: Location metadata (store name, topics count)
-
-**Uploads** (MVP uses CLI):
-- `POST /upload/{area}/{site}`: Placeholder (returns 501 - use CLI uploader instead)
-
-**Conversations** (Administrative):
-- `DELETE /conversations/{conversation_id}`: Delete specific conversation
-  - Requires API key authentication
-  - Returns: `{status, conversation_id, message}`
-  - Returns 404 if conversation not found
-- `DELETE /conversations?older_than_hours=N&prefix=X`: Bulk delete old conversations
-  - `older_than_hours`: Delete conversations where ALL messages are older than N hours (default: 3)
-  - `prefix`: Optional filter (e.g., `whatsapp_` for WhatsApp conversations only)
-  - Returns: `{status, count, older_than_hours, prefix, message}`
-  - Example: `DELETE /conversations?older_than_hours=24&prefix=whatsapp_`
-
-**Health:**
-- `GET /_internal_probe_3f9a2c1b`: Internal health check for Cloud Run (obscured path for security)
+- `POST /qa`: Chat query with File Search RAG. Body: `{conversation_id?, area, site, query}`. Returns response, citations, images, latency.
+- `GET /topics/{area}/{site}`: Topics for location.
+- `GET /locations`: List all areas/sites.
+- `GET /locations/{area}/{site}/content`: Location metadata.
+- `POST /upload/{area}/{site}`: Placeholder (501 — use CLI uploader).
+- `DELETE /conversations/{conversation_id}`: Delete specific conversation (admin, API key required).
+- `DELETE /conversations?older_than_hours=N&prefix=X`: Bulk delete old conversations.
+- `GET /_internal_probe_3f9a2c1b`: Cloud Run health check (unauthenticated).
 
 ### Backend Components
 
@@ -368,12 +271,6 @@ backend/
 - Manual deletions permanently remove conversation files from GCS
 - Require API key authentication
 
-**Key Design Principles:**
-- **On-demand filtering**: No background jobs or cron tasks needed
-- **Zero data loss**: Expiration only affects what's returned, not what's stored
-- **Serverless-friendly**: Lazy evaluation minimizes performance impact
-- **Backward compatible**: Gracefully handles messages without timestamps
-- **Admin override**: `apply_expiration=False` parameter for full history viewing
 
 ### Deployment
 
@@ -383,79 +280,16 @@ backend/
 - **GCS Bucket**: `tarasa_tourist_bot_content`
 - **Service Name**: `tourism-rag-backend`
 
-**Prerequisites:**
-- GCP project with Cloud Run and GCS enabled
-- GCS bucket created (`tarasa_tourist_bot_content`)
-- Google API key for Gemini API
-- Authenticated gcloud CLI: `gcloud auth login`
-
-**Environment Variables (Cloud Run):**
+**Deploy:**
 ```bash
-BACKEND_API_KEYS=key1,key2,key3   # Comma-separated API keys (create secure keys)
-GCS_BUCKET=tarasa_tourist_bot_content  # GCS bucket for storage
-GOOGLE_API_KEY=your-google-key     # Gemini API key (from .streamlit/secrets.toml)
+cd backend && ./deploy.sh  # reads from .env (NEVER commit .env)
 ```
 
-**Deploy to Cloud Run:**
-```bash
-cd backend
-./deploy.sh  # Uses defaults from .env: gen-lang-client-0860749390, me-west1
+Required env vars: `BACKEND_API_KEYS`, `GCS_BUCKET`, `GOOGLE_API_KEY`.
 
-# Deployment reads secrets from .env file (NEVER commit .env to git)
-# Creates .env.yaml temporarily for Cloud Run environment variables
-# Deploys with --no-allow-unauthenticated (requires GCP auth + API key)
-```
+**Post-deployment:** Service URL `https://tourism-rag-backend-347968285860.me-west1.run.app`. All API endpoints require `Authorization: Bearer <api-key>` header. Add `backend_api_url` and `backend_api_key` to `.streamlit/secrets.toml`.
 
-**Manual deployment:**
-```bash
-# Build image
-gcloud builds submit --tag gcr.io/gen-lang-client-0860749390/tourism-rag-backend \
-  --project gen-lang-client-0860749390
-
-# Deploy to Cloud Run
-gcloud run deploy tourism-rag-backend \
-  --image gcr.io/gen-lang-client-0860749390/tourism-rag-backend \
-  --region me-west1 \
-  --platform managed \
-  --no-allow-unauthenticated \
-  --memory 2Gi \
-  --cpu 2 \
-  --timeout 3600 \
-  --max-instances 10 \
-  --project gen-lang-client-0860749390 \
-  --set-env-vars GCS_BUCKET=tarasa_tourist_bot_content,GOOGLE_API_KEY=<key>,BACKEND_API_KEYS=<keys>
-```
-
-**Post-deployment:**
-1. Service URL: `https://tourism-rag-backend-347968285860.me-west1.run.app` (deployed revision 00018)
-2. **Authentication**: Service uses `--no-allow-unauthenticated` requiring both GCP IAM and API keys
-   - API endpoints require `Authorization: Bearer <api-key>` header
-   - Health probe (`/_internal_probe_3f9a2c1b`) is unauthenticated for Cloud Run monitoring
-3. Add to `.streamlit/secrets.toml`:
-   ```toml
-   backend_api_url = "https://tourism-rag-backend-347968285860.me-west1.run.app"
-   backend_api_key = "<one-of-your-BACKEND_API_KEYS>"
-   ```
-4. Test deployment:
-   ```bash
-   curl -H "Authorization: Bearer <api-key>" \
-     https://tourism-rag-backend-347968285860.me-west1.run.app/locations
-   ```
-
-**Local Testing:**
-```bash
-# Set environment variables
-export BACKEND_API_KEYS="test-key-123"
-export GCS_BUCKET="your-bucket"
-export GOOGLE_API_KEY="your-key"
-
-# Run with uvicorn
-python -m uvicorn backend.main:app --reload --port 8080
-
-# Test endpoint
-curl -H "Authorization: Bearer test-key-123" \
-  http://localhost:8080/locations
-```
+**Local:** `python -m uvicorn backend.main:app --reload --port 8080`
 
 ### Configuration Overrides
 
@@ -466,62 +300,11 @@ Backend fully supports location-specific config/prompt overrides:
 
 ### Testing
 
-Run backend tests:
 ```bash
 pytest backend/tests/ -v
-# 11 tests: auth
-# 17 tests: conversation storage
-# 12 tests: query logger
-# 4 tests: QA endpoint (schema validation, API integration)
-# Total: 44+ tests, all passing
-
-# Integration tests against deployed backend:
-pytest tests/test_qa_api_integration.py -v
+pytest tests/test_qa_api_integration.py -v  # integration tests against deployed backend
 ```
 
-### Known Issues & Fixes
-
-**Critical fixes applied (revision 00018):**
-1. **Metadata filter mismatch** (Issue: File Search returning no results)
-   - Problem: Upload adds `area` and `site` metadata, query used `location="area/site"`
-   - Fix: Changed filter to `area="..." AND site="..."` in [backend/endpoints/qa.py:261](backend/endpoints/qa.py#L261)
-
-2. **Role validation error** (Issue: "Please use a valid role: user, model")
-   - Problem: Conversation store uses "assistant" role, Gemini API requires "model"
-   - Fix: Convert "assistant" → "model" when building history in [backend/endpoints/qa.py:237](backend/endpoints/qa.py#L237)
-
-3. **Module shadowing** (Issue: `logging.getLogger` not found)
-   - Problem: `backend/logging/` directory shadowed Python's built-in logging module
-   - Fix: Renamed to `backend/query_logging/`
-
-4. **Schema validation** (Issue: "additionalProperties is not supported")
-   - Problem: Pydantic v2 generates schemas with additionalProperties
-   - Fix: Custom GeminiJsonSchema generator removes additionalProperties in [backend/models.py:11](backend/models.py#L11)
-
-5. **Structured output compatibility** (Issue: Tools + structured output conflict)
-   - Problem: Gemini 2.5 doesn't support File Search tool + response_schema together
-   - Fix: Removed structured output, parse JSON from text response manually
-   - System prompt instructs model to return JSON format
-
-6. **LRU cache staleness** (Issue: Registry changes not reflected)
-   - Problem: Singleton dependencies cached, new locations not appearing
-   - Fix: Force Cloud Run restart with cache-busting env var or new deployment
-
-### Limitations & Future Work
-
-**Current MVP approach:**
-- Uploads via CLI tool (`gemini/main_upload.py`) - no API upload endpoint implemented
-- No rate limiting (rely on API key control + Gemini API limits)
-- No caching layer (direct GCS reads)
-- Synchronous processing (60min Cloud Run timeout sufficient)
-
-**Future enhancements** (if needed):
-- Implement full `/upload` endpoint with DOCX processing
-- Add Streamlit frontend API client
-- Add rate limiting (per API key)
-- Add caching (Redis) if performance becomes an issue
-- Async job processing (Cloud Tasks) for long uploads
-- Monitoring dashboards (Cloud Monitoring)
 
 ## Logging and Monitoring
 
@@ -529,386 +312,19 @@ The backend uses two separate logging systems optimized for their respective pur
 
 ### Application Logs (Cloud Logging)
 
-**Purpose**: Real-time application monitoring, debugging, error tracking
-
-**Local development**:
-- Logs written to both stdout and `backend.log` file (rotating, 10MB max, 5 backups)
-- File location: project root directory
-- Immediate access for debugging
-
-**Cloud Run production**:
-- Logs written to stdout only (automatically captured by Cloud Logging)
-- No file-based logging (ephemeral filesystem)
-- 30-day retention by default
-
-**Log level**:
-- Configurable via `LOG_LEVEL` environment variable (default: INFO)
-- Supported levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
-
-**Accessing production logs**:
-
-Via gcloud CLI:
-```bash
-# Recent logs (last 50 entries)
-gcloud run logs read tourism-rag-backend --region me-west1 --limit 50
-
-# Follow logs in real-time
-gcloud run logs tail tourism-rag-backend --region me-west1
-
-# Filter by severity
-gcloud run logs read tourism-rag-backend --region me-west1 --log-filter="severity>=ERROR"
-
-# Specific time range
-gcloud run logs read tourism-rag-backend --region me-west1 \
-  --log-filter="timestamp>=\"2024-01-01T00:00:00Z\""
-```
-
-Via Cloud Console:
-1. Navigate to Cloud Run: https://console.cloud.google.com/run
-2. Select service: `tourism-rag-backend`
-3. Click "LOGS" tab
-4. Use filters: severity, time range, search text
-
-**Log retention**: 30 days in Cloud Logging (default)
+- Local: stdout + rotating `backend.log` (10MB, 5 backups). Cloud Run: stdout only (captured by Cloud Logging, 30-day retention).
+- Log level: `LOG_LEVEL` env var (default: INFO). Set to DEBUG temporarily via `gcloud run services update tourism-rag-backend --region me-west1 --set-env-vars LOG_LEVEL=DEBUG`.
+- Access: `gcloud run logs read tourism-rag-backend --region me-west1 --limit 50` or Cloud Console → Cloud Run → LOGS tab.
 
 ### Query/Response Logs (GCS)
 
-**Purpose**: Long-term analytics, quality monitoring, training data
-
-**Storage location**: `gs://tarasa_tourist_bot_content/query_logs/{YYYY-MM-DD}.jsonl`
-
-**Format**: JSONL (one JSON object per line, newline-delimited)
-
-**Schema**:
-```json
-{
-  "timestamp": "2024-01-15T10:30:45.123Z",
-  "conversation_id": "uuid-string",
-  "area": "hefer_valley",
-  "site": "agamon_hefer",
-  "query": "שאלה של המשתמש",
-  "response_text": "תשובת הבוט",
-  "response_length": 150,
-  "latency_ms": 1234.56,
-  "citations_count": 3,
-  "images_count": 2,
-  "model_name": "gemini-2.5-flash",
-  "temperature": 0.6,
-  "error": null,
-  "should_include_images": true,
-  "image_relevance": [
-    {
-      "image_uri": "https://generativelanguage.googleapis.com/...",
-      "relevance_score": 85
-    }
-  ],
-  "citations": [
-    {
-      "source": "document-name.docx",
-      "chunk_id": "chunk-123",
-      "text": "קטע מהמסמך המקורי"
-    }
-  ],
-  "images": [
-    {
-      "uri": "https://storage.googleapis.com/...",
-      "file_api_uri": "https://generativelanguage.googleapis.com/...",
-      "caption": "תיאור התמונה",
-      "context": "הקשר מהמסמך",
-      "relevance_score": 85
-    }
-  ]
-}
-```
-
-**Field descriptions**:
-- `timestamp`: UTC timestamp in ISO 8601 format
-- `conversation_id`: Unique conversation identifier
-- `area`, `site`: Location hierarchy
-- `query`: Full user question text
-- `response_text`: Full bot response text (extracted from JSON if structured output)
-- `response_length`: Character count of response
-- `latency_ms`: Total query processing time in milliseconds
-- `citations_count`: Number of citations (legacy field)
-- `images_count`: Number of images displayed (legacy field)
-- `model_name`: Gemini model used
-- `temperature`: Temperature parameter
-- `error`: Error message if query failed (null on success)
-- `should_include_images`: Boolean flag from LLM structured output
-- `image_relevance`: Raw relevance scores from LLM for all candidate images
-- `citations`: Full citation objects with source documents and text snippets
-- `images`: Full metadata for displayed images (after relevance filtering)
-
-**Accessing query logs**:
-
-Via gsutil CLI:
-```bash
-# Download specific date
-gsutil cp gs://tarasa_tourist_bot_content/query_logs/2024-01-15.jsonl .
-
-# Download date range
-gsutil -m cp gs://tarasa_tourist_bot_content/query_logs/2024-01-*.jsonl .
-
-# View recent logs
-gsutil cat gs://tarasa_tourist_bot_content/query_logs/2024-01-15.jsonl | tail -n 10
-```
-
-Via Python (programmatic access):
-```python
-from backend.query_logging.query_logger import QueryLogger
-from backend.gcs_storage import StorageBackend
-
-storage = StorageBackend("tarasa_tourist_bot_content")
-logger = QueryLogger(storage)
-
-# Get logs for specific date
-logs = logger.get_logs("2024-01-15")
-
-# Get logs for date range
-logs = logger.get_logs_range("2024-01-01", "2024-01-31")
-```
-
-**Log retention**: Indefinite (controlled by GCS bucket lifecycle policy)
+- Storage: `gs://tarasa_tourist_bot_content/query_logs/{YYYY-MM-DD}.jsonl`
+- Format: JSONL. Fields include: `timestamp`, `conversation_id`, `area`, `site`, `query`, `response_text`, `latency_ms`, `citations`, `images`, `image_relevance`, `should_include_images`, `error`.
+- Access via `gsutil cp gs://tarasa_tourist_bot_content/query_logs/<date>.jsonl .` or `QueryLogger` in `backend/query_logging/query_logger.py`.
+- Retention: indefinite (GCS bucket lifecycle policy).
 
 ### WhatsApp Bot Timing Logs (GCS)
 
-**Purpose**: Detailed performance measurement and bottleneck identification for WhatsApp message pipeline
-
-**Storage location**: `gs://tarasa_tourist_bot_content/whatsapp_query_logs/{YYYY-MM-DD}.jsonl`
-
-**Format**: JSONL (one JSON object per line, newline-delimited)
-
-**Schema**: Extends backend query log schema with WhatsApp-specific fields and detailed timing breakdown
-
-```json
-{
-  "timestamp": "2024-01-15T10:30:45.123Z",
-  "conversation_id": "whatsapp_972501234567",
-  "area": "עמק חפר",
-  "site": "אגמון חפר",
-  "query": "מה יש לראות באגמון?",
-  "response_text": "באגמון חפר תוכלו לראות...",
-  "response_length": 250,
-  "latency_ms": 12345.67,
-  "citations_count": 3,
-  "images_count": 1,
-  "model_name": null,
-  "temperature": null,
-  "error": null,
-  "should_include_images": true,
-  "image_relevance": [...],
-  "citations": [...],
-  "images": [...],
-  "timing_breakdown": {
-    "webhook_received": 1705318245123.45,
-    "background_task_started": 1705318245125.12,
-    "message_processing_started": 1705318245125.89,
-    "conversation_load_start": 1705318245126.01,
-    "conversation_loaded": 1705318245234.56,
-    "user_message_save_start": 1705318245234.78,
-    "user_message_saved": 1705318245456.23,
-    "backend_request_sent": 1705318245456.45,
-    "backend_api_call_start": 1705318245457.12,
-    "backend_api_call_end": 1705318255678.34,
-    "backend_response_received": 1705318255678.56,
-    "images_send_start": 1705318255678.78,
-    "image_download_start": 1705318255679.01,
-    "image_downloaded": 1705318255890.12,
-    "image_upload_start": 1705318255890.45,
-    "image_uploaded": 1705318256234.56,
-    "image_message_send_start": 1705318256234.78,
-    "image_message_sent": 1705318256456.89,
-    "images_sent": 1705318256457.12,
-    "text_send_start": 1705318256457.34,
-    "whatsapp_text_api_call_start": 1705318256457.56,
-    "whatsapp_text_api_call_end": 1705318256789.01,
-    "text_sent": 1705318256789.23,
-    "history_save_start": 1705318256789.45,
-    "history_saved": 1705318257123.45,
-    "request_completed": 1705318257123.67
-  }
-}
-```
-
-**Timing Checkpoints (Fine-Grained)**:
-
-| Checkpoint | Description |
-|------------|-------------|
-| `webhook_received` | Webhook POST arrives at Flask endpoint |
-| `background_task_started` | Background thread launched for async processing |
-| `message_processing_started` | Start of message processing in background task |
-| `conversation_load_start` | Begin loading conversation history from GCS |
-| `conversation_loaded` | Conversation history loaded |
-| `user_message_save_start` | Begin saving user message to GCS |
-| `user_message_saved` | User message saved to conversation history |
-| `backend_request_sent` | Backend /qa API call initiated |
-| `backend_api_call_start` | HTTP request sent to backend |
-| `backend_api_call_end` | HTTP response received from backend |
-| `backend_response_received` | Backend response parsed |
-| `images_send_start` | Start sending images (if any) |
-| `image_send_start` | Begin sending single image via WhatsApp client |
-| `image_download_start` | Begin downloading image from GCS |
-| `image_downloaded` | Image downloaded |
-| `image_upload_start` | Begin uploading image to WhatsApp |
-| `image_uploaded` | Image uploaded to WhatsApp |
-| `image_message_send_start` | Begin sending image message |
-| `image_message_sent` | Image message sent |
-| `image_send_end` | Completed sending single image via WhatsApp client |
-| `images_sent` | All images sent |
-| `text_send_start` | Start sending text response |
-| `whatsapp_text_api_call_start` | HTTP request sent to WhatsApp API |
-| `whatsapp_text_api_call_end` | HTTP response received from WhatsApp API |
-| `text_sent` | Text response sent |
-| `history_save_start` | Begin saving assistant message to GCS |
-| `history_saved` | Assistant message saved to conversation history |
-| `request_completed` | Full request processing completed |
-
-**Delivery Status Tracking** (Logged separately in `EventLogger`):
-
-Delivery confirmation events are logged when WhatsApp status webhooks arrive:
-```json
-{
-  "timestamp": "2024-01-15T10:30:48.123Z",
-  "event_type": "delivery_timing",
-  "correlation_id": "uuid-456",
-  "data": {
-    "message_id": "wamid.XXX...",
-    "correlation_id": "uuid-456",
-    "phone": "972501234567",
-    "conversation_id": "whatsapp_972501234567",
-    "sent_timestamp_ms": 1705318256789.23,
-    "status_type": "delivered",
-    "status_timestamp_ms": 1705318258123.45,
-    "delivery_latency_ms": 1334.22
-  }
-}
-```
-
-Status types: `sent`, `delivered`, `read`
-
-**Accessing WhatsApp timing logs**:
-
-Via gsutil CLI:
-```bash
-# Download specific date
-gsutil cp gs://tarasa_tourist_bot_content/whatsapp_query_logs/2024-01-15.jsonl .
-
-# Download date range
-gsutil -m cp gs://tarasa_tourist_bot_content/whatsapp_query_logs/2024-01-*.jsonl .
-
-# View recent logs
-gsutil cat gs://tarasa_tourist_bot_content/whatsapp_query_logs/2024-01-15.jsonl | tail -n 10
-```
-
-**Analyzing timing data with jq**:
-
-```bash
-# Calculate average latency by stage
-cat logs.jsonl | jq -r '.timing_breakdown |
-  (.backend_api_call_end - .backend_api_call_start) as $backend |
-  (.image_downloaded - .image_download_start) as $img_download |
-  (.text_sent - .text_send_start) as $whatsapp |
-  "\($backend),\($img_download),\($whatsapp)"' |
-  awk -F, '{b+=$1; i+=$2; w+=$3; n++} END {print "Avg Backend:", b/n, "Img DL:", i/n, "WhatsApp:", w/n}'
-
-# Find slowest queries (>10s total)
-cat logs.jsonl | jq 'select(.latency_ms > 10000) |
-  {conversation_id, latency_ms, query: .query[:50]}'
-
-# Identify bottlenecks by checkpoint
-cat logs.jsonl | jq -r '.timing_breakdown |
-  to_entries |
-  sort_by(.value) |
-  .[] |
-  "\(.key): \(.value)"' |
-  head -5
-
-# Count queries with image downloads
-cat logs.jsonl | jq 'select(.timing_breakdown.image_download_start != null) | .conversation_id' | wc -l
-
-# Calculate percentiles for backend latency
-cat logs.jsonl | jq -s 'map(.timing_breakdown.backend_api_call_end - .timing_breakdown.backend_api_call_start) |
-  sort |
-  .[length * 0.5 | floor] as $p50 |
-  .[length * 0.95 | floor] as $p95 |
-  .[length * 0.99 | floor] as $p99 |
-  {p50: $p50, p95: $p95, p99: $p99}'
-```
-
-**Key Performance Metrics**:
-
-1. **Total Latency**: `request_completed - webhook_received`
-2. **Backend Processing**: `backend_response_received - backend_request_sent`
-3. **GCS Operations**:
-   - Conversation load: `conversation_loaded - conversation_load_start`
-   - User message save: `user_message_saved - user_message_save_start`
-   - History save: `history_saved - history_save_start`
-4. **Image Processing** (if applicable):
-   - Download: `image_downloaded - image_download_start`
-   - Upload: `image_uploaded - image_upload_start`
-   - Send: `image_message_sent - image_message_send_start`
-5. **WhatsApp API Calls**:
-   - Text message: `whatsapp_text_api_call_end - whatsapp_text_api_call_start`
-   - Image message: `image_message_sent - image_message_send_start`
-6. **Delivery Latency** (from delivery events): `status_timestamp_ms - sent_timestamp_ms`
-
-**Bottleneck Identification**:
-
-Compare timing deltas to identify slowest stages:
-- **Backend > 5s**: Gemini API latency or File Search retrieval
-- **GCS operations > 1s**: Network latency or large conversation history
-- **Image download > 2s**: GCS signed URL fetch latency
-- **Image upload > 3s**: WhatsApp media upload (depends on image size)
-- **WhatsApp API > 1s**: Meta API latency or network issues
-
-**Log retention**: Indefinite (controlled by GCS bucket lifecycle policy)
-
-### Searching and Filtering Best Practices
-
-**Application logs (Cloud Logging)**:
-- Use severity filters to focus on errors: `severity>=ERROR`
-- Filter by log name: `logName=~"tourism-rag-backend"`
-- Search text in messages: `textPayload=~"query failed"`
-- Combine filters: `severity>=ERROR AND textPayload=~"GCS"`
-
-**Query logs (GCS)**:
-- Use `jq` for JSON parsing: `cat logs.jsonl | jq 'select(.latency_ms > 5000)'`
-- Filter by location: `jq 'select(.area == "hefer_valley")'`
-- Aggregate statistics: `jq -s 'map(.latency_ms) | add/length'` (average latency)
-- Count errors: `jq -s 'map(select(.error != null)) | length'`
-- Extract specific fields: `jq '{query, response_text, latency_ms}'`
-
-**Monitoring key metrics**:
-- **Latency**: Track `latency_ms` for performance issues (>5s is slow)
-- **Error rate**: Count queries with non-null `error` field
-- **Image inclusion**: Analyze `should_include_images` distribution
-- **Citation usage**: Track `citations_count` to verify retrieval quality
-- **Model performance**: Compare metrics across different `model_name` values
-
-### Environment Detection
-
-The backend automatically detects its environment:
-- **Cloud Run**: Detected via `K_SERVICE` environment variable (set by GCP)
-- **Local**: No `K_SERVICE` variable present
-
-Logging configuration adapts accordingly:
-- Cloud Run: stdout only (no file handler)
-- Local: dual logging (stdout + rotating file)
-
-### Temporary Debugging in Production
-
-To enable DEBUG logging temporarily in Cloud Run:
-
-```bash
-# Update environment variable
-gcloud run services update tourism-rag-backend \
-  --region me-west1 \
-  --set-env-vars LOG_LEVEL=DEBUG
-
-# Revert to INFO after debugging
-gcloud run services update tourism-rag-backend \
-  --region me-west1 \
-  --set-env-vars LOG_LEVEL=INFO
-```
-
-**Warning**: DEBUG logging is verbose and increases Cloud Logging costs. Use sparingly in production.
+- Storage: `gs://tarasa_tourist_bot_content/whatsapp_query_logs/{YYYY-MM-DD}.jsonl`
+- Format: JSONL, extends backend query log schema with `timing_breakdown` dict of named millisecond timestamps covering the full webhook-to-completion pipeline.
+- Delivery status events logged separately via `EventLogger` when WhatsApp status webhooks arrive.
