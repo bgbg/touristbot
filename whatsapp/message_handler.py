@@ -13,6 +13,7 @@ from typing import List, Dict, Any, Optional
 from .backend_client import BackendClient
 from .conversation import ConversationLoader
 from .delivery_tracker import DeliveryTracker
+from .error_rate_limiter import ErrorRateLimiter
 from .logging_utils import EventLogger, eprint
 from .query_logger import WhatsAppQueryLogger
 from .timing import TimingContext
@@ -32,6 +33,7 @@ def process_message(
     logger: EventLogger,
     query_logger: WhatsAppQueryLogger,
     delivery_tracker: DeliveryTracker,
+    error_rate_limiter: Optional[ErrorRateLimiter] = None,
     timing_ctx: Optional[TimingContext] = None,
 ) -> None:
     """
@@ -64,6 +66,7 @@ def process_message(
         logger: Event logger
         query_logger: WhatsApp query logger
         delivery_tracker: Delivery tracking service
+        error_rate_limiter: Optional error rate limiter to prevent flooding users with errors
         timing_ctx: Optional timing context for performance measurement
 
     Example:
@@ -100,8 +103,10 @@ def process_message(
             timing_ctx.mark("conversation_loaded")
         except Exception as e:
             eprint(f"[ERROR] Failed to load conversation: {e}")
-            whatsapp_client.send_text_message(
-                phone, "מצטער, אירעה שגיאה בטעינת השיחה. אנא נסה שוב מאוחר יותר."
+            _send_rate_limited_error(
+                phone, "מצטער, המערכת אינה זמינה כרגע. נסה שוב בעוד מספר דקות.",
+                whatsapp_client, error_rate_limiter, logger,
+                error_type="conversation_load_failure",
             )
             return
 
@@ -128,8 +133,10 @@ def process_message(
             timing_ctx.mark("user_message_saved")
         except Exception as e:
             eprint(f"[ERROR] Failed to save user message: {e}")
-            whatsapp_client.send_text_message(
-                phone, "מצטער, אירעה שגיאה בשמירת ההודעה. אנא נסה שוב."
+            _send_rate_limited_error(
+                phone, "מצטער, המערכת אינה זמינה כרגע. נסה שוב בעוד מספר דקות.",
+                whatsapp_client, error_rate_limiter, logger,
+                error_type="user_message_save_failure",
             )
             return
 
@@ -229,8 +236,10 @@ def process_message(
         if status < 200 or status >= 300:
             # Send failed, try fallback error message
             eprint(f"[ERROR] Failed to send response, status: {status}")
-            whatsapp_client.send_text_message(
-                phone, "מצטער, לא הצלחתי לשלוח את התשובה. אנא נסה שוב."
+            _send_rate_limited_error(
+                phone, "מצטער, לא הצלחתי לשלוח את התשובה. נסה שוב בעוד מספר דקות.",
+                whatsapp_client, error_rate_limiter, logger,
+                error_type="send_response_failure",
             )
         else:
             eprint(f"✓ [TEXT] Text response sent successfully")
@@ -307,13 +316,49 @@ def process_message(
             correlation_id,
         )
 
-        # Try to send error message to user
+        # Try to send error message to user (rate-limited)
         try:
-            whatsapp_client.send_text_message(
-                phone, "מצטער, אירעה שגיאה בעיבוד ההודעה. אנא נסה שוב."
+            _send_rate_limited_error(
+                phone, "מצטער, המערכת אינה זמינה כרגע. נסה שוב בעוד מספר דקות.",
+                whatsapp_client, error_rate_limiter, logger,
+                error_type="background_task_exception",
             )
         except Exception:
             pass  # Failed to send error message, nothing more we can do
+
+
+def _send_rate_limited_error(
+    phone: str,
+    message: str,
+    whatsapp_client: WhatsAppClient,
+    error_rate_limiter: Optional[ErrorRateLimiter],
+    logger: EventLogger,
+    error_type: str = "unknown",
+) -> None:
+    """
+    Send an error message to a user, rate-limited to prevent flooding.
+
+    If rate limiter is provided and the user was recently sent an error,
+    the message is suppressed and logged instead.
+
+    Args:
+        phone: User phone number
+        message: Error message text to send
+        whatsapp_client: WhatsApp API client
+        error_rate_limiter: Rate limiter (None to skip rate limiting)
+        logger: Event logger for logging suppressed errors
+        error_type: Type of error for logging context
+    """
+    if error_rate_limiter and not error_rate_limiter.should_send_error(phone):
+        eprint(f"[RATE_LIMIT] Suppressing error message to {phone} (cooldown active)")
+        logger.log_event("error_suppressed", {
+            "phone": phone,
+            "error_type": error_type,
+            "reason": "cooldown_active",
+        })
+        return
+
+    whatsapp_client.send_text_message(phone, message)
 
 
 def handle_special_command(

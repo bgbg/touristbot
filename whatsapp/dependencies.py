@@ -17,6 +17,7 @@ from .config import WhatsAppConfig
 from .conversation import ConversationLoader
 from .deduplication import MessageDeduplicator
 from .delivery_tracker import DeliveryTracker
+from .error_rate_limiter import ErrorRateLimiter
 from .logging_utils import EventLogger
 from .query_logger import WhatsAppQueryLogger
 from .whatsapp_client import WhatsAppClient
@@ -233,6 +234,24 @@ def get_message_deduplicator() -> MessageDeduplicator:
     """
     config = get_config()
     return MessageDeduplicator(ttl_seconds=config.message_dedup_ttl_seconds)
+
+
+@lru_cache()
+def get_error_rate_limiter() -> ErrorRateLimiter:
+    """
+    Get error rate limiter singleton.
+
+    Thread-safe rate limiter with 2-minute cooldown per phone number.
+
+    Returns:
+        ErrorRateLimiter instance
+
+    Example:
+        limiter = get_error_rate_limiter()
+        if limiter.should_send_error(phone):
+            send_error_message(phone)
+    """
+    return ErrorRateLimiter(cooldown_seconds=120)
 
 
 @lru_cache()

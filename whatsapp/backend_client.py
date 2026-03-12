@@ -150,7 +150,7 @@ class BackendClient:
                         }, correlation_id)
                     return {
                         "error": f"Backend error: {response.status_code}",
-                        "response_text": "מצטער, אירעה שגיאה בשרת. אנא נסה שוב מאוחר יותר.",
+                        "response_text": "מצטער, אירעה שגיאה בשרת. נסה שוב בעוד מספר דקות.",
                     }
 
         except requests.exceptions.Timeout:

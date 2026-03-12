@@ -41,6 +41,7 @@ def create_app() -> Flask:
     backend_client = dependencies.get_backend_client()
     query_logger = dependencies.get_query_logger()
     delivery_tracker = dependencies.get_delivery_tracker()
+    error_rate_limiter = dependencies.get_error_rate_limiter()
     # WhatsApp clients are fetched per-message using get_whatsapp_client_for(phone_number_id)
 
     @app.route("/webhook", methods=["GET"])
@@ -212,6 +213,7 @@ def create_app() -> Flask:
                                     logger=logger,
                                     query_logger=query_logger,
                                     delivery_tracker=delivery_tracker,
+                                    error_rate_limiter=error_rate_limiter,
                                     timing_ctx=msg_timing_ctx
                                 )
                                 logger.eprint(f"[WEBHOOK] Background thread started for message {msg_id}")

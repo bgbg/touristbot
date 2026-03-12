@@ -420,7 +420,10 @@ def test_backend_error_handling():
             # Error message should be sent to user
             assert mock_whatsapp.send_text_message.called
             # Check that an error message was sent
-            error_sent = any("שגיאה" in str(call_args) for call_args in mock_whatsapp.send_text_message.call_args_list)
+            error_sent = any(
+                "שגיאה" in str(call_args) or "אינה זמינה" in str(call_args)
+                for call_args in mock_whatsapp.send_text_message.call_args_list
+            )
             assert error_sent
 
 
