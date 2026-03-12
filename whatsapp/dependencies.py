@@ -100,25 +100,74 @@ def get_event_logger() -> EventLogger:
 
 
 @lru_cache()
-def get_whatsapp_client() -> WhatsAppClient:
+def get_whatsapp_clients() -> dict:
     """
-    Get WhatsApp API client singleton.
+    Get a dict of WhatsApp API clients, one per configured phone number.
 
     Returns:
-        WhatsAppClient instance
+        Dict mapping phone_number_id -> WhatsAppClient instance
 
     Example:
-        client = get_whatsapp_client()
-        client.send_text_message("+972501234567", "Hello!")
+        clients = get_whatsapp_clients()
+        client = clients.get("123456789")
     """
     config = get_config()
-    logger = get_event_logger()
-    return WhatsAppClient(
-        access_token=config.access_token,
-        phone_number_id=config.phone_number_id,
-        graph_api_version=config.graph_api_version,
-        logger=logger
-    )
+    event_logger = get_event_logger()
+    return {
+        phone_number_id: WhatsAppClient(
+            access_token=pnc.access_token,
+            phone_number_id=pnc.phone_number_id,
+            graph_api_version=config.graph_api_version,
+            logger=event_logger,
+        )
+        for phone_number_id, pnc in config.phone_number_map.items()
+    }
+
+
+def get_whatsapp_client_for(phone_number_id: str) -> WhatsAppClient:
+    """
+    Get the WhatsApp API client for the given phone_number_id.
+
+    Falls back to the primary client if phone_number_id is not in the map.
+    Logs a warning on fallback.
+
+    Args:
+        phone_number_id: The phone_number_id from the incoming webhook metadata
+
+    Returns:
+        WhatsAppClient instance for the given phone number
+
+    Example:
+        client = get_whatsapp_client_for("123456789")
+        client.send_text_message("+972501234567", "Hello!")
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
+    clients = get_whatsapp_clients()
+    if phone_number_id in clients:
+        return clients[phone_number_id]
+
+    # Fallback: use primary (first registered) client
+    config = get_config()
+    primary_id = config.phone_number_id
+    if primary_id and primary_id in clients:
+        _log.warning(
+            "Unknown phone_number_id '%s', falling back to primary '%s'",
+            phone_number_id, primary_id
+        )
+        return clients[primary_id]
+
+    # Last resort: return any available client
+    if clients:
+        fallback_id = next(iter(clients))
+        _log.warning(
+            "Unknown phone_number_id '%s', falling back to first available '%s'",
+            phone_number_id, fallback_id
+        )
+        return clients[fallback_id]
+
+    raise RuntimeError("No WhatsApp clients configured")
 
 
 @lru_cache()
@@ -154,21 +203,17 @@ def get_conversation_loader() -> ConversationLoader:
     Get conversation loader singleton.
 
     Wraps ConversationStore with WhatsApp-specific logic.
+    Area and site are passed explicitly at call sites (per-phone-number routing).
 
     Returns:
         ConversationLoader instance
 
     Example:
         loader = get_conversation_loader()
-        conv = loader.load_conversation("972501234567")
+        conv = loader.load_conversation("972501234567", area="עמק חפר", site="אגמון חפר")
     """
-    config = get_config()
     conversation_store = get_conversation_store()
-    return ConversationLoader(
-        conversation_store=conversation_store,
-        default_area=config.default_area,
-        default_site=config.default_site
-    )
+    return ConversationLoader(conversation_store=conversation_store)
 
 
 @lru_cache()

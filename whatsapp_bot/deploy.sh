@@ -43,8 +43,15 @@ elif [ -f "${SCRIPT_DIR}/.env" ]; then
     set +a
 fi
 
-# Check for required environment variables (including WHATSAPP_APP_SECRET for production security)
-required_vars=("WHATSAPP_VERIFY_TOKEN" "WHATSAPP_ACCESS_TOKEN" "WHATSAPP_PHONE_NUMBER_ID" "BACKEND_API_KEY" "WHATSAPP_APP_SECRET")
+# Check for required environment variables
+# Always required (regardless of single/multi-number mode)
+required_vars=("WHATSAPP_VERIFY_TOKEN" "BACKEND_API_KEY" "WHATSAPP_APP_SECRET")
+
+# In single-number mode (no PHONE_NUMBER_MAP), also require individual WhatsApp vars
+if [ -z "${PHONE_NUMBER_MAP}" ]; then
+    required_vars+=("WHATSAPP_ACCESS_TOKEN" "WHATSAPP_PHONE_NUMBER_ID")
+fi
+
 missing_vars=()
 
 for var in "${required_vars[@]}"; do
@@ -88,6 +95,7 @@ BACKEND_API_KEY: "${BACKEND_API_KEY}"
 META_GRAPH_API_VERSION: "${META_GRAPH_API_VERSION}"
 WHATSAPP_APP_SECRET: "${WHATSAPP_APP_SECRET}"
 GCS_BUCKET: "tarasa_tourist_bot_content"
+PHONE_NUMBER_MAP: "${PHONE_NUMBER_MAP}"
 EOF
 
 # Deploy to Cloud Run with environment variables
