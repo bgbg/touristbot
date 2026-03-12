@@ -11,6 +11,7 @@ Main endpoint for conversational queries using:
 
 import json
 import logging
+import re
 import time
 from typing import List, Optional
 
@@ -39,6 +40,15 @@ from backend.utils import get_secret
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/qa", tags=["qa"])
+
+# Matches Gemini tool-call blocks that occasionally leak into response.text,
+# e.g. "tool_code\ngoogle:file_search{query:<ctrl46>...<ctrl46>}"
+_TOOL_CODE_RE = re.compile(r"tool_code\s*\n.*?(?=\n\n|\Z)", re.DOTALL)
+
+
+def _strip_tool_code(text: str) -> str:
+    """Remove tool_code blocks leaked by Gemini into response.text."""
+    return _TOOL_CODE_RE.sub("", text).strip()
 
 
 def get_citations_from_grounding(grounding_metadata) -> List[Citation]:
@@ -323,8 +333,9 @@ async def chat_query(
                 ),
             )
 
-            # Get response text
-            response_text = response.text
+            # Get response text, stripping any tool-call markup that Gemini
+            # occasionally leaks into response.text (e.g. "tool_code\ngoogle:file_search{...}")
+            response_text = _strip_tool_code(response.text)
 
             # Try to parse as JSON if the model returned structured output
             # (happens when system prompt requests JSON format)
