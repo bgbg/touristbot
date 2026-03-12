@@ -249,7 +249,7 @@ def get_error_rate_limiter() -> ErrorRateLimiter:
     Example:
         limiter = get_error_rate_limiter()
         if limiter.should_send_error(phone):
-            send_error_message(phone)
+            send_error_message(phone)  # cooldown recorded atomically
     """
     return ErrorRateLimiter(cooldown_seconds=120)
 

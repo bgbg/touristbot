@@ -364,12 +364,7 @@ def _send_rate_limited_error(
         }, correlation_id)
         return
 
-    whatsapp_client.send_text_message(phone, message)
-
-    # Record timestamp only after successful send so a failed send
-    # does not start the cooldown (user never received the message)
-    if error_rate_limiter:
-        error_rate_limiter.record_error_sent(phone)
+    whatsapp_client.send_text_message(phone, message, correlation_id)
 
 
 def handle_special_command(

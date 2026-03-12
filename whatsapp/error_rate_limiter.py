@@ -38,9 +38,9 @@ class ErrorRateLimiter:
         """
         Check if an error message should be sent to this phone number.
 
-        Thread-safe check (does NOT record the timestamp). Call
-        ``record_error_sent(phone)`` after the message is actually delivered
-        so that a failed send does not start the cooldown.
+        Thread-safe atomic check-and-set operation. Returns True if no error
+        was sent within the cooldown window (and records the current time).
+        Returns False if an error was recently sent (suppressed).
 
         Also performs cleanup of expired entries.
 
@@ -58,20 +58,8 @@ class ErrorRateLimiter:
             if last_sent is not None and (now - last_sent) < self._cooldown_seconds:
                 return False  # Suppress — within cooldown
 
+            self._cache[phone] = now
             return True  # Send error
-
-    def record_error_sent(self, phone: str) -> None:
-        """
-        Record that an error message was successfully sent to this phone.
-
-        Must be called after a successful send so the cooldown starts only
-        when the user actually received the message.
-
-        Args:
-            phone: User phone number
-        """
-        with self._lock:
-            self._cache[phone] = time.time()
 
     def _cleanup_expired(self, now: float) -> None:
         """
