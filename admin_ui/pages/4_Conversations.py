@@ -210,7 +210,8 @@ try:
         st.markdown("### Conversation Details")
 
         conv_id = st.session_state.selected_conversation
-        conv = conv_store.get_conversation(conv_id)
+        # Disable expiration filter for admin viewing (show all messages)
+        conv = conv_store.get_conversation(conv_id, apply_expiration=False)
 
         if conv:
             # Conversation header
@@ -226,8 +227,10 @@ try:
                         formatted_phone = f"+{phone}"
                     st.markdown(f"**Source:** WhatsApp")
                     st.markdown(f"**Phone:** {formatted_phone}")
-                    if conv.profile_name:
-                        st.markdown(f"**Name:** {conv.profile_name}")
+                    # Safe profile name access with getattr
+                    profile_name = getattr(conv, 'profile_name', None)
+                    if profile_name:
+                        st.markdown(f"**Name:** {profile_name}")
                 else:
                     st.markdown(f"**Source:** Web")
                     st.markdown(f"**ID:** `{conv_id[:40]}{'...' if len(conv_id) > 40 else ''}`")

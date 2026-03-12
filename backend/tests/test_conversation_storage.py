@@ -509,3 +509,41 @@ class TestConversationExpiration:
         assert conv is not None
         assert len(conv.messages) == 1
         assert conv.messages[0].content == "Recent message"
+
+    def test_get_conversation_skip_expiration_filter(self, store, mock_storage):
+        """Test that get_conversation with apply_expiration=False skips filtering."""
+        now = datetime.utcnow()
+        old_time = now - timedelta(hours=CONVERSATION_TIMEOUT_HOURS + 1)
+
+        # Mock GCS read with conversation containing both old and recent messages
+        conversation_data = {
+            "conversation_id": "test-123",
+            "area": "area1",
+            "site": "site1",
+            "created_at": old_time.isoformat() + "Z",
+            "updated_at": now.isoformat() + "Z",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Old message",
+                    "timestamp": old_time.isoformat() + "Z",
+                    "citations": None,
+                    "images": None,
+                },
+                {
+                    "role": "assistant",
+                    "content": "Recent message",
+                    "timestamp": now.isoformat() + "Z",
+                    "citations": None,
+                    "images": None,
+                },
+            ],
+        }
+        mock_storage.read_file.return_value = json.dumps(conversation_data)
+
+        # Load conversation with expiration disabled (admin view)
+        conv = store.get_conversation("test-123", apply_expiration=False)
+        assert conv is not None
+        assert len(conv.messages) == 2  # Both messages should be kept
+        assert conv.messages[0].content == "Old message"
+        assert conv.messages[1].content == "Recent message"

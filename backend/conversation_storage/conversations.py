@@ -175,15 +175,17 @@ class ConversationStore:
         logger.info(f"Created new conversation: {conversation_id} ({area}/{site}, profile: {profile_name or 'N/A'})")
         return conversation
 
-    def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
+    def get_conversation(self, conversation_id: str, apply_expiration: bool = True) -> Optional[Conversation]:
         """
-        Load conversation from GCS and filter expired messages.
+        Load conversation from GCS and optionally filter expired messages.
 
-        Messages older than CONVERSATION_TIMEOUT_HOURS are automatically filtered out.
+        Messages older than CONVERSATION_TIMEOUT_HOURS are automatically filtered out
+        unless apply_expiration=False (for administrative viewing).
         The conversation file in GCS remains unchanged (read-time filtering only).
 
         Args:
             conversation_id: Conversation ID
+            apply_expiration: Whether to filter expired messages (default: True)
 
         Returns:
             Conversation object with filtered messages if found, None otherwise
@@ -201,12 +203,15 @@ class ConversationStore:
             data = json.loads(content)
             conversation = Conversation.from_dict(data)
 
-            # Apply expiration filter (read-time filtering)
-            conversation, expired_count = self._filter_expired_messages(conversation)
+            # Apply expiration filter (read-time filtering) if requested
+            expired_count = 0
+            if apply_expiration:
+                conversation, expired_count = self._filter_expired_messages(conversation)
 
             logger.info(
                 f"Loaded conversation: {conversation_id} "
-                f"({len(conversation.messages)} messages, {expired_count} expired)"
+                f"({len(conversation.messages)} messages, {expired_count} expired, "
+                f"expiration_filter={'on' if apply_expiration else 'off'})"
             )
             return conversation
 
