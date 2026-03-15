@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 import yaml
 from gemini.prompt_loader import PromptLoader
+from backend.prompt_loader import PromptLoader as BackendPromptLoader
 
 
 class TestPromptLoaderOverrides:
@@ -231,3 +232,61 @@ class TestPromptLoaderOverrides:
         assert config.model_name == "gemini-2.0-flash"
         assert "helpful assistant" in config.system_prompt
         assert config.user_prompt == "{question}"
+
+
+class TestEmbassyHotelTlvPersona:
+    """Integration tests for the Embassy Hotel TLV (Dalya) persona override"""
+
+    def test_embassyhoteltlv_persona_loads(self):
+        """Test that the Dalya persona loads correctly for embassyhoteltlv"""
+        BackendPromptLoader._load_cached.cache_clear()
+        config = BackendPromptLoader.load(
+            "config/prompts/tourism_qa.yaml",
+            area="embassyhoteltlv",
+            site="embassyhoteltlv",
+        )
+        assert "דליה" in config.system_prompt
+        assert "Dalya" in config.system_prompt
+        assert "concierge" in config.system_prompt.lower()
+
+    def test_embassyhoteltlv_has_format_placeholders(self):
+        """Test that the persona prompt has required format placeholders"""
+        BackendPromptLoader._load_cached.cache_clear()
+        config = BackendPromptLoader.load(
+            "config/prompts/tourism_qa.yaml",
+            area="embassyhoteltlv",
+            site="embassyhoteltlv",
+        )
+        assert "{area}" in config.system_prompt
+        assert "{site}" in config.system_prompt
+        assert "{topics}" in config.system_prompt
+
+    def test_embassyhoteltlv_prompt_formats_without_error(self):
+        """Test that the persona prompt formats correctly with sample data"""
+        BackendPromptLoader._load_cached.cache_clear()
+        config = BackendPromptLoader.load(
+            "config/prompts/tourism_qa.yaml",
+            area="embassyhoteltlv",
+            site="embassyhoteltlv",
+        )
+        formatted_system, formatted_user = config.format(
+            area="embassyhoteltlv",
+            site="embassyhoteltlv",
+            topics="Restaurants, Beaches, Nightlife",
+            question="Tell me about restaurants",
+        )
+        assert "embassyhoteltlv" in formatted_system
+        assert "Restaurants, Beaches, Nightlife" in formatted_system
+
+    def test_embassyhoteltlv_inherits_model_and_user_prompt(self):
+        """Test that model_name and user_prompt are inherited from global"""
+        BackendPromptLoader._load_cached.cache_clear()
+        global_config = BackendPromptLoader.load("config/prompts/tourism_qa.yaml")
+        BackendPromptLoader._load_cached.cache_clear()
+        site_config = BackendPromptLoader.load(
+            "config/prompts/tourism_qa.yaml",
+            area="embassyhoteltlv",
+            site="embassyhoteltlv",
+        )
+        assert site_config.model_name == global_config.model_name
+        assert site_config.user_prompt == global_config.user_prompt

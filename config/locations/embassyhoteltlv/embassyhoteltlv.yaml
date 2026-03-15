@@ -1,0 +1,8 @@
+# Location-Specific Configuration Override for Embassy Hotel TLV
+#
+# Site-level override (embassyhoteltlv/embassyhoteltlv)
+# Only fields specified here will override the global config.yaml.
+# All other fields are inherited from the global configuration.
+
+gemini_rag:
+  temperature: 0.6  # Warmer temperature for urban cultural/hospitality site
