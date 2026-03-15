@@ -40,7 +40,14 @@ def load_locations():
     return areas, dict(area_to_sites), all_sites
 
 
-areas_list, area_to_sites, all_sites_list = load_locations()
+try:
+    areas_list, area_to_sites, all_sites_list = load_locations()
+except Exception:
+    st.warning(
+        "Location metadata could not be loaded. "
+        "Area and site filters are temporarily unavailable."
+    )
+    areas_list, area_to_sites, all_sites_list = [], {}, []
 
 # Refresh button
 col1, col2 = st.columns([6, 1])
